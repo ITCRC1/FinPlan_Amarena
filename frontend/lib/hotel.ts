@@ -14,11 +14,13 @@
  * Tiene que ir con `NEXT_PUBLIC_` porque estas pantallas son componentes de
  * cliente: sin el prefijo, Next no lo expone al navegador y llegaría `undefined`.
  *
- * El default es CWL para que Corcovado no cambie de comportamiento, y para que
- * un `vercel --prod` sin la variable configurada no rompa: sigue siendo
- * Corcovado, que es lo que ya era.
+ * El default es AMA porque este repositorio es el despliegue de Amarena. Cuando
+ * el repo era uno solo para las cuatro propiedades el default tenía que ser CWL,
+ * para no moverle el piso a Corcovado; acá esa lógica se invierte. Un
+ * `vercel --prod` sin la variable configurada tiene que quedar en la propiedad
+ * de esta instalación, no en la de al lado.
  */
-export const HOTEL_ID: string = process.env.NEXT_PUBLIC_HOTEL_ID || "CWL";
+export const HOTEL_ID: string = process.env.NEXT_PUBLIC_HOTEL_ID || "AMA";
 
 /**
  * ── El NOMBRE se edita en la app, el CÓDIGO no ──────────────────────────────
@@ -33,10 +35,10 @@ export const HOTEL_ID: string = process.env.NEXT_PUBLIC_HOTEL_ID || "CWL";
  * dejaría huérfano el histórico entero sin ningún aviso.
  *
  * Los valores de abajo son solo el ARRANQUE: lo que se muestra en el primer
- * render, antes de que llegue la respuesta del backend. Se eligieron los de
- * Corcovado para que no parpadee en la instalación que ya existe.
+ * render, antes de que llegue la respuesta del backend. Son los de esta
+ * instalación para que no parpadee con el nombre de otra propiedad.
  */
-let _name = process.env.NEXT_PUBLIC_HOTEL_NAME || "Corcovado Wilderness Lodge";
+let _name = process.env.NEXT_PUBLIC_HOTEL_NAME || "Amarena Canvas Beach Hotel";
 let _short = process.env.NEXT_PUBLIC_HOTEL_SHORT_NAME || HOTEL_ID;
 let _pedido: Promise<void> | null = null;
 

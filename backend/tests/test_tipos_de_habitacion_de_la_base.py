@@ -246,36 +246,29 @@ def test_el_correlativo_cuenta_tambien_las_ocultas():
 # nombre editable para poder personalizar estos componentes.»
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_una_propiedad_sin_semilla_no_hereda_la_de_corcovado():
+def test_una_propiedad_sin_semilla_no_hereda_la_de_otra(semillero):
+    """El punto entero del mecanismo: sin carpeta propia, `None`.
+
+    ⚠️ Antes esta prueba leía la carpeta de Corcovado (`seed_data/CWL/`), que ya
+    no vive en este repositorio — es el despliegue de Amarena, y el producto de
+    otro hotel no tiene por qué viajar acá. Lo que hay que cuidar es el
+    MECANISMO, y el mecanismo no necesita el dato de nadie: se prueba con una
+    propiedad de mentira.
+    """
     from app.seed_data import semilla, tiene_semillas
-    assert tiene_semillas("CWL"), "Corcovado tiene que conservar sus semillas"
+    assert tiene_semillas("XXX"), "una propiedad CON carpeta tiene que traer lo suyo"
     assert not tiene_semillas("AMA"), "una propiedad nueva no trae nada"
     for nombre in ("paquete", "experiencias", "canales"):
         assert semilla(nombre, "AMA") is None, (
-            f"«{nombre}» le llegaría a Amarena la semilla de Corcovado"
+            f"«{nombre}» le llegaría a Amarena la semilla de otra propiedad"
         )
 
 
-def test_la_semilla_de_corcovado_no_cambio_de_valor():
-    """Los archivos salieron de las constantes: si un valor se movió, el
-    presupuesto de Corcovado cambiaría sin que nadie lo pidiera."""
-    from decimal import Decimal
-    from app.seed_data import semilla
-    paquete = semilla("paquete", "CWL")
-    assert paquete["FOOD"]["rate_per_pax_night"] == Decimal("108.0000")
-    assert paquete["FOOD"]["bev_food_ratio"] == Decimal("0.3400")
-    assert paquete["ACTIVITIES"]["rate_per_pax_night"] == Decimal("101.0000")
-    assert paquete["SUSTAINABILITY"]["is_commissionable"] is False
-    canales = {c["channel"]: c for c in semilla("canales", "CWL")}
-    assert canales["TA"]["mix_pct"] == Decimal("0.600000")
-    assert canales["TA"]["commission_pct"] == Decimal("0.280000")
-
-
-def test_los_numeros_de_la_semilla_no_son_float():
+def test_los_numeros_de_la_semilla_no_son_float(semillero):
     """Un float acá se arrastra hasta el P&L. El JSON los guarda como texto."""
     from decimal import Decimal
     from app.seed_data import semilla
-    p = semilla("paquete", "CWL")
+    p = semilla("paquete", "XXX")
     for comp, d in p.items():
         assert isinstance(d["rate_per_pax_night"], Decimal), comp
 

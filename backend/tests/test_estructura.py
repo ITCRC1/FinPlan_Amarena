@@ -204,12 +204,18 @@ def test_el_break_even_ENTRA_POR_EL_ARRANQUE():
 
 
 def test_la_semilla_del_break_even_es_DE_LA_PROPIEDAD():
-    """Los porcentajes fijo/variable son de Corcovado, medidos contra su P&L.
-    Sembrárselos a otra propiedad sería el mismo error del paquete y las
-    experiencias, que ya se corrigió una vez."""
+    """Los porcentajes fijo/variable se miden contra el P&L de CADA propiedad.
+    Sembrarle los de una a otra sería el mismo error del paquete y las
+    experiencias, que ya se corrigió una vez.
+
+    ⚠️ Antes esto comprobaba que existiera el CSV de Corcovado. Ya no vive en
+    este repositorio —es el despliegue de Amarena—, y de todos modos la
+    existencia de un archivo ajeno nunca fue lo que había que cuidar: lo que
+    importa es que la ruta lleve el hotel adentro y que no vuelva la carpeta
+    común a todas las propiedades, que es como se filtraba antes.
+    """
     from app import seed_break_even
 
-    assert (SEMILLAS / "CWL" / "break_even" / "be_classification_seed.csv").exists()
     assert not (SEMILLAS / "break_even").exists(), (
         "quedó la carpeta vieja, común a todas las propiedades")
     assert "HOTEL_ID" in inspect.getsource(seed_break_even.carpeta)
@@ -331,11 +337,31 @@ def test_los_ARCHIVOS_de_arranque_tambien_se_preguntan():
     explica por qué**. Faltaban en la lista de «lo que esta propiedad debe»."""
     from app.estructura import semillas_de_la_propiedad
 
-    tiene, faltan = semillas_de_la_propiedad("CWL")
-    assert "paquete.json" in tiene and not faltan
-    # Una propiedad que todavía no existe debe TODO, y con nombre.
-    tiene2, faltan2 = semillas_de_la_propiedad("NO_EXISTE")
-    assert not tiene2 and "paquete.json" in faltan2
+    # Una propiedad que todavía no cargó nada debe TODO, y con nombre. Es el
+    # caso de esta instalación hoy, así que la prueba mide lo que se ve.
+    tiene, faltan = semillas_de_la_propiedad("NO_EXISTE")
+    assert not tiene
+    assert "paquete.json" in faltan, (
+        "una propiedad en cero tiene que enterarse de que le falta el paquete")
+
+
+def test_una_propiedad_en_cero_no_recibe_UN_SILENCIO():
+    """⚠️ La regresión del 2026-08-21, que no daba error.
+
+    El catálogo de archivos posibles salía solo de barrer las carpetas de
+    `seed_data/`. Mientras hubiera una propiedad cargada —Corcovado— la lista
+    salía bien por casualidad. Al quedar el repo sin ninguna carpeta, `posibles`
+    quedó vacío y la pantalla que existe para decirle a una instalación nueva
+    **qué le falta** empezó a contestar «no falta nada».
+
+    Es la peor forma de fallar: la pantalla se ve sana y dice lo contrario de la
+    verdad, justo en la única situación para la que fue escrita.
+    """
+    from app.estructura import semillas_de_la_propiedad, SEMILLAS_CONOCIDAS
+
+    _tiene, faltan = semillas_de_la_propiedad("NO_EXISTE")
+    assert set(faltan) >= set(SEMILLAS_CONOCIDAS), (
+        "el piso de archivos conocidos dejó de preguntarse")
 
 
 def test_el_catalogo_de_archivos_SE_DERIVA_de_las_carpetas():

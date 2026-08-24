@@ -77,43 +77,37 @@ def test_mover_el_rack_SI_mueve_el_descuento():
 
 # ── La semilla ──────────────────────────────────────────────────────────────
 
-def test_la_semilla_del_rack_vive_en_git_y_tiene_las_96_celdas():
-    """La lista de verdad vive en git, no en la base — misma regla que el
-    mapeo del P&L y las cuentas estadísticas. 8 categorías × 12 meses."""
-    filas = _rack_rates()
-    assert ARCHIVO_RACK.exists()
-    assert len(filas) == 96
-    assert len({f["room_type_code"] for f in filas}) == 8
-    assert sorted({int(f["mes"]) for f in filas}) == list(range(1, 13))
+# ⚠️ **Estas reglas dejaron de medir a Corcovado (2026-08-21).**
+#
+# Comprobaban sus 96 celdas, sus ocho códigos (`BL01`, `BI02`…) y que el rack de
+# `BI02` bajara de enero a setiembre. Todo eso es el tarifario de un hotel, y su
+# carpeta salió de este repositorio — el despliegue es de Amarena.
+#
+# Lo que se conserva es la FORMA, que sí vale para cualquier propiedad: que la
+# tabla se llavee por código y no por nombre, y que cubra los doce meses. Se
+# mide sobre la semilla que haya; hoy no hay ninguna y la regla espera.
 
-
-def test_la_semilla_se_llavea_por_CODIGO_y_no_por_nombre():
+def test_la_semilla_del_rack_se_llavea_por_CODIGO_y_cubre_el_ano():
     """⚠️ El nombre es una etiqueta renombrable; el código es fijo por
     categoría. Llavear por nombre haría que renombrar «Deluxe King» dejara
-    huérfanas sus doce tarifas sin que nada fallara."""
-    filas = _rack_rates()
-    assert all(f.get("room_type_code") for f in filas)
-    codigos = {f["room_type_code"] for f in filas}
-    assert codigos == {"BL01", "BI02", "PO03", "RO04",
-                       "BI05", "BL06", "SH07", "SH08"}
+    huérfanas sus doce tarifas sin que nada fallara.
 
-
-def test_el_rack_de_la_semilla_cambia_mes_a_mes():
-    """⚠️ Por esto la tabla es de 12 columnas y no de 3 temporadas.
-
-    El rack BAJA en temporada baja justo cuando el piso SUBE. Un promedio por
-    temporada taparía exactamente el mes que duele.
+    Y los doce meses tienen que estar: por esto la tabla es de 12 columnas y no
+    de 3 temporadas — el rack BAJA en temporada baja justo cuando el piso SUBE,
+    y un promedio por temporada taparía exactamente el mes que duele.
     """
     filas = _rack_rates()
-    por_tipo: dict[str, set] = {}
-    for f in filas:
-        por_tipo.setdefault(f["room_type_code"], set()).add(f["rack"])
-    variables = [c for c, v in por_tipo.items() if len(v) > 1]
-    assert len(variables) >= 6, f"solo {len(variables)} categorías varían por mes"
-
-    # Y baja de verdad: enero contra setiembre en una categoría que varía.
-    de = {(f["room_type_code"], int(f["mes"])): Decimal(f["rack"]) for f in filas}
-    assert de[("BI02", 9)] < de[("BI02", 1)]
+    if not filas:
+        pytest.skip("esta propiedad todavía no cargó su tarifario rack")
+    assert all(f.get("room_type_code") for f in filas), (
+        "una fila sin código: se está llaveando por nombre")
+    assert sorted({int(f["mes"]) for f in filas}) == list(range(1, 13)), (
+        "el tarifario no cubre los doce meses")
+    # Cada categoría, sus doce meses — ni de más ni de menos.
+    from collections import Counter
+    por_tipo = Counter(f["room_type_code"] for f in filas)
+    torcidas = {c: n for c, n in por_tipo.items() if n != 12}
+    assert not torcidas, f"categorías sin sus 12 meses: {torcidas}"
 
 
 def test_la_semilla_no_trae_tarifas_negativas_ni_netos_mayores_al_rack():
@@ -127,18 +121,39 @@ def test_la_semilla_no_trae_tarifas_negativas_ni_netos_mayores_al_rack():
 
 # ── El factor neto ──────────────────────────────────────────────────────────
 
-def test_el_factor_neto_de_la_semilla_es_menor_que_uno():
+def test_el_factor_neto_SIEMPRE_queda_entre_cero_y_uno():
     """⚠️ `compute_net_factor(channels)` devuelve **9,5639** en producción para
     los 36 canales del Budget Working 2027. Un factor mayor que 1 multiplicaría
-    el ingreso por nueve. El módulo saca el suyo del tarifario a propósito."""
+    el ingreso por nueve. El módulo saca el suyo del tarifario a propósito.
+
+    ⚠️ Antes esto se medía sobre el tarifario de Corcovado, y de paso fijaba su
+    valor (0,79–0,80). Al salir esa semilla del repositorio la guarda se habría
+    ido con ella — justo la guarda que protege de un ×9. Ahora se mide sobre
+    tarifas construidas acá, así que **no depende de que ninguna propiedad haya
+    cargado nada** y vale para todas: mientras el neto no supere al rack, el
+    factor tiene que caer entre 0 y 1.
+    """
+    racks = [
+        TarifaRack("AA01", "Categoría A", 1, Decimal("1000"), Decimal("800"), Decimal("2")),
+        TarifaRack("BB02", "Categoría B", 2, Decimal("500"), Decimal("350"), Decimal("2")),
+        TarifaRack("CC03", "Categoría C", 3, Decimal("250"), Decimal("250"), Decimal("1")),
+    ]
+    fn = factor_neto_del_rack(racks)
+    assert fn is not None
+    assert Decimal("0") < fn < Decimal("1"), f"factor fuera de rango: {fn}"
+
+
+def test_el_factor_neto_de_la_semilla_es_menor_que_uno():
+    """La misma regla, sobre el tarifario que la propiedad haya cargado."""
     filas = _rack_rates()
+    if not filas:
+        pytest.skip("esta propiedad todavía no cargó su tarifario rack")
     racks = [TarifaRack(f["room_type_code"], f["nombre"], f["orden"],
                         Decimal(f["rack"]), Decimal(f["neto"]), Decimal(f["pax"]))
              for f in filas if int(f["mes"]) == 1]
     fn = factor_neto_del_rack(racks)
     assert fn is not None
     assert Decimal("0") < fn < Decimal("1")
-    assert Decimal("0.79") < fn < Decimal("0.80")
 
 
 # ── La tabla del módulo NO es la del escenario ──────────────────────────────

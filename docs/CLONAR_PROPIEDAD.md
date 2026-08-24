@@ -1,5 +1,22 @@
 # Abrir una propiedad nueva (AMA, OXI, OJO)
 
+> ## ⚠️ Este repositorio YA es el clon de Amarena (2026-08-21)
+>
+> Lo que sigue es el documento **original**, escrito cuando el plan era un solo
+> repo desplegado N veces. Se conserva porque su razonamiento sigue siendo
+> válido y explica por qué el código está armado como está.
+>
+> **Pero este repo no es aquél**: es un clon dedicado a Amarena, con los
+> defaults y los datos ya cambiados. Para desplegarlo, la guía es
+> **[`DESPLIEGUE_AMARENA.md`](DESPLIEGUE_AMARENA.md)**.
+>
+> Dos cosas de acá abajo ya no aplican tal cual:
+> * «El REPO es UNO SOLO» y «no sacar un fork» — describen el modelo que este
+>   clon dejó atrás. La consecuencia real (los arreglos ya no se propagan solos)
+>   está anotada en la guía de despliegue.
+> * La tabla de variables dice que los defaults son los de Corcovado. Acá ya no:
+>   son los de Amarena.
+
 > Escrito para arrancar en frío. Al 2026-08-14 el código está verificado: **no
 > hay que tocarlo**. Abrir una propiedad es crear infraestructura y poner
 > variables. **Auditoría de seguridad, 2026-08-17: sin bloqueadores** — ver la

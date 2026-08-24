@@ -16,9 +16,16 @@ Los cuatro prefijos del grupo (owner, 2026-08-12):
 
 **No se validan acá a propósito:** una lista cerrada en el código obligaría a
 tocar el repo para abrir la quinta propiedad, y el valor ya viene del entorno de
-cada despliegue. El default es `CWL` para que Corcovado no cambie de
-comportamiento. Lo mismo que
-hace `app/seed.py`, que es quien crea la fila del hotel al arrancar.
+cada despliegue. Lo mismo que hace `app/seed.py`, que es quien crea la fila del
+hotel al arrancar.
+
+**Por qué el default es `AMA` y no `CWL` (2026-08-21).** Este repositorio es el
+despliegue de Amarena. Mientras el repo era uno solo para las cuatro propiedades,
+el default tenía que ser `CWL` para no cambiarle el comportamiento a Corcovado.
+Acá esa lógica se invierte: una variable que no llegó a Railway hacía nacer el
+hotel llamándose Corcovado —con su nombre, sus 30 habitaciones y su id— **sin dar
+error y sin que nadie se enterara hasta ver dato ajeno**. El default de una
+instalación tiene que ser la instalación, no la de al lado.
 
 **Por qué existe este módulo:** había 20 literales `"CWL"` repartidos por la API
 y los modelos. En Corcovado son inofensivos; en un despliegue de Amarena cada uno
@@ -30,7 +37,7 @@ import os
 # ID del hotel de esta instalación. Se lee UNA vez al importar: cambiarlo en
 # caliente no tendría sentido —sería cambiar de hotel a mitad de un request— y
 # leerlo por llamada solo escondería el error.
-HOTEL_ID: str = os.getenv("HOTEL_ID", "CWL")
+HOTEL_ID: str = os.getenv("HOTEL_ID", "AMA")
 
 
 def hotel_id() -> str:
@@ -46,8 +53,10 @@ def hotel_id() -> str:
 # coinciden. **Si el owner renombra la propiedad desde la pantalla, el
 # encabezado de estos Excel sigue el valor del entorno hasta que se actualice la
 # variable** — queda anotado en `docs/PLAN_TRABAJO_AUTONOMO.md`.
-HOTEL_NAME: str = os.getenv("HOTEL_NAME", "Corcovado Wilderness Lodge")
-HOTEL_SHORT: str = os.getenv("HOTEL_SHORT_NAME", HOTEL_ID)
+HOTEL_NAME: str = os.getenv("HOTEL_NAME", "Amarena Canvas Beach Hotel")
+# Cae a «Amarena» y no a `HOTEL_ID`, para que las descargas salgan
+# `Planilla_Amarena.xlsx` y no `Planilla_AMA.xlsx`. Mismo default que `seed.py`.
+HOTEL_SHORT: str = os.getenv("HOTEL_SHORT_NAME", "Amarena")
 
 
 def hotel_slug() -> str:

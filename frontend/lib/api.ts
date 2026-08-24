@@ -4155,7 +4155,11 @@ type OwnersQOpts = {
 
 function paramsOwnersQ(anio: number, periodo: string, opts: OwnersQOpts) {
   const q = new URLSearchParams({
-    entidad: opts.entidad ?? "CWL", anio: String(anio), periodo,
+    // ⚠️ La entidad es la de ESTA instalación, no una constante. El backend ya
+    // lo había arreglado (`entidad: str = HOTEL_ID`); acá quedaba escrito
+    // «CWL», así que Amarena habría pedido —y guardado— sus fotos del reporte
+    // bajo la entidad de Corcovado.
+    entidad: opts.entidad ?? HOTEL_ID, anio: String(anio), periodo,
     convencion: opts.convencion ?? "favorable",
   });
   for (const pos of ["actual", "budget", "py"] as const) {
@@ -4176,7 +4180,7 @@ export async function getOwnersQPeriodos(): Promise<OwnersQPeriodo[]> {
   return api.get<OwnersQPeriodo[]>(`/reports/owners-q/periodos/`);
 }
 
-export async function getOwnersQEscenarios(entidad = "CWL"): Promise<OwnersQEscenario[]> {
+export async function getOwnersQEscenarios(entidad = HOTEL_ID): Promise<OwnersQEscenario[]> {
   return api.get<OwnersQEscenario[]>(`/reports/owners-q/escenarios/?entidad=${entidad}`);
 }
 
@@ -4187,7 +4191,7 @@ export async function getOwnersQCobertura(): Promise<{
   return api.get(`/reports/owners-q/cobertura/`);
 }
 
-export async function getOwnersQSnapshots(entidad = "CWL"): Promise<OwnersQSnapshot[]> {
+export async function getOwnersQSnapshots(entidad = HOTEL_ID): Promise<OwnersQSnapshot[]> {
   return api.get<OwnersQSnapshot[]>(`/reports/owners-q/snapshots/?entidad=${entidad}`);
 }
 

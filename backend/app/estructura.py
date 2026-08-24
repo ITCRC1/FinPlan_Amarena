@@ -194,6 +194,27 @@ INVENTARIO: list[Dataset] = [
 ]
 
 
+# Los archivos de arranque que una propiedad PUEDE tener. Son NOMBRES, no datos:
+# decir que existe `paquete.json` no le cuenta a nadie qué trae el paquete de
+# otro hotel. Es conocimiento del sistema, igual que el catálogo de cuentas.
+#
+# La lista es el PISO. El barrido de carpetas de `semillas_de_la_propiedad()` se
+# le suma, así que un archivo nuevo sigue registrándose solo — pero un repo sin
+# ninguna carpeta de propiedad (el caso de una instalación recién clonada) igual
+# sabe qué preguntar.
+SEMILLAS_CONOCIDAS = (
+    "canales.json",
+    "canales_comerciales.json",
+    "canales_mix.json",
+    "driver_rates.json",
+    "experiencias.json",
+    "opex_accounts.json",
+    "paquete.json",
+    "rack_rates.json",
+    "reasignaciones_salario.json",
+)
+
+
 def semillas_de_la_propiedad(hotel_id: str | None = None) -> tuple[list[str], list[str]]:
     """Qué archivos de arranque tiene esta propiedad, y cuáles le faltan.
 
@@ -204,13 +225,20 @@ def semillas_de_la_propiedad(hotel_id: str | None = None) -> tuple[list[str], li
     en blanco, y **en blanco no explica por qué**.
 
     ⚠️ **El catálogo de lo que puede existir se DERIVA de las carpetas que hay**,
-    no de una lista escrita acá. Agregar un archivo nuevo a Corcovado lo vuelve
-    parte de lo que se le pregunta a las demás, sin que nadie tenga que
+    unido a `SEMILLAS_CONOCIDAS`. Agregar un archivo nuevo a una propiedad lo
+    vuelve parte de lo que se le pregunta a las demás, sin que nadie tenga que
     acordarse de anotarlo.
+
+    ⚠️ **Por qué además hay una lista base (2026-08-21).** El catálogo salía
+    SOLO del barrido de carpetas, y eso se apoyaba en que siempre hubiera al
+    menos una propiedad cargada — en la práctica, la de Corcovado. Cuando salió
+    de este repositorio, `posibles` quedó vacío: nada figuraba como faltante y
+    esta pantalla —cuyo trabajo es decirle a una propiedad nueva qué le falta—
+    respondía «no falta nada» a una instalación en cero. Silencio, no error.
     """
     from app.hotel_actual import HOTEL_ID
     hotel = hotel_id or HOTEL_ID
-    posibles: set[str] = set()
+    posibles: set[str] = set(SEMILLAS_CONOCIDAS)
     for carpeta in SEMILLAS.iterdir():
         if not carpeta.is_dir() or carpeta.name.startswith(("_", ".")):
             continue

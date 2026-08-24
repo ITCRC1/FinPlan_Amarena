@@ -23,6 +23,7 @@ import {
   type OwnersQReporte, type OwnersQFila, type OwnersQSnapshot,
   type OwnersQEscenario, type OwnersQSeleccion, type OwnersQPeriodo,
 } from "@/lib/api";
+import { hotelSlug } from "@/lib/hotel";
 
 /** Las tres posiciones del reporte y qué va en cada una por defecto.
  *
@@ -253,7 +254,7 @@ export default function OwnersQPage() {
            "NOV", "DEC"][Number(periodo.slice(1)) - 1] + aa
         : periodo === "FY" ? `FY${aa}` : `${periodo}_${aa}`;
       a.href = url;
-      a.download = `SCP_CWL_${tramo}_Statement_of_Income.xlsx`;
+      a.download = `SCP_${hotelSlug()}_${tramo}_Statement_of_Income.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: unknown) {

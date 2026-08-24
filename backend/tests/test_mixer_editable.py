@@ -87,16 +87,20 @@ def test_la_semilla_obliga_a_declarar_el_destino():
     `rueda_a` entraría con el default del modelo y facturaría de más."""
     import json
     from app import seed_canales_comerciales as seed
-    # ⚠️ Bajo `<HOTEL_ID>/`: en la raíz se sembraba en TODA propiedad nueva.
-    datos = json.loads(seed.ARCHIVO.read_text(encoding="utf-8"))["canales"]
-    faltan = [c["code"] for c in datos if not str(c.get("rueda_a", "")).strip()]
-    assert not faltan, f"sin `rueda_a` en la semilla: {faltan}"
-    # Y el mapeo tiene que ser el mismo que resolvía el diccionario, para que la
-    # migración no haya movido un número.
-    for c in datos:
-        esperado = mx.ENTRADA_A_COMISION.get(c.get("entrada", "") or "", "DIRECT")
-        assert c["rueda_a"] == esperado, (
-            f"{c['code']} cambió de destino: {esperado} -> {c['rueda_a']}")
+    # ⚠️ Bajo `<HOTEL_ID>/`: en la raíz se sembraba en TODA propiedad nueva. Y se
+    # recorren las propiedades que HAYA, no una fija — la de Corcovado salió de
+    # este repositorio y la regla tiene que sobrevivirla.
+    for archivo in sorted(seed.ARCHIVO.parent.parent.glob("*/canales_comerciales.json")):
+        datos = json.loads(archivo.read_text(encoding="utf-8"))["canales"]
+        faltan = [c["code"] for c in datos if not str(c.get("rueda_a", "")).strip()]
+        assert not faltan, f"{archivo.parent.name}: sin `rueda_a` en la semilla: {faltan}"
+        # Y el mapeo tiene que ser el mismo que resolvía el diccionario, para que
+        # la migración no haya movido un número.
+        for c in datos:
+            esperado = mx.ENTRADA_A_COMISION.get(c.get("entrada", "") or "", "DIRECT")
+            assert c["rueda_a"] == esperado, (
+                f"{archivo.parent.name}/{c['code']} cambió de destino: "
+                f"{esperado} -> {c['rueda_a']}")
 
 
 # ─── Antes de clonar: las dos guardas que salieron de la auditoria ──────────
@@ -141,7 +145,6 @@ def test_la_semilla_de_canales_es_POR_PROPIEDAD():
     from app import seed_canales_comerciales as seed
     assert seed.ARCHIVO.parent.name != "seed_data", (
         "la semilla volvio a la raiz: la hereda cualquier propiedad nueva")
-    assert seed.ARCHIVO.exists(), "CWL perdio su semilla de canales"
     raiz = pathlib.Path(seed.__file__).parent / "seed_data" / "canales_comerciales.json"
     assert not raiz.exists(), "quedo una copia en la raiz, que se siembra igual"
 

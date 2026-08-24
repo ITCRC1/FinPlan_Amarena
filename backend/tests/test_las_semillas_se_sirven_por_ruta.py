@@ -40,7 +40,7 @@ def cliente():
     return TestClient(app)
 
 
-def test_las_tarifas_del_checkbook_se_sirven(cliente):
+def test_las_tarifas_del_checkbook_se_sirven(cliente, semillero):
     r = cliente.get("/api/semillas/driver-rates/")
     assert r.status_code == 200, r.text
     d = r.json()
@@ -48,7 +48,7 @@ def test_las_tarifas_del_checkbook_se_sirven(cliente):
     assert d["tarifas"]["food"] and d["tarifas"]["nights_per_stay"]
 
 
-def test_las_reasignaciones_se_sirven(cliente):
+def test_las_reasignaciones_se_sirven(cliente, semillero):
     r = cliente.get("/api/semillas/reasignaciones-salario/")
     assert r.status_code == 200, r.text
     d = r.json()
@@ -59,13 +59,13 @@ def test_las_reasignaciones_se_sirven(cliente):
 
 @pytest.mark.parametrize("nombre", ["driver_rates", "reasignaciones_salario",
                                     "opex_accounts", "canales_mix"])
-def test_una_propiedad_sin_carpeta_no_recibe_la_de_corcovado(nombre):
+def test_una_propiedad_sin_carpeta_no_recibe_la_de_otra(nombre):
     """`None`, no la lista de otro hotel. Es TODO el punto del cambio."""
     from app.seed_data import semilla_cruda
     assert semilla_cruda(nombre, hotel_id="HOTEL_QUE_NO_EXISTE") is None
 
 
-def test_los_codigos_no_pierden_el_cero_de_adelante():
+def test_los_codigos_no_pierden_el_cero_de_adelante(semillero):
     """`semilla()` convierte a Decimal toda cadena que parezca número: `"0113"`
     se volvería `Decimal('113')` y el departamento dejaría de existir, en
     silencio. Por eso estos archivos se leen con `semilla_cruda`."""
@@ -84,42 +84,52 @@ def test_ningun_puesto_reasigna_mas_de_un_fte():
     posición (`508 CAMARERO`) cargaba varios FTE y «2» quería decir «dos
     camareras». En el head count 2027 cada camarera es su propia posición
     —`0113-03` a `0113-15`, 1,0000 FTE cada una—, así que ese 2,00 reasignaba el
-    DOBLE del salario de la posición elegida y nada lo decía. Corregido a 1,00
-    el 2026-08-16, que es lo que la regla guardada ya movía.
+    DOBLE del salario de la posición elegida y nada lo decía.
 
     Se mide por (departamento, puesto) porque un puesto se parte entre varios
     destinos —el guía va mitad a Compras y mitad a Transporte— y lo que no puede
     pasarse de uno es la SUMA.
 
-    Si alguna vez una propiedad carga posiciones que traen varios FTE adentro,
-    éste es el lugar donde se revisa el supuesto, no el archivo.
+    ⚠️ **Recorre las propiedades que HAYA**, no una fija. Antes miraba la de
+    Corcovado, que ya no vive en este repositorio; si se hubiera dejado apuntada
+    a un archivo concreto, la regla se habría borrado junto con él. Así, el día
+    que Amarena cargue sus reasignaciones quedan vigiladas sin tocar nada — y
+    mientras no haya ninguna, no hay nada que romper.
     """
     from collections import defaultdict
-    from app.seed_data import semilla_cruda
+    from app.seed_data import semilla_cruda, _RAIZ
 
-    por_puesto = defaultdict(float)
-    for f in semilla_cruda("reasignaciones_salario")["reasignaciones"]:
-        assert f["fte"] > 0, f"{f['name']}: un renglón que mueve 0 no hace nada"
-        por_puesto[(f["source"], f["name"])] += f["fte"]
+    revisadas = 0
+    for carpeta in sorted(p for p in _RAIZ.iterdir() if p.is_dir()):
+        if carpeta.name.startswith("__"):
+            continue
+        datos = semilla_cruda("reasignaciones_salario", hotel_id=carpeta.name)
+        if not datos:
+            continue
+        revisadas += 1
+        por_puesto = defaultdict(float)
+        for f in datos["reasignaciones"]:
+            assert f["fte"] > 0, (
+                f"{carpeta.name}/{f['name']}: un renglón que mueve 0 no hace nada")
+            por_puesto[(f["source"], f["name"])] += f["fte"]
+        de_mas = {k: v for k, v in por_puesto.items() if v > 1.0001}
+        assert not de_mas, f"{carpeta.name} reasigna más de un FTE: {de_mas}"
 
-    de_mas = {k: v for k, v in por_puesto.items() if v > 1.0001}
-    assert not de_mas, f"reasignan más de un FTE: {de_mas}"
+    # No se afirma que haya alguna: hoy este repo no trae ninguna semilla de
+    # propiedad, y eso es correcto — la regla existe para cuando la traiga.
+    assert revisadas >= 0
 
 
-def test_sembrar_opex_sin_catalogo_avisa_en_vez_de_usar_el_de_otro():
+def test_sembrar_opex_sin_catalogo_avisa_en_vez_de_usar_el_de_otro(semillero):
     from app.api.opex_api import _catalogo_de_arranque
-    assert _catalogo_de_arranque(), "CWL sí tiene catálogo: la prueba no mide nada"
+    assert _catalogo_de_arranque(), "la propiedad de prueba SÍ tiene catálogo"
     import app.seed_data as sd
-    original = sd.HOTEL_ID
-    try:
-        sd.HOTEL_ID = "HOTEL_QUE_NO_EXISTE"
-        assert _catalogo_de_arranque() is None
-    finally:
-        sd.HOTEL_ID = original
+    sd.HOTEL_ID = "HOTEL_QUE_NO_EXISTE"   # `semillero` lo restaura al salir
+    assert _catalogo_de_arranque() is None
 
 
 @pytest.mark.asyncio
-async def test_el_mix_muestra_los_canales_guardados_que_la_semilla_no_nombra():
+async def test_el_mix_muestra_los_canales_guardados_que_la_semilla_no_nombra(semillero):
     """Lo guardado nunca desaparece de la pantalla."""
     from app.api.revenue_api import _canales_del_mix
     from app.seed_data import semilla_cruda

@@ -2435,8 +2435,8 @@
     "ratePerPaxNight": "Rate / pax / night",
     "saved": "Saved",
     "savedN": "✓ Saved ({n} components)",
-    "title": "CWL Package",
-    "xlsTitle": "CWL Package — components per pax / night (USD)"
+    "title": "Package",
+    "xlsTitle": "Package — components per pax / night (USD)"
   },
   "mgmtFees": {
     "incomeTaxPct": "Income tax % (on EBT, for the whole year):",
@@ -2545,7 +2545,7 @@
     "aplicarALaSeleccion": "Apply to selection ({n})",
     "aplicarAlGrupo": "apply % to the whole group",
     "beMonthlyLinear": "Monthly break-even",
-    "beMonthlyLinearWarn": "⚠ The monthly figure is a <b>straight-line proration — it does not reflect seasonality</b>. CWL occupancy runs from 52% in February to 0.7% in September: that flat threshold describes no real month. The month-by-month calculation is Phase 2.",
+    "beMonthlyLinearWarn": "⚠ The monthly figure is a <b>straight-line proration — it does not reflect seasonality</b>. In a property with a marked season, a flat threshold describes no real month. The month-by-month calculation is Phase 2.",
     "beOccupancy": "Break-even occupancy",
     "bePctOfBudget": "As % of budget",
     "beRevenueAnnual": "Annual break-even revenue",
@@ -2645,7 +2645,7 @@
     "roomMetricsUnavailable": "No available rooms or no ADR in the period: it cannot be derived. They are shown empty and not as zero, which would be a false statement.",
     "roomsMix": "Rooms mix",
     "seccionResumen": "{n} lines · {monto}",
-    "seedNoteIntro": "The seed loads everything flagged <i>Variable</i> at 100% and everything <i>Fixed Cost</i> at 0%. <b>That is not a diagnosis:</b> at CWL payroll is mostly permanent staff. When you adjust the percentages in",
+    "seedNoteIntro": "The seed loads everything flagged <i>Variable</i> at 100% and everything <i>Fixed Cost</i> at 0%. <b>That is not a diagnosis:</b> if payroll is mostly permanent staff, that 100% does not describe the real cost. When you adjust the percentages in",
     "seedNoteLoss": "<b>watch the direction:</b> this scenario is not profitable, and there flagging payroll as fixed <b>LOWERS</b> the break-even instead of raising it — the correct adjustment looks like an improvement. The sign of the effect is the sign of the result.",
     "seedNoteOutro": "Measuring that is the point of this module.",
     "seedNoteProfit": "this scenario is profitable, so flagging payroll as fixed <b>will raise</b> the break-even.",
@@ -3024,7 +3024,7 @@
     "ningunaCoincide": "No rule matches the search.",
     "no": "No",
     "notaArchivo": "Excel / CSV",
-    "notaBackoffice": "Corcovado, via API",
+    "notaBackoffice": "Integrity / Backoffice, via API",
     "notaQuickbooks": "Oxígen and Ojochal",
     "opcional": "(optional)",
     "origenArchivo": "File",

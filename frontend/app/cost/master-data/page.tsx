@@ -23,8 +23,9 @@ import {
   type Scenario, type ColumnaMaster, type FilaMaster,
 } from "@/lib/api";
 import { bajarCuadros, type FormatoCol } from "@/lib/exportCuadro";
+import { HOTEL_ID } from "@/lib/hotel";
 
-const HOTEL = process.env.NEXT_PUBLIC_HOTEL_ID || "CWL";
+const HOTEL = HOTEL_ID;
 
 // ⚠️ Los rótulos son sólo cosmética: **las columnas llegan del backend**, que
 // las saca de `cfg_temporadas`. Si aparece una temporada nueva, sale sola con

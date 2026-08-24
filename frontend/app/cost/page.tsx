@@ -18,6 +18,7 @@ import {
   type ResumenGrupos, type Scenario,
 } from "@/lib/api";
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
+import { HOTEL_ID } from "@/lib/hotel";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                "Julio", "Agosto", "Setiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -76,7 +77,7 @@ export default function ResumenCostosPage() {
 
   useEffect(() => {
     // Sólo para poblar el desplegable de Base.
-    getScenarios(process.env.NEXT_PUBLIC_HOTEL_ID || "CWL")
+    getScenarios(HOTEL_ID)
       .then(setEscenarios).catch(() => setEscenarios([]));
   }, []);
 

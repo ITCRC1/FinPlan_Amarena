@@ -2435,8 +2435,8 @@
     "ratePerPaxNight": "Tarifa / pax / noche",
     "saved": "Guardado",
     "savedN": "✓ Guardado ({n} componentes)",
-    "title": "Paquete CWL",
-    "xlsTitle": "Paquete CWL — componentes por pax / noche (USD)"
+    "title": "Paquete",
+    "xlsTitle": "Paquete — componentes por pax / noche (USD)"
   },
   "mgmtFees": {
     "incomeTaxPct": "Impuesto de renta % (sobre EBT, todo el año):",
@@ -2545,7 +2545,7 @@
     "aplicarALaSeleccion": "Aplicar a la selección ({n})",
     "aplicarAlGrupo": "aplicar % a todo el grupo",
     "beMonthlyLinear": "Equilibrio mensual",
-    "beMonthlyLinearWarn": "⚠ El mensual es un <b>prorrateo lineal — no refleja estacionalidad</b>. La ocupación de CWL va de 52% en febrero a 0,7% en septiembre: ese umbral plano no describe ningún mes real. El cálculo mes a mes es Fase 2.",
+    "beMonthlyLinearWarn": "⚠ El mensual es un <b>prorrateo lineal — no refleja estacionalidad</b>. En una propiedad con temporada marcada, un umbral plano no describe ningún mes real. El cálculo mes a mes es Fase 2.",
     "beOccupancy": "Ocupación de equilibrio",
     "bePctOfBudget": "Como % del presupuesto",
     "beRevenueAnnual": "Ingreso de equilibrio anual",
@@ -2645,7 +2645,7 @@
     "roomMetricsUnavailable": "Sin habitaciones disponibles o sin ADR en el periodo: no se puede derivar. Se muestran vacías y no en cero, que sería una afirmación falsa.",
     "roomsMix": "Mezcla de Rooms",
     "seccionResumen": "{n} líneas · {monto}",
-    "seedNoteIntro": "La semilla carga todo lo marcado <i>Variable</i> en 100% y lo <i>Fixed Cost</i> en 0%. <b>Eso no es un diagnóstico:</b> en CWL la planilla es mayoritariamente de personal de planta. Al ajustar los porcentajes en",
+    "seedNoteIntro": "La semilla carga todo lo marcado <i>Variable</i> en 100% y lo <i>Fixed Cost</i> en 0%. <b>Eso no es un diagnóstico:</b> si la planilla es mayoritariamente de personal de planta, ese 100% no describe el costo real. Al ajustar los porcentajes en",
     "seedNoteLoss": "<b>ojo con la dirección:</b> este escenario no da utilidad, y ahí marcar planilla como fija <b>BAJA</b> el equilibrio en vez de subirlo — el ajuste correcto se ve como una mejora. El signo del efecto es el signo del resultado.",
     "seedNoteOutro": "Medir eso es el punto del módulo.",
     "seedNoteProfit": "este escenario da utilidad, así que marcar planilla como fija <b>va a subir</b> el equilibrio.",
@@ -3024,7 +3024,7 @@
     "ningunaCoincide": "Ninguna regla coincide con la búsqueda.",
     "no": "No",
     "notaArchivo": "Excel / CSV",
-    "notaBackoffice": "Corcovado, vía API",
+    "notaBackoffice": "Integrity / Backoffice, vía API",
     "notaQuickbooks": "Oxígen y Ojochal",
     "opcional": "(opcional)",
     "origenArchivo": "Archivo",

@@ -25,6 +25,7 @@ import {
   type FullyLoaded, type FilaFullyLoaded, type Scenario,
 } from "@/lib/api";
 import { bajarCuadros, type FormatoCol } from "@/lib/exportCuadro";
+import { HOTEL_ID } from "@/lib/hotel";
 
 const NOMBRE: Record<string, string> = {
   ROOMS: "Habitaciones",
@@ -40,7 +41,7 @@ const NOMBRE: Record<string, string> = {
   MISC_OTHER: "Otros",
 };
 
-const HOTEL = process.env.NEXT_PUBLIC_HOTEL_ID || "CWL";
+const HOTEL = HOTEL_ID;
 
 // ⚠️ Temporada y período son INDEPENDIENTES (§5). Antes «año completo» estaba
 // metido en el desplegable de temporada, así que no se podía pedir «año

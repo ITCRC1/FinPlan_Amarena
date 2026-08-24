@@ -82,11 +82,16 @@ app = FastAPI(
 # por qué repetirlo con Railway ahora que cada propiedad tiene su propia URL.
 _ORIGENES = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 
+# ⚠️ **Salió `https://finplan-cwl.vercel.app` (2026-08-21).** Era el frontend de
+# Corcovado, autorizado a mano contra la API de Amarena: con
+# `allow_credentials=True`, la app de otra propiedad podía hacerle peticiones
+# autenticadas a ésta. No servía para nada acá —Amarena tiene su propia URL, que
+# entra por `CORS_ORIGINS`— y sacarlo no le quita acceso a nadie de esta
+# instalación.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000", "http://localhost:3002",
-        "https://finplan-cwl.vercel.app",
         *_ORIGENES,
     ],
     # Allow any Vercel deployment (production + preview URLs) for this project.

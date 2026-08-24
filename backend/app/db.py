@@ -25,8 +25,13 @@ def normalize_database_url(url: str) -> str:
     return url
 
 
+# ⚠️ El default nombra la base de ESTA instalación (Amarena). Decía
+# `finplan_cwl`: en una máquina que tuviera las dos bases, correr algo sin
+# `DATABASE_URL` —una prueba, un script, `python -m app.seed`— habría escrito en
+# la de Corcovado. Es el mismo cuidado que `app/hotel_actual.py`, un nivel más
+# abajo: el default de una instalación tiene que ser la instalación.
 DATABASE_URL = normalize_database_url(
-    os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost/finplan_cwl")
+    os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost/finplan_amarena")
 )
 
 # El pool por defecto de SQLAlchemy es 5 + 10 de reserva = 15 conexiones, y se

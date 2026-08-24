@@ -6,57 +6,48 @@ Corre en cada arranque y es idempotente. Cada hotel es un PROYECTO APARTE
 —base propia, app propia— así que este script es lo que hace que una
 instalación nueva nazca funcionando en vez de nacer vacía.
 
-Identidad del hotel, por entorno (default = Corcovado, para no moverlo):
+Identidad del hotel, por entorno. Este repositorio es el despliegue de Amarena,
+así que ese es el default —ver `app/hotel_actual.py` para por qué—, pero el
+entorno manda siempre:
 
-    HOTEL_ID=AMA HOTEL_NAME="Amarena Canvas Beach Hotel"     HOTEL_SHORT_NAME=Amarena HOTEL_ROOMS=24 HOTEL_TC_USD=530.0000
+    HOTEL_ID=AMA HOTEL_NAME="Amarena Canvas Beach Hotel" HOTEL_SHORT_NAME=Amarena HOTEL_ROOMS=24 HOTEL_TC_USD=530.0000
 
     cd backend && python -m app.seed
 """
 import asyncio
 import os
 from decimal import Decimal
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db import engine, SessionLocal, Base
 from app.models.hotel import Hotel
-from app.models.room_type_config import RoomTypeConfig, CWL_ROOM_TYPES
+from app.models.room_type_config import RoomTypeConfig
 from app.models.user import User
-from app.auth import hash_password
 # Importar todos los modelos para que Base.metadata los registre
 from app.models import Account, PayrollAccount, Scenario, ExchangeRate  # noqa
 
-# Equipo de Corcovado, con contraseña temporal.
+# ⚠️ NO se siembra ningún usuario. El primer administrador se crea desde la
+# pantalla de login, que ofrece «crear el primer administrador» mientras la tabla
+# `users` esté vacía y se cierra sola apenas exista uno (`POST /auth/bootstrap`).
 #
-# NO se siembran fuera de Corcovado. Cada hotel va a ser un proyecto aparte y
-# estas son nueve personas reales, con su correo, que no tienen nada que ver con
-# Amarena, Oxígen ni Ojochal — sembrarlas ahí sería filtrar datos personales a
-# terceros, y encima con una contraseña conocida. El hotel nuevo arranca solo
-# con su admin y agrega a su gente.
-#
-# Misma razón por la que una entrega de base de datos va con
-# `--exclude-table=users`.
-SEMBRAR_EQUIPO_CWL = os.getenv("SEED_TEAM_CWL", "").lower() in ("1", "true", "yes")
-TEAM_TEMP_PASSWORD = "CWLintegrity2026"
-TEAM_USERS = [
-    ("ronald@thecostaricacollection.com", "Ronald", "collaborator"),
-    ("gmunoz@programarcr.com", "Gustavo Muñoz", "collaborator"),
-    ("auditor1@seedcostarica.com", "Auditor 1", "collaborator"),
-    ("auditor2@thecostaricacollection.com", "Francela Flores", "collaborator"),
-    ("berny@consultantscr.com", "Berny Fallas Mora", "collaborator"),
-    ("aperez@consultantscr.com", "Alex Perez", "collaborator"),
-    ("iromero@consultantscr.com", "Iván Romero Arias", "collaborator"),
-    ("damianconsultantscr@gmail.com", "Damian (consultants)", "collaborator"),
-    ("auxiliarconsultants@gmail.com", "Auxiliar Consultants", "collaborator"),
-]
+# Este repo tenía acá las nueve personas del equipo de Corcovado —su correo real
+# y una contraseña compartida en texto plano. Gateadas por hotel, así que a
+# Amarena nunca le habrían entrado; pero eran datos personales y una credencial
+# viva de otra propiedad, viajando en un repositorio que ya no es de ella.
+# Salieron el 2026-08-21.
 
-
-# Identidad del hotel de ESTA instalación. Estaba quemada en CWL, así que un
-# proyecto nuevo para Amarena nacía llamándose Corcovado Wilderness Lodge, con
-# las 30 habitaciones y los 6 tipos de Corcovado. Ahora sale del entorno y el
-# default sigue siendo CWL, para que Corcovado no cambie.
-HOTEL_ID = os.getenv("HOTEL_ID", "CWL")
-HOTEL_NAME = os.getenv("HOTEL_NAME", "Corcovado Wilderness Lodge")
-HOTEL_SHORT = os.getenv("HOTEL_SHORT_NAME", "Corcovado")
-HOTEL_ROOMS = int(os.getenv("HOTEL_ROOMS", "30"))
+# Identidad del hotel de ESTA instalación. Sale del entorno; el default es
+# Amarena porque este repositorio es el despliegue de Amarena — ver
+# `app/hotel_actual.py`, que explica por qué NO es Corcovado.
+HOTEL_ID = os.getenv("HOTEL_ID", "AMA")
+HOTEL_NAME = os.getenv("HOTEL_NAME", "Amarena Canvas Beach Hotel")
+HOTEL_SHORT = os.getenv("HOTEL_SHORT_NAME", "Amarena")
+# ⚠️ Default 0, no 30. Un número plausible pero ajeno —las 30 de Corcovado— se
+# ve perfectamente normal y está mal: se arrastra a RevPAR, a ocupación y al P&L
+# sin que nada dé error. En 0 se nota que falta. La verdad se carga en
+# Master Data → Provisionamiento.
+HOTEL_ROOMS = int(os.getenv("HOTEL_ROOMS", "0"))
+# El TC sí arranca en un valor real: es divisor de todo salario en colones y un
+# 0 acá reventaría el cálculo de planilla en vez de mostrarse vacío.
 HOTEL_TC = os.getenv("HOTEL_TC_USD", "530.0000")
 
 
@@ -81,42 +72,28 @@ async def seed():
         else:
             print(f"  Hotel {HOTEL_ID} ya existe — omitido")
 
-        # Tipos de habitación. Los 6 de CWL_ROOM_TYPES son de Corcovado; otro
-        # hotel carga los suyos en Master Data y acá no se le inventa nada.
+        # Tipos de habitación: NO se inventa ninguno. Los códigos que nacen acá
+        # (`BL01`, `BI02`…) son lo que liga una categoría entre escenarios,
+        # reportes y años — sembrar los de otro hotel dejaría las noches reales
+        # de Amarena guardadas bajo un tipo que no existe. Se cargan en
+        # Master Data → Tipos de habitación.
         result = await db.execute(
             select(RoomTypeConfig).where(RoomTypeConfig.hotel_id == HOTEL_ID)
         )
         existing_types = result.scalars().all()
-
-        if not existing_types and HOTEL_ID != "CWL":
-            print(f"  {HOTEL_ID}: sin tipos de habitación — se cargan en Master Data")
-        elif not existing_types:
-            for rt in CWL_ROOM_TYPES:
-                db.add(RoomTypeConfig(hotel_id=HOTEL_ID, **rt))
-            await db.commit()
-            total = sum(rt["units"] for rt in CWL_ROOM_TYPES)
-            print(f"✓ {len(CWL_ROOM_TYPES)} tipos de habitación creados ({total} unidades totales)")
-            for rt in CWL_ROOM_TYPES:
-                print(f"    [{rt['sort_order']}] {rt['short_name']:<15} ×{rt['units']}")
-        else:
+        if existing_types:
             print(f"  Tipos de habitación ya existen ({len(existing_types)}) — omitidos")
-
-        # Usuarios del equipo (idempotente: solo crea si el email no existe).
-        created = 0
-        for email, name, role in (TEAM_USERS if (HOTEL_ID == "CWL" or SEMBRAR_EQUIPO_CWL) else []):
-            em = email.lower()
-            exists = (await db.execute(select(User).where(User.email == em))).scalar_one_or_none()
-            if not exists:
-                db.add(User(email=em, name=name, role=role, active=True,
-                            password_hash=hash_password(TEAM_TEMP_PASSWORD)))
-                created += 1
-        if created:
-            await db.commit()
-            print(f"✓ {created} usuarios del equipo creados (password temporal)")
-        elif HOTEL_ID != "CWL" and not SEMBRAR_EQUIPO_CWL:
-            print(f"  {HOTEL_ID}: no se siembra el equipo de Corcovado (son personas de otro hotel)")
         else:
-            print("  Usuarios del equipo ya existen — omitidos")
+            print(f"  {HOTEL_ID}: sin tipos de habitación — se cargan en Master Data")
+
+        # Usuarios: ninguno. El primer admin se crea desde la pantalla de login
+        # (ver el comentario de arriba). Que la tabla esté vacía es lo que
+        # habilita ese formulario.
+        usuarios = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+        if usuarios:
+            print(f"  {usuarios} usuario(s) ya existen — el bootstrap está cerrado")
+        else:
+            print("  Sin usuarios — abrí la app y creá el primer administrador")
 
         await db.commit()
 
@@ -260,7 +237,12 @@ async def seed():
         print(f"  seed de break_even omitido: {e}")
 
     print("\n✅ Seed completado.")
-    print("   Próximo paso: POST /api/scenarios/ para crear el Budget 2026")
+    print(f"   Hotel: {HOTEL_ID} — {HOTEL_NAME} ({HOTEL_ROOMS} hab., TC {HOTEL_TC})")
+    if HOTEL_ROOMS == 0:
+        print("   ⚠️  HOTEL_ROOMS=0 — cargá el número real en Master Data → Provisionamiento")
+    print("   Próximos pasos: 1) abrí la app y creá el primer administrador")
+    print("                   2) Master Data → Provisionamiento y Tipos de habitación")
+    print("                   3) POST /api/scenarios/ para crear el primer Budget")
 
 
 if __name__ == "__main__":

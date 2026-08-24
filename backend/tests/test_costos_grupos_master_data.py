@@ -127,8 +127,12 @@ def test_la_PLANILLA_no_se_deduce_del_NUMERO_DE_CUENTA():
     import csv
     import pathlib
 
-    seed = (pathlib.Path(__file__).resolve().parents[1] / "app" / "seed_data"
-            / "CWL" / "break_even" / "be_classification_seed.csv")
+    # Fixture, no semilla: la carpeta de Corcovado salió de este repositorio el
+    # 2026-08-21 (ver `test_break_even_acepta.py`). Lo que se mide acá es la
+    # FORMA de la clasificación —que `be_section` no se deduzca del dígito de la
+    # cuenta—, y para eso sirve igual un modelo de referencia congelado.
+    seed = (pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+            / "break_even_clasificacion_cwl.csv")
     filas = list(csv.DictReader(seed.open(encoding="utf-8")))
     seis = {r["be_section"] for r in filas
             if r["account"].startswith("6") and r["be_section"]}

@@ -104,6 +104,36 @@ from app.models.opex_entry import OpexEntry
 from app.models.salary_allocation_config import SalaryAllocationConfig
 from app.seed_data import semilla_cruda
 
+
+# ⚠️ **Se recorren las propiedades que HAYA, no la del entorno (2026-08-21).**
+#
+# Estas reglas leían `semilla_cruda("opex_accounts")` a secas, o sea la semilla
+# de la propiedad ambiente, y funcionaban porque esa propiedad era siempre
+# Corcovado. Su carpeta salió de este repositorio —es el despliegue de Amarena—
+# y las siete pruebas se cayeron de golpe.
+#
+# Apuntarlas a un archivo fijo las habría atado al dato de un hotel otra vez.
+# Apuntarlas a un fixture de mentira habría sido peor: la regla existe para
+# atrapar a una persona escribiendo mal un JSON, y un archivo que escribe la
+# prueba misma no atrapa a nadie.
+#
+# Recorriendo las carpetas reales, hoy no miden nada —no hay ninguna, que es la
+# verdad de una instalación recién clonada— y el día que Amarena cargue la suya
+# quedan vigilándola sin que nadie tenga que acordarse de nada.
+def _propiedades_con(nombre: str, bloque: str | None = None):
+    """(hotel_id, datos) por cada propiedad que traiga ese archivo."""
+    import pathlib
+    import app.seed_data as sd
+
+    raiz = pathlib.Path(sd.__file__).parent
+    for carpeta in sorted(p for p in raiz.iterdir() if p.is_dir()):
+        if carpeta.name.startswith(("_", ".")):
+            continue
+        datos = semilla_cruda(nombre, hotel_id=carpeta.name)
+        if datos:
+            yield carpeta.name, (datos[bloque] if bloque else datos)
+
+
 #: archivo → lista → {campo del JSON: columna del modelo}
 SEMILLAS_CON_TEXTO = [
     ("opex_accounts", "cuentas", OpexEntry,
@@ -117,18 +147,17 @@ SEMILLAS_CON_TEXTO = [
 @pytest.mark.parametrize("archivo,bloque,modelo,campos", SEMILLAS_CON_TEXTO,
                          ids=[s[0] for s in SEMILLAS_CON_TEXTO])
 def test_ninguna_semilla_nueva_desborda_su_columna(archivo, bloque, modelo, campos):
-    datos = semilla_cruda(archivo)
-    assert datos, f"{archivo}.json no existe para esta propiedad: la prueba no mide nada"
     limites = _limites(modelo)
     desbordes = []
-    for fila in datos[bloque]:
-        for campo, columna in campos.items():
-            tope = limites.get(columna)
-            valor = fila.get(campo)
-            assert tope, f"{modelo.__name__}.{columna} no declara largo: la prueba no mide nada"
-            if isinstance(valor, str) and len(valor) > tope:
-                desbordes.append(f"{archivo} `{campo}`={valor[:40]!r}: {len(valor)} "
-                                 f"caracteres, {modelo.__name__}.{columna} admite {tope}")
+    for hotel, filas in _propiedades_con(archivo, bloque):
+        for fila in filas:
+            for campo, columna in campos.items():
+                tope = limites.get(columna)
+                valor = fila.get(campo)
+                assert tope, f"{modelo.__name__}.{columna} no declara largo: la prueba no mide nada"
+                if isinstance(valor, str) and len(valor) > tope:
+                    desbordes.append(f"{hotel}/{archivo} `{campo}`={valor[:40]!r}: {len(valor)} "
+                                     f"caracteres, {modelo.__name__}.{columna} admite {tope}")
     assert not desbordes, (
         "la pantalla va a reventar al guardar, con el usuario mirando:\n  "
         + "\n  ".join(desbordes))
@@ -136,46 +165,45 @@ def test_ninguna_semilla_nueva_desborda_su_columna(archivo, bloque, modelo, camp
 
 def test_los_canales_del_mix_entran_en_su_columna():
     """El nombre del canal ES la llave: se guarda tal cual en `channel`."""
-    datos = semilla_cruda("canales_mix")
-    assert datos and datos["canales"], "canales_mix.json vacío: la prueba no mide nada"
     tope = _limites(ChannelMixEntry)["channel"]
-    largos = [c for c in datos["canales"] if len(c) > tope]
-    assert not largos, f"no entran en channel({tope}): {largos}"
+    for hotel, canales in _propiedades_con("canales_mix", "canales"):
+        largos = [c for c in canales if len(c) > tope]
+        assert not largos, f"{hotel}: no entran en channel({tope}): {largos}"
 
 
 def test_los_canales_del_mix_no_se_repiten():
     """Un duplicado corre las columnas de la grilla: el PUT escribe POR POSICION
     y el UNIQUE de la tabla se come la segunda. El total del mes sigue cuadrando."""
-    canales = semilla_cruda("canales_mix")["canales"]
-    assert len(canales) == len(set(canales)), f"canales repetidos: {canales}"
+    for hotel, canales in _propiedades_con("canales_mix", "canales"):
+        assert len(canales) == len(set(canales)), f"{hotel}: canales repetidos: {canales}"
 
 
 def test_las_tarifas_del_checkbook_estan_completas_y_son_numeros():
     """La pantalla multiplica por cada una. Una que falte da `undefined` y llena
     la fila de NaN; una que venga como texto la llena de basura silenciosa."""
-    tarifas = semilla_cruda("driver_rates")["tarifas"]
     esperadas = {"food", "tours", "transport", "nights_per_stay", "bev_ratio",
                  "retail_pct", "innoceana_pct", "sust_rate", "sust_non_pay"}
-    assert set(tarifas) == esperadas, (
-        f"faltan {esperadas - set(tarifas)} · sobran {set(tarifas) - esperadas}")
-    malas = {k: v for k, v in tarifas.items() if not isinstance(v, (int, float))}
-    assert not malas, f"no son números: {malas}"
-    assert tarifas["nights_per_stay"], "nights_per_stay en 0: los tours y el transporte dividen por él"
+    for hotel, tarifas in _propiedades_con("driver_rates", "tarifas"):
+        assert set(tarifas) == esperadas, (
+            f"{hotel}: faltan {esperadas - set(tarifas)} · sobran {set(tarifas) - esperadas}")
+        malas = {k: v for k, v in tarifas.items() if not isinstance(v, (int, float))}
+        assert not malas, f"{hotel}: no son números: {malas}"
+        assert tarifas["nights_per_stay"], (
+            f"{hotel}: nights_per_stay en 0: los tours y el transporte dividen por él")
 
 
 def test_las_reasignaciones_no_se_mandan_a_si_mismas():
     """Un renglón `source == target` mueve plata al mismo departamento del que
     salió: no cambia nada y esconde la reasignación que sí hacía falta."""
-    filas = semilla_cruda("reasignaciones_salario")["reasignaciones"]
-    assert filas, "reasignaciones_salario.json vacío: la prueba no mide nada"
-    circulares = [f for f in filas if f["source"] == f["target"]]
-    assert not circulares, f"se reasignan a sí mismas: {circulares}"
+    for hotel, filas in _propiedades_con("reasignaciones_salario", "reasignaciones"):
+        circulares = [f for f in filas if f["source"] == f["target"]]
+        assert not circulares, f"{hotel}: se reasignan a sí mismas: {circulares}"
 
 
 def test_el_catalogo_de_opex_no_repite_cuentas():
     """El endpoint crea un renglón por cuenta; un código repetido choca contra
     `uq_opex_entry` y voltea toda la siembra del departamento."""
-    cuentas = semilla_cruda("opex_accounts")["cuentas"]
-    codigos = [c["code"] for c in cuentas]
-    assert len(codigos) == len(set(codigos)), (
-        f"repetidos: {sorted({c for c in codigos if codigos.count(c) > 1})}")
+    for hotel, cuentas in _propiedades_con("opex_accounts", "cuentas"):
+        codigos = [c["code"] for c in cuentas]
+        assert len(codigos) == len(set(codigos)), (
+            f"{hotel}: repetidos: {sorted({c for c in codigos if codigos.count(c) > 1})}")

@@ -42,7 +42,20 @@ import pytest
 from app.engine import break_even as be
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-SEMILLA = RAIZ / "app" / "seed_data" / "CWL" / "break_even" / "be_classification_seed.csv"
+
+# ⚠️ **La clasificación es un FIXTURE, no una semilla (2026-08-21).**
+#
+# Vivía en `app/seed_data/CWL/break_even/`, o sea en el camino por el que el
+# arranque siembra la base. Este repositorio es el despliegue de Amarena y esa
+# carpeta salió entera: los porcentajes fijo/variable están medidos contra el
+# P&L de Corcovado y no describen a ninguna otra propiedad.
+#
+# Pero esta prueba **no siembra nada**: verifica el MOTOR contra un modelo de
+# referencia congelado, y para eso necesita las dos piezas apareadas —la
+# clasificación y los montos—. Los montos ya eran un fixture; la clasificación
+# pasó a serlo, que es lo que siempre fue acá. Un fixture no llega nunca a la
+# base de datos; una semilla sí. Esa es toda la diferencia, y es la que importa.
+SEMILLA = RAIZ / "tests" / "fixtures" / "break_even_clasificacion_cwl.csv"
 MONTOS = RAIZ / "tests" / "fixtures" / "break_even_montos_cwl.csv"
 
 # Los parámetros del modelo de referencia (hoja PARAMETROS / INGRESOS).

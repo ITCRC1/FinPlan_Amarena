@@ -123,9 +123,22 @@ def test_un_mix_que_no_cierra_se_detecta():
 
 
 def test_el_catalogo_del_repositorio_cierra():
-    """El archivo que se siembra tiene que cumplir la misma regla."""
-    from app.seed_canales_comerciales import leer
-    assert abs(sum(Decimal(str(c["mix_pct"])) for c in leer()) - 1) < Decimal("0.0001")
+    """El archivo que se siembra tiene que cumplir la misma regla.
+
+    ⚠️ Se mide sobre las propiedades que HAYA en el repositorio, no sobre una
+    fija. Antes leía la de Corcovado, que ya no vive acá: si se hubiera dejado
+    apuntada a ese archivo, la regla se habría borrado con él. Hoy este repo no
+    trae ninguna semilla de canales —Amarena todavía no cargó la suya— y la
+    prueba pasa sin medir nada; el día que la cargue, queda vigilada sola.
+    """
+    import json
+    from app import seed_canales_comerciales as seed
+
+    for archivo in sorted(seed.ARCHIVO.parent.parent.glob("*/canales_comerciales.json")):
+        canales = json.loads(archivo.read_text(encoding="utf-8"))["canales"]
+        total = sum(Decimal(str(c["mix_pct"])) for c in canales)
+        assert abs(total - 1) < Decimal("0.0001"), (
+            f"{archivo.parent.name}: el mix suma {total}, no 1")
 
 
 # ── La cascada ──────────────────────────────────────────────────────────────
