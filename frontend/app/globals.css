@@ -359,6 +359,20 @@ thead th { position: sticky; top: var(--nav-h); z-index: 2; background: var(--bg
   thead th { position: static; }
 }
 
+/* ── Medición para «una sola hoja» ───────────────────────────────────────────
+   `useImprimirEnUnaHoja` necesita medir el reporte COMO VA A SALIR IMPRESO, y
+   en pantalla dos cosas mienten sobre su tamaño: los controles que al imprimir
+   desaparecen, y los contenedores con scroll, que RECORTAN la tabla con un
+   `max-height`. Midiendo tal cual se ve, el alto sale corto y la escala queda
+   grande: el reporte se parte igual.
+
+   Estas reglas son las mismas que aplica `@media print` más abajo; viven acá
+   para poder encenderlas por un instante con una clase. Si alguien cambia las
+   de impresión, hay que cambiar estas. */
+.midiendo-impresion .no-print { display: none !important; }
+.midiendo-impresion .fin-sticky,
+.midiendo-impresion .fin-scroll-x { max-height: none !important; overflow: visible !important; }
+
 /* ── Impresión: todo el dashboard en UNA hoja Letter (horizontal) ── */
 @media print {
   @page { size: letter landscape; margin: 0.4in; }
@@ -387,6 +401,14 @@ thead th { position: sticky; top: var(--nav-h); z-index: 2; background: var(--bg
   /* no partir tarjetas/tablas entre páginas */
   .print-dashboard > div,
   .print-dashboard table { break-inside: avoid; }
+
+  /* Reportes que se escalan solos: el `zoom` lo pone `useImprimirEnUnaHoja`
+     como estilo inline, medido contra la hoja. Acá sólo se saca el relleno de
+     pantalla y se pide que las tablas no se partan — con la escala bien puesta
+     no deberia haber nada que partir, y si el reporte tocó el piso de escala,
+     es preferible que la tabla salte entera a la segunda hoja. */
+  .print-una-hoja { padding: 0 !important; }
+  .print-una-hoja table { break-inside: avoid; }
 }
 
 

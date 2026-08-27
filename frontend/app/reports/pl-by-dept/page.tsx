@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { HOTEL_ID } from "@/lib/hotel";
 import { useHotel } from "@/lib/useHotel";
@@ -10,6 +10,7 @@ import {
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
+import { useImprimirEnUnaHoja } from "@/lib/imprimirEnUnaHoja";
 
 const MONTHS_FALLBACK = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const TYPE_LABEL: Record<string,string> = { ACTUAL:"Actual", BUDGET:"Budget", FORECAST:"Forecast" };
@@ -35,6 +36,8 @@ export default function PLByDeptReportPage() {
   // abre con el Budget preferido del owner.
   const [scenarioId, setScenarioId] = useEscenarioDe("reports/pl-by-dept:budget", scenarios, "budget", undefined, true);
   const [month, setMonth] = useState(0);   // 0 = Full Year
+  // El contenedor que se escala para entrar en una hoja al imprimir.
+  const hoja = useRef<HTMLDivElement>(null);
   const [ytd, setYtd] = useState(true);
   const [data, setData] = useState<PLByDept | null>(null);
   const [loading, setLoading] = useState(true);
@@ -184,8 +187,10 @@ export default function PLByDeptReportPage() {
     );
   }
 
+  useImprimirEnUnaHoja(hoja);
+
   return (
-    <div className="print-dashboard pag pag-media" style={{ padding: "20px 24px" }}>
+    <div ref={hoja} className="print-una-hoja pag pag-media" style={{ padding: "20px 24px" }}>
       <IrA esc={scenarioId} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>

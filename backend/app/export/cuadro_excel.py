@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 
 from app.export.excel_base import (
     C, align, border, fill, font, merged_header, nombre_de_hoja,
@@ -128,6 +130,32 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     # Congelar la cabecera y la columna de etiquetas: sin esto, un cuadro de 12
     # meses obliga a adivinar qué fila se está mirando al llegar a diciembre.
     ws.freeze_panes = ws.cell(PRIMERA_FILA, 2)
+
+    # ── Que imprima en UNA hoja ──────────────────────────────────────────────
+    #
+    # Owner, 2026-08-27: «el Excel debe ser en una sola página sin separar». Un
+    # cuadro de 12 meses son 14 columnas: en vertical y sin ajuste, Excel lo
+    # parte en tres o cuatro hojas y los meses quedan repartidos entre papeles
+    # distintos. Un reporte partido no se puede leer ni mandar.
+    #
+    # `fitToPage` en `sheet_properties.pageSetUpPr` es OBLIGATORIO: sin él,
+    # `fitToWidth`/`fitToHeight` quedan escritos en el archivo y Excel los
+    # ignora — se ve bien en el XML y sale partido igual.
+    #
+    # `fitToHeight = 0` es «las hojas de alto que haga falta». Se usa 1 porque
+    # el pedido es una sola hoja; un cuadro larguísimo sale con letra chica,
+    # que es preferible a que se parta.
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_margins.left = ws.page_margins.right = 0.3
+    ws.page_margins.top = ws.page_margins.bottom = 0.4
+    # El área de impresión se acota a lo escrito: sin esto, una celda tocada
+    # por accidente lejos de la tabla arrastra hojas en blanco.
+    ultima = PRIMERA_FILA + max(0, len(filas)) - 1
+    if ultima >= FILA_TITULO:
+        ws.print_area = f"A{FILA_TITULO}:{get_column_letter(n_col)}{ultima}"
     return ws
 
 
