@@ -151,6 +151,61 @@ async def bulk_replace_nonop(
     return {"imported": len(rows), "scenario_id": scenario_id}
 
 
+@router.put("/nonop/{scenario_id}/lines/")
+async def replace_nonop_lines(
+    scenario_id: str,
+    rows: list[NonOpBulkRow],
+    db: AsyncSession = Depends(get_db),
+):
+    """Reemplaza SÓLO las líneas que vienen en el cuerpo, y ninguna otra.
+
+    **Para qué existe.** `bulk_replace_nonop` borra todo el below-GOP del
+    escenario antes de insertar, y eso está bien para la pantalla del auxiliar,
+    que manda siempre el set completo. Pero la pantalla de Management Fees toca
+    tres líneas —honorarios, royalties y capital reserve— y usar el bulk desde
+    ahí se llevaría la renta, el seguro y todo lo demás. Un guardado que borra
+    lo que no está mirando es exactamente el tipo de pérdida silenciosa que este
+    proyecto ya pagó.
+
+    Un cuerpo vacío no hace nada: sin líneas no hay nada que reemplazar, y
+    borrar "todo lo que vino" cuando no vino nada sería el bug al revés.
+    """
+    scenario = await _get_scenario_or_404(scenario_id, db)
+    scenario.assert_editable()
+
+    lineas = {(r.report_line_code or "").strip() for r in rows}
+    lineas.discard("")
+    if not lineas:
+        return {"imported": 0, "lineas": [], "scenario_id": scenario_id}
+
+    # Misma validación que el bulk: estas filas NO pasan por el mapeo de
+    # cuentas, siembran la línea del P&L directamente. Un código que no exista
+    # se guardaría y su monto no llegaría a ningún reporte.
+    from app.engine.recalculate import load_report_line_config
+    validas = {r["line_code"] for r in await load_report_line_config(db)}
+    if validas:
+        invalidas = sorted(lineas - validas)
+        if invalidas:
+            raise ErrorApi(422, "nonop.lineas_inexistentes",
+                           lineas=", ".join(invalidas))
+
+    await db.execute(delete(NonOpEntry).where(
+        NonOpEntry.scenario_id == scenario_id,
+        NonOpEntry.report_line_code.in_(lineas)))
+    await db.flush()
+    for r in rows:
+        db.add(NonOpEntry(
+            scenario_id=scenario_id, hotel_id=scenario.hotel_id,
+            report_line_code=r.report_line_code,
+            account_code=r.account_code, account_name=r.account_name,
+            detail_code=r.detail_code, detail_desc=r.detail_desc,
+            **{mk: getattr(r, mk) for mk in MONTH_ATTRS},
+        ))
+    await db.commit()
+    return {"imported": len(rows), "lineas": sorted(lineas),
+            "scenario_id": scenario_id}
+
+
 @router.put("/nonop/{scenario_id}/entry/{entry_id}/")
 async def update_nonop_entry(
     scenario_id: str, entry_id: str, body: EntryUpdate,

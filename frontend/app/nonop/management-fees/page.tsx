@@ -6,13 +6,28 @@ import { useEffect, useState, useCallback } from "react";
 import RecalcButton from "@/components/RecalcButton";
 import { HOTEL_ID } from "@/lib/hotel";
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
+// El monto manual de estas tres líneas vive en el auxiliar Below-GOP
+// (`nonop_entries`), no en `pl_manual_inputs`: es la MISMA fila que se digita en
+// «Gastos Propietario», y el motor le gana al % desde ahí. Tenerla en dos
+// tablas sería tener dos verdades.
 import IrA from "@/components/IrA";
 import {
   getScenarios, getPLMonthly, getPLManualInputs, savePLManualInput,
-  type Scenario,
+  getNonOp, replaceNonOpLines,
+  type Scenario, type NonOpBulkRow,
 } from "@/lib/api";
 
 const MONTHS_FALLBACK = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const MONTH_KEYS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"] as const;
+
+//: Las tres líneas que esta pantalla puede digitar, con la cuenta del GL que
+//: les corresponde. El código de línea es lo que gobierna: el auxiliar suma por
+//: `report_line_code` (ver `nonop_line_seeds_for_month`), la cuenta es rótulo.
+const LINEAS_MANUALES = {
+  MGMT_FEE_3: { cuenta: "8005", nombre: "Management Fees (3%)" },
+  MGMT_FEE_5_ROYALTIES: { cuenta: "8005", nombre: "Royalties (5%)" },
+  CAPITAL_RESERVE: { cuenta: "8020", nombre: "Capital Reserve" },
+} as const;
 
 function fmtUsd(n: number) {
   if (!n) return "—";
@@ -31,6 +46,14 @@ export default function ManagementFeesPage() {
   const [pct3, setPct3] = useState<number[]>(Array(12).fill(0));   // % (0..100)
   const [pct5, setPct5] = useState<number[]>(Array(12).fill(0));
   const [pctReserve, setPctReserve] = useState<number[]>(Array(12).fill(0));
+  // Montos DIGITADOS (auxiliar Below-GOP). Le ganan al %: ver `pl_engine`.
+  const [man3, setMan3] = useState<number[]>(Array(12).fill(0));
+  const [man5, setMan5] = useState<number[]>(Array(12).fill(0));
+  const [manRes, setManRes] = useState<number[]>(Array(12).fill(0));
+  // Una línea con VARIOS renglones de detalle no se edita desde acá: guardar
+  // escribiría uno solo y se perderían los otros. Se muestra el total y se
+  // manda al auxiliar, que es donde se abren los detalles.
+  const [variosDetalles, setVariosDetalles] = useState<Record<string, boolean>>({});
   const [taxRate, setTaxRate] = useState(30);   // impuesto de renta % (0..100)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +63,8 @@ export default function ManagementFeesPage() {
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(null), 4000); };
 
   const load = useCallback(async (sid: string) => {
-    const [pl, manual] = await Promise.all([getPLMonthly(sid), getPLManualInputs(sid)]);
+    const [pl, manual, nonop] = await Promise.all([
+      getPLMonthly(sid), getPLManualInputs(sid), getNonOp(sid)]);
     // Revenue base per month from the P&L
     const rev = Array(12).fill(0);
     for (const m of pl.months) {
@@ -57,6 +81,21 @@ export default function ManagementFeesPage() {
     setPct3(p3); setPct5(p5); setPctReserve(pr);
     // impuesto de renta: tasa única; tomar la primera fila o default 30%
     setTaxRate(manual.length ? parseFloat(manual[0].income_tax_rate || "0.30") * 100 : 30);
+
+    // Montos digitados en el auxiliar. Se SUMAN los detalles para mostrar el
+    // total de la línea, igual que lo suma el P&L.
+    const varios: Record<string, boolean> = {};
+    const leer = (code: string): number[] => {
+      const g = nonop.lines.find(l => l.report_line_code === code);
+      if (!g) return Array(12).fill(0);
+      varios[code] = g.lines.length > 1;
+      return MONTH_KEYS.map(mk => g.lines.reduce(
+        (sum, e) => sum + (parseFloat((e as unknown as Record<string, string>)[mk] || "0") || 0), 0));
+    };
+    setMan3(leer("MGMT_FEE_3"));
+    setMan5(leer("MGMT_FEE_5_ROYALTIES"));
+    setManRes(leer("CAPITAL_RESERVE"));
+    setVariosDetalles(varios);
   }, []);
 
   useEffect(() => {
@@ -101,6 +140,30 @@ export default function ManagementFeesPage() {
           income_tax_rate: String((taxRate || 0) / 100),
         });
       }
+
+      // Los montos digitados van al auxiliar Below-GOP, por `replaceNonOpLines`
+      // y NO por el bulk: el bulk borra TODO el below-GOP del escenario antes de
+      // insertar, así que desde acá se llevaría la renta, el seguro y el resto.
+      //
+      // Se mandan las tres líneas siempre, incluso en cero: escribir ceros es
+      // cómo se BORRA un monto manual y se le devuelve el control al %. Las que
+      // tienen varios detalles se saltan — se editan en el auxiliar.
+      const filas: NonOpBulkRow[] = [];
+      const meses = (v: number[]) => Object.fromEntries(
+        MONTH_KEYS.map((mk, i) => [mk, v[i] || 0]));
+      for (const [code, val] of [["MGMT_FEE_3", man3],
+                                 ["MGMT_FEE_5_ROYALTIES", man5],
+                                 ["CAPITAL_RESERVE", manRes]] as [string, number[]][]) {
+        if (variosDetalles[code]) continue;
+        const meta = LINEAS_MANUALES[code as keyof typeof LINEAS_MANUALES];
+        filas.push({
+          report_line_code: code, account_code: meta.cuenta,
+          account_name: meta.nombre, detail_code: "001", detail_desc: "Manual",
+          ...meses(val),
+        } as NonOpBulkRow);
+      }
+      if (filas.length) await replaceNonOpLines(scenarioId, filas);
+
       await load(scenarioId);
       flash(t("saved"));
     } catch (e) {
@@ -256,6 +319,30 @@ export default function ManagementFeesPage() {
                   ))}
                   <td className="mono" style={{ textAlign: "right", fontWeight: 600, color: "var(--positive)" }}>{fmtUsd(totalFee3)}</td>
                 </tr>
+                {/* Mgmt Fee — MANUAL. Le gana al %: si tiene monto, el % se ignora. */}
+                <tr>
+                  <td style={{ color: "var(--brand)", paddingLeft: 16, fontWeight: 600 }}>
+                    Mgmt Fee $ — manual
+                    {variosDetalles["MGMT_FEE_3"] && (
+                      <span style={{ fontWeight: 400, fontSize: 10, color: "var(--text-secondary)" }}>
+                        {" "}· varios detalles, se edita en Gastos Propietario
+                      </span>
+                    )}
+                  </td>
+                  {man3.map((v, i) => (
+                    <td key={i} style={{ textAlign: "right" }}>
+                      {variosDetalles["MGMT_FEE_3"] ? (
+                        <span className="mono" style={{ fontSize: 11 }}>{fmtUsd(v)}</span>
+                      ) : (
+                        <input type="number" value={v} style={numInp}
+                          onChange={e => setMan3(p => p.map((x, j) => j === i ? Number(e.target.value) : x))} />
+                      )}
+                    </td>
+                  ))}
+                  <td className="mono" style={{ textAlign: "right", fontWeight: 700, color: "var(--brand)" }}>
+                    {fmtUsd(man3.reduce((a, b) => a + (b || 0), 0))}
+                  </td>
+                </tr>
 
                 {/* Royalty % row */}
                 <tr>
@@ -275,6 +362,30 @@ export default function ManagementFeesPage() {
                     <td key={i} className="mono" style={{ textAlign: "right", color: "var(--positive)" }}>{fmtUsd(fee5(i))}</td>
                   ))}
                   <td className="mono" style={{ textAlign: "right", fontWeight: 600, color: "var(--positive)" }}>{fmtUsd(totalFee5)}</td>
+                </tr>
+                {/* Royalties — MANUAL. Le gana al %: si tiene monto, el % se ignora. */}
+                <tr>
+                  <td style={{ color: "var(--brand)", paddingLeft: 16, fontWeight: 600 }}>
+                    Royalties $ — manual
+                    {variosDetalles["MGMT_FEE_5_ROYALTIES"] && (
+                      <span style={{ fontWeight: 400, fontSize: 10, color: "var(--text-secondary)" }}>
+                        {" "}· varios detalles, se edita en Gastos Propietario
+                      </span>
+                    )}
+                  </td>
+                  {man5.map((v, i) => (
+                    <td key={i} style={{ textAlign: "right" }}>
+                      {variosDetalles["MGMT_FEE_5_ROYALTIES"] ? (
+                        <span className="mono" style={{ fontSize: 11 }}>{fmtUsd(v)}</span>
+                      ) : (
+                        <input type="number" value={v} style={numInp}
+                          onChange={e => setMan5(p => p.map((x, j) => j === i ? Number(e.target.value) : x))} />
+                      )}
+                    </td>
+                  ))}
+                  <td className="mono" style={{ textAlign: "right", fontWeight: 700, color: "var(--brand)" }}>
+                    {fmtUsd(man5.reduce((a, b) => a + (b || 0), 0))}
+                  </td>
                 </tr>
 
                 {/* Total management fees (Owners Fee 8005) */}
@@ -303,6 +414,30 @@ export default function ManagementFeesPage() {
                     <td key={i} className="mono" style={{ textAlign: "right", color: "var(--positive)" }}>{fmtUsd(feeRes(i))}</td>
                   ))}
                   <td className="mono" style={{ textAlign: "right", fontWeight: 600, color: "var(--positive)" }}>{fmtUsd(totalRes)}</td>
+                </tr>
+                {/* Capital Reserve — MANUAL. Le gana al %: si tiene monto, el % se ignora. */}
+                <tr>
+                  <td style={{ color: "var(--brand)", paddingLeft: 16, fontWeight: 600 }}>
+                    Capital Reserve $ — manual
+                    {variosDetalles["CAPITAL_RESERVE"] && (
+                      <span style={{ fontWeight: 400, fontSize: 10, color: "var(--text-secondary)" }}>
+                        {" "}· varios detalles, se edita en Gastos Propietario
+                      </span>
+                    )}
+                  </td>
+                  {manRes.map((v, i) => (
+                    <td key={i} style={{ textAlign: "right" }}>
+                      {variosDetalles["CAPITAL_RESERVE"] ? (
+                        <span className="mono" style={{ fontSize: 11 }}>{fmtUsd(v)}</span>
+                      ) : (
+                        <input type="number" value={v} style={numInp}
+                          onChange={e => setManRes(p => p.map((x, j) => j === i ? Number(e.target.value) : x))} />
+                      )}
+                    </td>
+                  ))}
+                  <td className="mono" style={{ textAlign: "right", fontWeight: 700, color: "var(--brand)" }}>
+                    {fmtUsd(manRes.reduce((a, b) => a + (b || 0), 0))}
+                  </td>
                 </tr>
               </tbody>
             </table>

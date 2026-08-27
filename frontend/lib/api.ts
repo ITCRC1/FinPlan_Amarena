@@ -2129,6 +2129,22 @@ export async function bulkReplaceNonOp(
   return api.put<{ imported: number }>(`/nonop/${scenarioId}/bulk/`, rows);
 }
 
+/**
+ * Reemplaza SÓLO las líneas que van en `rows`, y ninguna otra.
+ *
+ * `bulkReplaceNonOp` borra todo el below-GOP del escenario antes de insertar:
+ * sirve para el auxiliar, que manda el set completo, y NO para una pantalla que
+ * toca dos o tres líneas — se llevaría la renta, el seguro y el resto sin decir
+ * nada. Usar esta desde cualquier pantalla parcial.
+ */
+export async function replaceNonOpLines(
+  scenarioId: string,
+  rows: NonOpBulkRow[],
+): Promise<{ imported: number; lineas: string[] }> {
+  return api.put<{ imported: number; lineas: string[] }>(
+    `/nonop/${scenarioId}/lines/`, rows);
+}
+
 // ── Allocations ───────────────────────────────────────────────────────────────
 
 export interface CafeteriaConfigRow {
