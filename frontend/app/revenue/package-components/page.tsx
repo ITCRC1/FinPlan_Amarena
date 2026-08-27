@@ -377,6 +377,23 @@ export default function PackageComponentsPage() {
             {!sel?.is_locked && <button onClick={addExp} style={{ padding: "6px 10px", fontSize: 12, borderRadius: 5, cursor: "pointer", background: "transparent", color: "var(--text-secondary)", border: "1px dashed var(--border-medium)" }}>{t("addExperience")}</button>}
           </div>
 
+          {/* Sin experiencias el tab de entrada renderizaba NADA: se aterrizaba en
+              una página en blanco, que se lee como «no me deja editar». Los botones
+              para crear estaban ahí arriba, pero nada decía que ese era el camino.
+              Una propiedad nueva —Amarena— entra por acá siempre: no trae semilla
+              de experiencias, así que este es su primer estado, no un caso raro. */}
+          {active === -1 && !base && (
+            <div style={{ maxWidth: 560, padding: "16px 18px", borderRadius: 8,
+                          background: "var(--bg-surface)", border: "1px dashed var(--border-medium)" }}>
+              <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 6 }}>
+                {t("emptyTitle")}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                {t("emptyBody", { boton: t("addExperience"), inclusion: t("addInclusion") })}
+              </div>
+            </div>
+          )}
+
           {active === -1 && base && (() => {
             const rackTotal = base.items.reduce((s, it) => s + (it.unitPrice.trim() === "" ? 0 : num(it.unitPrice)), 0);
             const renderTable = (mode: "rack" | "net") => (

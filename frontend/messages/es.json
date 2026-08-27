@@ -1821,7 +1821,9 @@
     "step2Factor": "2 · Factor de descuento (Net Factor, de Canales de Venta)",
     "step3Net": "3 · Net Rate (= Rack × Factor)",
     "totalExperience": "Total experiencia ({n}N)",
-    "xlsRackNetSheet": "Rack y Net Rate"
+    "xlsRackNetSheet": "Rack y Net Rate",
+    "emptyTitle": "Todavía no hay experiencias en este escenario.",
+    "emptyBody": "Creá una con «{boton}» y agregale sus componentes con «{inclusion}». El Rack & Net se arma con los componentes de la experiencia marcada con ★."
   },
   "rates": {
     "villaType": "Tipo de Villa",
