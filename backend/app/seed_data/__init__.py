@@ -74,6 +74,21 @@ def tiene_semillas(hotel_id: str | None = None) -> bool:
     return (_RAIZ / (hotel_id or HOTEL_ID)).is_dir()
 
 
+def room_types_estandar() -> list[dict]:
+    """Los códigos estándar de categoría de habitación, iguales en TODO el grupo.
+
+    A diferencia de `semilla()`, esto **no** va por carpeta de hotel: es
+    justamente lo que no cambia entre propiedades. El nombre que trae es un
+    rótulo vacío («Categoría 1»…) porque el nombre sí es de cada una.
+
+    Los enteros se leen como enteros: acá no hay plata, así que no pasan por
+    `_a_decimal` — `units` y `pax_*` son columnas `Integer`.
+    """
+    ruta = _RAIZ / "room_types_estandar.json"
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    return datos["room_types"]
+
+
 def semilla_cruda(nombre: str, hotel_id: str | None = None):
     """La semilla `nombre` TAL COMO ESTA EN EL ARCHIVO, sin tocar los tipos.
 

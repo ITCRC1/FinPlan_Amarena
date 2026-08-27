@@ -17,7 +17,7 @@ contable** —que no es de ningún hotel en particular— y **nada más**:
 | Se siembra solo, en cada arranque | No se siembra: lo carga el owner |
 |---|---|
 | `account_mapping` (el ruteo del P&L) | Usuarios |
-| `report_line_config` | Tipos de habitación |
+| `report_line_config` | Los NOMBRES de las categorías |
 | `department_catalog` | Tarifas, ocupación, canales |
 | `stat_accounts` (cuentas 9xxx) | Planilla |
 | `market_codes` | Checkbooks (OPEX, costos) |
@@ -162,10 +162,14 @@ usuario: a partir de ahí devuelve 409 y los demás usuarios se crean desde
 ## 4. Cargar la propiedad, en este orden
 
 1. **Master Data → Provisionamiento**: nombre, habitaciones, tipo de cambio.
-2. **Tipos de habitación**: acá nacen los códigos (`BL01`, `BI02`…).
+2. **Tipos de habitación**: las ocho categorías ya vienen sembradas con los
+   códigos estándar del grupo (`BL01`, `BI02`, `PO03`, `RO04`, `BI05`, `BL06`,
+   `SH07`, `SH08`), con el rótulo en blanco («Categoría 1»…) y en 0 unidades.
+   **Lo único que se hace acá es renombrarlas y ponerles las unidades.**
    ⚠️ **El código no se mueve nunca**: es lo que liga la categoría entre
-   escenarios, reportes y años. El nombre se puede editar; el código y el orden
-   no.
+   escenarios, reportes y propiedades. El nombre se puede editar; el código y el
+   orden no. Una categoría que esta propiedad no use se OCULTA, no se borra.
+   Si hicieran falta más de ocho, la novena sigue el correlativo (`SH09`).
 3. **Paquete / experiencias / canales**: nacen en blanco a propósito.
 4. **Escenarios**: crear el primero. ⚠️ No usar «crear copiando» sin revisar el
    origen.
@@ -187,7 +191,7 @@ SELECT id, name, rooms FROM hotels;
 -- ANTES de cargar nada: todo lo que se cargue después cuelga de ese id.
 
 SELECT count(*) FROM users;              -- 0 antes del bootstrap, 1 después
-SELECT count(*) FROM room_type_configs;  -- 0: los carga el owner
+SELECT count(*) FROM room_type_configs;  -- 8: los códigos estándar del grupo
 SELECT count(*) FROM account_mapping;    -- ~1.172: el motor, que sí se siembra
 ```
 

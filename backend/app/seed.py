@@ -16,11 +16,13 @@ entorno manda siempre:
 """
 import asyncio
 import os
+import uuid as _uuid
 from decimal import Decimal
 from sqlalchemy import select, func
 from app.db import engine, SessionLocal, Base
 from app.models.hotel import Hotel
 from app.models.room_type_config import RoomTypeConfig
+from app.seed_data import room_types_estandar
 from app.models.user import User
 # Importar todos los modelos para que Base.metadata los registre
 from app.models import Account, PayrollAccount, Scenario, ExchangeRate  # noqa
@@ -72,11 +74,21 @@ async def seed():
         else:
             print(f"  Hotel {HOTEL_ID} ya existe — omitido")
 
-        # Tipos de habitación: NO se inventa ninguno. Los códigos que nacen acá
-        # (`BL01`, `BI02`…) son lo que liga una categoría entre escenarios,
-        # reportes y años — sembrar los de otro hotel dejaría las noches reales
-        # de Amarena guardadas bajo un tipo que no existe. Se cargan en
-        # Master Data → Tipos de habitación.
+        # Tipos de habitación: se siembran los CÓDIGOS del estándar del grupo,
+        # con el nombre en blanco. Los códigos (`BL01`, `BI02`…) son los MISMOS
+        # en todas las propiedades porque son lo que liga una categoría entre
+        # escenarios, reportes y hoteles — el reporte de Junta cruza por código,
+        # no por id ni por nombre (owner, 2026-08-27).
+        #
+        # ⚠️ Lo que NO se siembra son los NOMBRES. Poner acá los de Corcovado
+        # dejaría las noches reales de otra propiedad guardadas bajo una
+        # categoría que no es suya. El rótulo se edita en Master Data → Tipos de
+        # habitación, y es lo único que se edita: el código y la posición quedan
+        # clavados al crearse (el PUT devuelve 409).
+        #
+        # Se aplica UNA sola vez, cuando el hotel no tiene ninguna categoría.
+        # No reafirma: si ya hay filas, este bloque no las toca. Un seed que
+        # renombrara en cada arranque le pisaría al owner lo que acaba de cargar.
         result = await db.execute(
             select(RoomTypeConfig).where(RoomTypeConfig.hotel_id == HOTEL_ID)
         )
@@ -84,7 +96,17 @@ async def seed():
         if existing_types:
             print(f"  Tipos de habitación ya existen ({len(existing_types)}) — omitidos")
         else:
-            print(f"  {HOTEL_ID}: sin tipos de habitación — se cargan en Master Data")
+            for fila in room_types_estandar():
+                db.add(RoomTypeConfig(
+                    id=str(_uuid.uuid4()), hotel_id=HOTEL_ID,
+                    sort_order=fila["sort_order"], code=fila["code"],
+                    name=fila["name"], short_name=fila["short_name"],
+                    units=fila["units"], pax_min=fila["pax_min"],
+                    pax_max=fila["pax_max"], active=True,
+                ))
+            codigos = ", ".join(f["code"] for f in room_types_estandar())
+            print(f"  {HOTEL_ID}: {len(room_types_estandar())} categorías estándar "
+                  f"sembradas ({codigos}) — renombralas en Master Data")
 
         # Usuarios: ninguno. El primer admin se crea desde la pantalla de login
         # (ver el comentario de arriba). Que la tabla esté vacía es lo que
