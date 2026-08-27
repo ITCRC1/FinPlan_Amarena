@@ -296,8 +296,25 @@ async def _lo_subido_manda(session, scenario) -> bool:
     return await recalc.lo_subido_manda(session, scenario)
 
 
+async def _renta_digitada(session, scenario) -> bool:
+    """¿Alguien escribió el impuesto de renta a mano en el auxiliar Below-GOP?
+
+    Se pregunta por separado de `_lo_subido_manda` a propósito: esa bandera
+    también decide si el recálculo puede pisar los auxiliares, y colgarle este
+    caso cambiaría cosas que no tienen nada que ver con el impuesto.
+
+    Cero no cuenta: el auxiliar guarda una fila en cero por cada línea que se
+    abre, y una línea abierta y vacía no puede apagar el cálculo.
+    """
+    filas = (await session.execute(select(NonOpEntry).where(
+        NonOpEntry.scenario_id == scenario.id,
+        NonOpEntry.report_line_code == "INCOME_TAXES"))).scalars().all()
+    return any(any(getattr(e, m, None) for m in _BG_MONTH_COLS) for e in filas)
+
+
 def _aggregate_selected(sel: list[dict], *, lo_subido_manda: bool = False,
-                       ebt_anual: float | None = None) -> dict:
+                       ebt_anual: float | None = None,
+                       renta_digitada: bool = False) -> dict:
     """Sum a chosen set of monthly results (each {month, kpis, lines}) into one
     column → {kpis, lines}. Lines carry summed amount + PAR/POR over the
     aggregated room KPIs. Building block for single month, YTD and Full Year.
@@ -305,14 +322,21 @@ def _aggregate_selected(sel: list[dict], *, lo_subido_manda: bool = False,
     `lo_subido_manda=True` (escenario histórico / importado) → **la columna
     sale tal cual la sumó el motor sobre el dato subido**, sin corrección de
     impuesto. Es la regla del owner: en un histórico no se calcula nada que ya
-    venga cargado. Ver `_lo_subido_manda` y `_apply_tax_correction`."""
+    venga cargado. Ver `_lo_subido_manda` y `_apply_tax_correction`.
+
+    `renta_digitada=True` → alguien escribió el impuesto en el auxiliar
+    Below-GOP, así que tampoco se corrige. Es la misma idea por otra puerta: el
+    motor ya respeta lo digitado, pero sin esto la reparación de la COLUMNA lo
+    volvía a pisar —tres de sus ramas escriben sobre el impuesto: año en
+    pérdida, ventana en pérdida, e |impuesto| < $1—. Owner, 2026-08-27: «que no
+    se sobreescriba al menos que yo venga y lo quite»."""
     amounts: dict[str, float] = {}
     meta: dict[str, pl_engine.PLLineResult] = {}
     for m in sel:
         for ln in m["lines"]:
             amounts[ln.line_code] = amounts.get(ln.line_code, 0.0) + float(ln.amount_usd)
             meta.setdefault(ln.line_code, ln)
-    if not lo_subido_manda:
+    if not (lo_subido_manda or renta_digitada):
         _apply_tax_correction(
             amounts,
             [sum(float(ln.amount_usd) for ln in m["lines"] if ln.line_code == "EBT")
@@ -379,12 +403,14 @@ def _ebt_anual(monthly: list[dict]) -> float:
 
 
 def _aggregate(monthly: list[dict], through_month: int, *,
-               lo_subido_manda: bool = False) -> dict:
+               lo_subido_manda: bool = False,
+               renta_digitada: bool = False) -> dict:
     """YTD / Full Year column = sum of months 1..through_month."""
     sel = [m for m in monthly if m["month"] <= through_month]
     return {"through_month": through_month,
             **_aggregate_selected(sel, lo_subido_manda=lo_subido_manda,
-                                  ebt_anual=_ebt_anual(monthly))}
+                                  ebt_anual=_ebt_anual(monthly),
+                                  renta_digitada=renta_digitada)}
 
 
 def _scenario_label(s: Scenario) -> str:
@@ -397,6 +423,7 @@ async def get_pl_monthly(scenario_id: str):
         scenario = await _get_scenario_or_404(session, scenario_id)
         monthly = await _monthly_results(session, scenario)
         subido = await _lo_subido_manda(session, scenario)
+        renta_a_mano = await _renta_digitada(session, scenario)
 
         months = [{
             "month": m["month"],
@@ -404,7 +431,8 @@ async def get_pl_monthly(scenario_id: str):
             "lines": [_line_to_dict(ln, m["kpis"]) for ln in m["lines"]],
         } for m in monthly]
 
-        full = _aggregate(monthly, 12, lo_subido_manda=subido)
+        full = _aggregate(monthly, 12, lo_subido_manda=subido,
+                          renta_digitada=renta_a_mano)
         annual = {ln["line_code"]: ln["amount_usd"] for ln in full["lines"]}
         return {
             "scenario_id": scenario_id,
@@ -425,7 +453,8 @@ async def get_pl_ytd(scenario_id: str, month: int):
         scenario = await _get_scenario_or_404(session, scenario_id)
         monthly = await _monthly_results(session, scenario)
         agg = _aggregate(monthly, month,
-                         lo_subido_manda=await _lo_subido_manda(session, scenario))
+                         lo_subido_manda=await _lo_subido_manda(session, scenario),
+                         renta_digitada=await _renta_digitada(session, scenario))
         return {
             "scenario_id": scenario_id,
             "year": scenario.year,
@@ -458,10 +487,12 @@ async def get_pl_compare(scenarios: str, month: int = 12):
             # Regla del owner: a un escenario con el dato SUBIDO no se le
             # corrige nada; las columnas salen tal cual las sumó el motor.
             subido = await _lo_subido_manda(session, scenario)
+            renta_a_mano = await _renta_digitada(session, scenario)
             anual = _ebt_anual(monthly)
             def _col(sel):
                 return _aggregate_selected(sel, lo_subido_manda=subido,
-                                           ebt_anual=anual)
+                                           ebt_anual=anual,
+                                           renta_digitada=renta_a_mano)
             one = _col([m for m in monthly if m["month"] == month])
             ytd = _col([m for m in monthly if m["month"] <= month])
             full = _col(monthly)
@@ -502,9 +533,11 @@ async def get_pl_compare_range(scenarios: str, from_month: int = 1, to_month: in
                 continue
             monthly = await _monthly_results(session, scenario)
             subido = await _lo_subido_manda(session, scenario)
+            renta_a_mano = await _renta_digitada(session, scenario)
             anual = _ebt_anual(monthly)
             sel = [m for m in monthly if from_month <= m["month"] <= to_month]
-            rango = _aggregate_selected(sel, lo_subido_manda=subido, ebt_anual=anual)
+            rango = _aggregate_selected(sel, lo_subido_manda=subido, ebt_anual=anual,
+                                        renta_digitada=renta_a_mano)
             versions.append({
                 "scenario_id": sid,
                 "label": _scenario_label(scenario),

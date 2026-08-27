@@ -1256,10 +1256,25 @@ def calculate_budget_pl_from_mapping(
         else:
             seeds.setdefault(_lc, ZERO)
 
+    # El impuesto digitado en el auxiliar, si hay. Se saca ANTES del pase 1 a
+    # propósito: el impuesto va DEBAJO del EBT, así que no puede participar de
+    # su cálculo. Dejarlo en la semilla haría depender el EBT de la fórmula del
+    # reporte, y un cambio ahí movería la base del impuesto sin que se vea.
+    #
+    # Cero no es «digitado»: el auxiliar guarda una fila en cero por cada línea
+    # que se abre, y una línea abierta y vacía no puede apagar el cálculo. Un
+    # monto NEGATIVO sí es un dato — es el crédito de un mes en pérdida.
+    renta_digitada = seeds.pop("INCOME_TAXES", None)
+
     # Pass 1 — everything except income tax, to read EBT.
     first = calculate_pl_from_mapping(acct_rows, mappings, report_lines, seed_amounts=seeds)
     ebt = get_line(first, "EBT")
-    if income_tax is not None:
+    if renta_digitada:
+        # Lo digitado manda (owner, 2026-08-27). Ni la tasa ni el piso anual lo
+        # tocan: si alguien escribió el impuesto, ese ES el impuesto. Para
+        # volver al cálculo se borra el monto del auxiliar.
+        tax = _d(renta_digitada)
+    elif income_tax is not None:
         # El impuesto del mes ya viene resuelto con el año a la vista (ver
         # `renta_por_mes`), con su signo. Es el camino normal.
         tax = _d(income_tax)

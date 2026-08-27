@@ -43,7 +43,7 @@ const SECTIONS: Section[] = [
   // seeds): el % sólo calcula si la línea no trae monto. Owner, 2026-08-27:
   // «abras la opción manual para todos… que no se sobreescriba al menos que yo
   // venga y lo quite» · «mete la línea y que diga manual para diferenciar».
-  // Income Tax NO está: sale del EBT del año, no es un gasto que se digite.
+  // Income Tax también está, al final: ver su sección.
   {
     title: "Rent & Management Fees", subtotal: "Total Rent and Management Fees",
     lines: [
@@ -82,6 +82,18 @@ const SECTIONS: Section[] = [
     title: "Depreciation", subtotal: "Total Depreciations",
     lines: [
       { code: "DEPRECIATION", name: "Depreciation", account_code: "8040", kind: "manual" },
+    ],
+  },
+  // El impuesto de renta también se puede digitar (owner, 2026-08-27: «mejor
+  // que haya digitación»). Es el único con DOS cálculos detrás —la tasa sobre
+  // el EBT con piso ANUAL en `renta_por_mes`, y la reparación de la columna en
+  // `_apply_tax_correction`— así que respetar lo digitado hizo falta en los dos
+  // lados: `_renta_digitada` apaga la reparación. Borrar el monto devuelve el
+  // control al cálculo.
+  {
+    title: "Income Tax", subtotal: "Total Income Tax",
+    lines: [
+      { code: "INCOME_TAXES", name: "Income Taxes — manual", account_code: "8060", kind: "manual" },
     ],
   },
 ];
@@ -305,7 +317,7 @@ export default function NonOpCheckbookPage() {
       <AvisoLineasObligatorias scenarioId={scenarioId} />
 
       <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-secondary)" }}>
-        Las líneas «manual» se digitan acá y le ganan al % del tab Management Fees: el porcentaje sólo calcula si la línea está vacía. Borre el monto para volver al %. Income Tax (EBT × 30%) sí es calculado — sale del año, no se digita.
+        Las líneas «manual» se digitan acá y le ganan al cálculo: el % de Management Fees y la tasa de renta sólo se aplican si la línea está vacía. Borre el monto para volver al cálculo.
       </p>
 
       {msg && (
