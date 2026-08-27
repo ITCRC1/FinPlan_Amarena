@@ -104,7 +104,7 @@ def test_la_pantalla_respeta_el_orden_del_pl(lineas_de_la_pantalla, orden_del_pl
 
 def test_cada_renglon_de_la_pantalla_es_una_linea_del_pl(
         lineas_de_la_pantalla, orden_del_pl):
-    """El auxiliar suma por `report_line_code` (ver `sum_nonop_by_line`): un
+    """El auxiliar suma por `report_line_code` (ver `nonop_line_seeds_for_month`): un
     código que el P&L no conoce se digita, se guarda y **no aparece en ningún
     reporte**. No falla nada; la plata simplemente no llega."""
     huerfanos = sorted(c for c in lineas_de_la_pantalla if c not in orden_del_pl)
