@@ -45,10 +45,13 @@ class AccountMapping(Base):
     # Vigencia de la regla, `YYYY-MM` inclusive. NULL = sin límite por ese lado.
     #
     # Existe porque el mapeo CAMBIA y los reportes ya enviados no pueden cambiar
-    # con él. D9 movió la cuenta 7120 de `OH_ADMIN` a `OH_CC_COMMISSIONS`: sin
-    # vigencia, junio 2026 —ya enviado a SCP— devolvería números distintos al
-    # reejecutarse, y seguiría cuadrando, porque la plata solo se mueve entre dos
-    # filas del mismo subtotal. Un cambio que no se nota es el peor.
+    # con él: si la plata solo se mueve entre dos filas del MISMO subtotal, el
+    # reporte sigue cuadrando y el cambio no se nota — que es el peor caso.
+    #
+    # El caso que lo trajo (D9: la 7120 partida en jul-2026 entre `OH_ADMIN` y
+    # `OH_CC_COMMISSIONS`) se dio de baja el 2026-08-27; el owner no quiere la
+    # comisión de tarjeta en su propia línea. Hoy NINGUNA regla usa vigencia. El
+    # mecanismo se queda: es la única forma de versionar el mapeo.
     vigente_desde = Column(String(7), nullable=True)
     vigente_hasta = Column(String(7), nullable=True)
 

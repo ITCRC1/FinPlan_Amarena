@@ -534,7 +534,7 @@
    ],
    "operandos": [],
    "formula_nota": "",
-   "nota": "excluye OH_CC_COMMISSIONS desde v2 del mapping",
+   "nota": "incluye la comision de tarjeta (7120): el owner la quiso dentro de A&G, sin linea aparte (2026-08-27)",
    "estilo": {
     "resalte": "",
     "formato": "money",
@@ -552,12 +552,10 @@
    "indent": 2,
    "line_type": "DETAIL",
    "nature": "expense",
-   "lineas_pl": [
-    "OH_CC_COMMISSIONS"
-   ],
+   "lineas_pl": [],
    "operandos": [],
    "formula_nota": "",
-   "nota": "linea nueva: cuenta 7120 depto 180 — ver D9",
+   "nota": "fila SIN fuente: el 7120 volvio a A&G (UND_AG). Se deja la posicion porque el archivo de SCP se compara fila por fila; sale en cero",
    "estilo": {
     "resalte": "",
     "formato": "money",
@@ -1564,12 +1562,6 @@
    "linea_pl": "OH_LAUNDRY",
    "report_code": "UND_AG",
    "nota": "MEDIA — D5"
-  },
-  {
-   "report_key": "owners_q",
-   "linea_pl": "OH_CC_COMMISSIONS",
-   "report_code": "UND_CC_COMMISSIONS",
-   "nota": "NUEVA v2 — cuenta 7120 depto 180 (D9 resuelto)"
   },
   {
    "report_key": "owners_q",

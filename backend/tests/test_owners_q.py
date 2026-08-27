@@ -362,12 +362,19 @@ def test_dias_del_mes_y_ytd():
 
 
 def test_el_catalogo_cubre_las_lineas_pl(catalogo):
-    """Cada `Línea P&L` cae en UNA fila, por los dos caminos, sin choques."""
+    """Cada `Línea P&L` cae en UNA fila, por los dos caminos, sin choques.
+
+    67 y no 68 desde el 2026-08-27: `OH_CC_COMMISSIONS` dejó de existir. El
+    owner no quiere la comisión de tarjeta en su propia línea, así que la 7120
+    volvió a A&G. La fila 30 del reporte se conserva —el archivo de SCP se
+    compara fila por fila contra el fixture— pero ya no tiene fuente: sale en
+    cero y su plata viaja en `UND_AG`.
+    """
     filas, ruteo = catalogo
     por_catalogo = {lp: f["report_code"] for f in filas for lp in (f["lineas_pl"] or [])}
     assert set(por_catalogo) == set(ruteo)
     assert por_catalogo == ruteo
-    assert len(ruteo) == 68
+    assert len(ruteo) == 67
 
 
 # ─── Versionado del mapeo (§8) ────────────────────────────────────────────────

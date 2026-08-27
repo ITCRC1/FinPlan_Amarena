@@ -158,9 +158,10 @@ async def verificar_cobertura(db) -> dict:
         "lineas_ruteadas": len(ruteo),
         # Reglas activas sin fila destino: ESTO ROMPE.
         "huerfanas": huerfanas,
-        # Ruteadas pero sin ninguna regla todavía: se avisa, no rompe (es el
-        # caso normal de una línea recién creada, como OH_CC_COMMISSIONS antes
-        # de que su vigencia arranque).
+        # Ruteadas pero sin ninguna regla todavía: se avisa, no rompe. Es el
+        # caso normal de una línea recién creada, y también el de una que se
+        # jubiló: `UND_CC_COMMISSIONS` conserva su fila en el archivo de SCP
+        # aunque su cuenta volvió a A&G.
         "ruteadas_sin_regla": sin_regla,
         "destino_inexistente": destino_inexistente,
     }

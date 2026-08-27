@@ -81,10 +81,10 @@ def test_la_llave_de_negocio_departamento_cuenta_es_unica(activas):
     """Dos reglas VIGENTES A LA VEZ para el mismo par = la línea la elige el
     orden de las filas.
 
-    La unicidad es por par **y por momento**. Desde D9 el par (0180, 7120) tiene
-    dos reglas: `OH_ADMIN` hasta jun-2026 y `OH_CC_COMMISSIONS` desde jul-2026.
-    No se pisan un solo mes, así que no hay ambigüedad — pero si alguien les
-    corre la vigencia y se solapan, esto tiene que volver a fallar.
+    La unicidad es por par **y por momento**. D9 le había puesto dos reglas al
+    par (0180, 7120) —`OH_ADMIN` hasta jun-2026 y `OH_CC_COMMISSIONS` desde
+    jul-2026—; el 2026-08-27 se quitó la partición y quedó una sola, sin tope.
+    Si alguien vuelve a partir un par y las vigencias se solapan, esto falla.
     """
     por_par = collections.defaultdict(list)
     for m in activas:

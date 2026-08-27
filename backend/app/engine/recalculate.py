@@ -303,11 +303,16 @@ async def load_active_account_mappings(
     `periodo` (`YYYY-MM`) pide el mapeo VIGENTE EN ESE MES; `None` —el default,
     y lo que usa todo el P&L del día a día— pide el vigente hoy.
 
-    Existe por D9: desde jul-2026 la cuenta 7120 dejó `OH_ADMIN` y se fue a
-    `OH_CC_COMMISSIONS`. Las dos reglas conviven en la tabla, y sin filtrar por
-    vigencia cuál gana depende del orden físico de las filas — `construir_resolvedor`
-    se queda con la primera que ve para cada (depto, cuenta). Filtrar acá es lo
-    que hace que un período ya enviado a SCP siga devolviendo lo mismo.
+    Existe porque dos reglas del mismo (depto, cuenta) pueden convivir en la
+    tabla con vigencias distintas, y sin filtrar cuál gana depende del orden
+    físico de las filas — `construir_resolvedor` se queda con la primera que ve.
+    Filtrar acá es lo que hace que un período ya enviado siga devolviendo lo
+    mismo.
+
+    Lo trajo D9 (la 7120 partida en jul-2026 hacia `OH_CC_COMMISSIONS`), regla
+    que se quitó el 2026-08-27: la comisión de tarjeta va dentro de A&G. Hoy no
+    hay ninguna regla con vigencia, así que este filtro no descarta nada — y por
+    eso mismo tiene que seguir probado.
     """
     cache = _cache_de_configuracion(session)
     clave = ("account_mapping", report_id, periodo)

@@ -261,20 +261,32 @@ def test_la_clave_del_seed_ES_la_restriccion_de_la_tabla():
         assert _columnas_unicas(modelo) == dela_tabla, modelo.__name__
 
 
-def test_las_dos_reglas_de_la_7120_NO_son_la_misma():
+def test_dos_vigencias_del_MISMO_par_no_son_la_misma_llave():
     """La vigencia existe porque el mapeo cambia y los reportes ya enviados no
-    pueden cambiar con él. Si la clave las confunde, una pisa a la otra."""
-    import json
+    pueden cambiar con él. Si la clave las confunde, el seed intenta insertar la
+    segunda y **se cae el lote entero** con un `IntegrityError` — que es
+    exactamente lo que pasaba hasta el 2026-08-20.
 
-    from app.seed_mapping import ARCHIVO, _clave_mapeo
+    Las filas van armadas acá y no leídas del archivo a propósito. Estaba
+    clavada al par (0180, 7120), el único que usaba vigencia, y cuando el owner
+    pidió quitar la comisión de tarjeta separada (2026-08-27) la prueba se cayó
+    sin que nada estuviera roto. Lo que se protege es la LLAVE, no ese dato.
+    """
+    from app.seed_mapping import _clave_mapeo
 
-    datos = json.loads(ARCHIVO.read_text(encoding="utf-8"))
-    reglas = [r for r in datos["account_mapping"]
-              if r["account_code"] == "7120"
-              and r["source_department"] == "Departamento de Administración"
-              and r["report_id"] == "P&L_DETAIL_OWNERS"]
-    assert len(reglas) == 2, "el archivo dejó de traer las dos vigencias"
-    assert _clave_mapeo(reglas[0]) != _clave_mapeo(reglas[1])
+    base = {
+        "report_id": "P&L_DETAIL_OWNERS",
+        "source_department": "Departamento de Administración",
+        "account_code": "7120",
+        "source_origin": "Opex",
+    }
+    hasta_junio = {**base, "vigente_desde": None, "vigente_hasta": "2026-06"}
+    desde_julio = {**base, "vigente_desde": "2026-07", "vigente_hasta": None}
+
+    assert _clave_mapeo(hasta_junio) != _clave_mapeo(desde_julio)
+    # Y el otro lado: sin vigencia, el mismo par SÍ es la misma fila.
+    assert _clave_mapeo(hasta_junio) == _clave_mapeo(
+        {**base, "vigente_desde": None, "vigente_hasta": "2027-01"})
 
 
 def test_NINGUNA_llave_del_archivo_se_repite():

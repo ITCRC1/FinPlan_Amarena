@@ -723,18 +723,6 @@
   {
    "report_id": "P&L_DETAIL_OWNERS",
    "display_order": 74,
-   "line_code": "OH_CC_COMMISSIONS",
-   "section": "OVERHEAD EXPENSES",
-   "line_name": "Credit Card Commissions",
-   "line_type": "MAPPED",
-   "parent_line_code": "SEC_OVERHEAD_EXPENSES",
-   "calculation_logic": "Payroll + Opex for Administración",
-   "format_hint": "currency/number",
-   "active": true
-  },
-  {
-   "report_id": "P&L_DETAIL_OWNERS",
-   "display_order": 74,
    "line_code": "OH_SALES_MARKETING",
    "section": "OVERHEAD EXPENSES",
    "line_name": "Sales & Marketing",
@@ -3666,27 +3654,8 @@
    "financial_nature": "Expense",
    "rollup_operator": "SUM",
    "sign_rule": "Aggregate to line as positive display value; calculations subtract expense lines at subtotal level.",
-   "notes": " D9: hasta jun-2026 iba en A&G; desde jul-2026 va a OH_CC_COMMISSIONS.",
-   "dept_code": "0180",
-   "vigente_hasta": "2026-06"
-  },
-  {
-   "active_status": "YES",
-   "report_id": "P&L_DETAIL_OWNERS",
-   "report_line_code": "OH_CC_COMMISSIONS",
-   "report_line_name": "Credit Card Commissions",
-   "report_section": "OVERHEAD EXPENSES",
-   "display_order": 74,
-   "source_origin": "Opex",
-   "source_department": "Departamento de Administración",
-   "account_code": "7120",
-   "account_name_example": "Credit Card Commissions",
-   "financial_nature": "Expense",
-   "rollup_operator": "SUM",
-   "sign_rule": "Aggregate to line as positive display value; calculations subtract expense lines at subtotal level.",
-   "notes": "D9: SCP exige la comision de tarjeta separada de A&G (su fila 29 se titula 'excl CC & ESDG').",
-   "dept_code": "0180",
-   "vigente_desde": "2026-07"
+   "notes": "La comisión de tarjeta va DENTRO de A&G, no en su propia línea (owner, 2026-08-27: «no puede ir separado credit card comisions»). Antes se partía en jul-2026 por pedido de SCP; esa regla se quitó.",
+   "dept_code": "0180"
   },
   {
    "active_status": "YES",
