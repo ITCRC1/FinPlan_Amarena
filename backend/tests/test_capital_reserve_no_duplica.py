@@ -45,13 +45,20 @@ def _pl(manual: ManualInputs, extra=None) -> dict:
     return {l.line_code: l.amount_usd for l in lines}
 
 
-def test_con_porcentaje_el_porcentaje_gana_y_no_se_suma_lo_digitado():
-    """El caso del pendiente: alguien tipeó $12.345 en la hoja Excel Y el %
-    de Capital Reserve está configurado en 4%. El resultado tiene que ser
-    SOLO el 4% del ingreso — nunca $12.345 + 4%."""
+def test_con_porcentaje_gana_lo_digitado_y_no_se_suman():
+    """Alguien tipeó $12.345 en el auxiliar Y el % de Capital Reserve está en 4%.
+
+    ⚠️ Regla invertida el 2026-08-27 (owner: «que no se sobreescriba al menos
+    que yo venga y lo quite»). Antes ganaba el %; hoy gana el monto digitado. Lo
+    que NO cambió, y es el invariante que esta prueba cuidaba desde el principio,
+    es que **las dos cifras nunca se suman**: una manda y la otra se ignora.
+    Para volver al %, se borra el monto del auxiliar.
+    """
     v = _pl(ManualInputs(capital_reserve_pct=Decimal("0.04")),
             extra={"CAPITAL_RESERVE": Decimal("12345")})
-    assert v["CAPITAL_RESERVE"] == Decimal("40000")
+    assert v["CAPITAL_RESERVE"] == Decimal("12345")
+    assert v["CAPITAL_RESERVE"] != Decimal("52345"), "se sumaron las dos"
+    assert v["CAPITAL_RESERVE"] != Decimal("40000"), "el % pisó lo digitado"
 
 
 def test_sin_porcentaje_respeta_lo_digitado():

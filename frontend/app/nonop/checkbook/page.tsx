@@ -24,9 +24,7 @@ type Section = { title: string; subtotal: string; lines: LineDef[] };
 // Below-GOP organised by P&L group, mirroring the owner report. Manual lines
 // are mini checkbooks; driver lines (mgmt fee, income tax) are computed.
 const SECTIONS: Section[] = [
-  // Cuentas reales de dueños (8xxx). Owners Fee (8005) y Capital Reserve (8020)
-  // son % de revenue → tab Management Fees. Income Tax (8060) se calcula (30% EBT).
-  // Aquí van las manuales, mapeadas a las líneas P&L below-GOP existentes.
+  // Cuentas reales de dueños (8xxx), cada línea un mini checkbook.
   //
   // ⚠️ Esta lista es la ÚNICA forma de cargar una línea below-GOP: el subtotal de
   // cada sección y el TOTAL BELOW-GOP se derivan de acá, y lo que no está no se
@@ -35,14 +33,28 @@ const SECTIONS: Section[] = [
   // las contaba y no había dónde llenarlas. `test_rent_y_seguro_en_el_auxiliar`
   // compara las dos listas para que no vuelva a pasar.
   //
-  // El ORDEN es el del P&L, no cosmético: RENT es la 86 y PROPERTIES INSURANCE la
-  // 92, antes de Other (96), las financieras (117-119) y Depreciation (123). Por
-  // eso Property Expenses va primero (owner, 2026-08-27: «deben ir de primero y
-  // que consoliden con el total»).
+  // El ORDEN y los SUBTOTALES son los del P&L, no cosméticos: así el que cuadra a
+  // mano va renglón por renglón contra el reporte. RENT 86, MGMT_FEE_3 87,
+  // MGMT_FEE_5_ROYALTIES 88, PROPERTY_INSURANCE 92, OTHER_EXPENSES 96,
+  // CAPITAL_RESERVE 109, las financieras 117-119, DEPRECIATION 123.
+  //
+  // ⚠️ Las tres líneas rotuladas «manual» también tienen un % en el tab
+  // Management Fees. **Lo digitado acá gana** (ver `pl_engine`, el bucle de los
+  // seeds): el % sólo calcula si la línea no trae monto. Owner, 2026-08-27:
+  // «abras la opción manual para todos… que no se sobreescriba al menos que yo
+  // venga y lo quite» · «mete la línea y que diga manual para diferenciar».
+  // Income Tax NO está: sale del EBT del año, no es un gasto que se digite.
   {
-    title: "Property Expenses", subtotal: "Total Property Expenses",
+    title: "Rent & Management Fees", subtotal: "Total Rent and Management Fees",
     lines: [
       { code: "RENT", name: "Rent", account_code: "8000", kind: "manual" },
+      { code: "MGMT_FEE_3", name: "Management Fees (3%) — manual", account_code: "8005", kind: "manual" },
+      { code: "MGMT_FEE_5_ROYALTIES", name: "Royalties (5%) — manual", account_code: "8005", kind: "manual" },
+    ],
+  },
+  {
+    title: "Property Insurance", subtotal: "Property Insurance",
+    lines: [
       { code: "PROPERTY_INSURANCE", name: "Properties Insurance", account_code: "8015", kind: "manual" },
     ],
   },
@@ -50,6 +62,12 @@ const SECTIONS: Section[] = [
     title: "Other / Non-Deductible", subtotal: "Total Other Expenses",
     lines: [
       { code: "OTHER_EXPENSES", name: "Fines & Other Non-Deductible Expenses", account_code: "8025", kind: "manual" },
+    ],
+  },
+  {
+    title: "Capital", subtotal: "Capital Expense",
+    lines: [
+      { code: "CAPITAL_RESERVE", name: "Capital Reserve — manual", account_code: "8020", kind: "manual" },
     ],
   },
   {
@@ -287,7 +305,7 @@ export default function NonOpCheckbookPage() {
       <AvisoLineasObligatorias scenarioId={scenarioId} />
 
       <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-secondary)" }}>
-        Management Fees (Revenue × %) e Income Tax (EBT × 30%) son drivers calculados — se muestran de referencia, no se editan aquí.
+        Las líneas «manual» se digitan acá y le ganan al % del tab Management Fees: el porcentaje sólo calcula si la línea está vacía. Borre el monto para volver al %. Income Tax (EBT × 30%) sí es calculado — sale del año, no se digita.
       </p>
 
       {msg && (

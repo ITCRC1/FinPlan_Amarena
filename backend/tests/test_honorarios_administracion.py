@@ -61,11 +61,20 @@ def test_sin_porcentaje_respeta_el_honorario_digitado():
     assert v["TOTAL_RENT_MGMT_FEES"] == Decimal("12345")
 
 
-def test_con_porcentaje_el_porcentaje_gana_y_no_se_suma_dos_veces():
-    """Configurar el % es decir «calculámelo»: no se apila sobre lo digitado."""
+def test_con_porcentaje_gana_lo_digitado_y_no_se_suma_dos_veces():
+    """El honorario digitado en el auxiliar con el 3% también configurado.
+
+    ⚠️ Regla invertida el 2026-08-27 (owner: «que no se sobreescriba al menos
+    que yo venga y lo quite»). Antes ganaba el %; hoy gana el monto digitado. Lo
+    que NO cambió, y es el invariante que esta prueba cuidaba desde el principio,
+    es que **las dos cifras nunca se suman**: una manda y la otra se ignora.
+    Para volver al %, se borra el monto del auxiliar.
+    """
     v = _pl(ManualInputs(mgmt_fee_pct_3=Decimal("0.03")),
             extra={"MGMT_FEE_3": Decimal("12345")})
-    assert v["MGMT_FEE_3"] == Decimal("30000")
+    assert v["MGMT_FEE_3"] == Decimal("12345")
+    assert v["MGMT_FEE_3"] != Decimal("42345"), "se sumaron las dos"
+    assert v["MGMT_FEE_3"] != Decimal("30000"), "el % pisó lo digitado"
 
 
 def test_las_dos_lineas_se_quedan_abiertas_y_el_total_las_junta():

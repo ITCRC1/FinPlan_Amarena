@@ -1235,20 +1235,26 @@ def calculate_budget_pl_from_mapping(
     # igual en las dos lecturas.
     #
     # El porcentaje es un DRIVER OPCIONAL, no la verdad: manda solo si está
-    # configurado. Antes esta asignación era `=` a secas y corría DESPUÉS de
-    # `extra_seeds` → cualquier honorario digitado en el mini-checkbook de
-    # below-GOP (`nonop_entries`) quedaba pisado por la fórmula, y sin
-    # porcentaje cargado lo pisaba con CERO. La plata desaparecía sin avisar.
+    # configurado Y la línea no trae monto digitado. Antes esta asignación era
+    # `=` a secas y corría DESPUÉS de `extra_seeds` → cualquier honorario
+    # digitado en el mini-checkbook de below-GOP (`nonop_entries`) quedaba
+    # pisado por la fórmula, y sin porcentaje cargado lo pisaba con CERO. La
+    # plata desaparecía sin avisar.
+    #
+    # ⚠️ **Lo digitado gana.** Owner, 2026-08-27: «que no se sobreescriba al
+    # menos que yo venga y lo quite». El `setdefault` ya protegía el caso sin
+    # porcentaje, pero con un porcentaje cargado la fórmula seguía pisando el
+    # monto a mano — y sin decir nada, porque las dos cifras caen en la misma
+    # línea. Para volver al porcentaje se borra el monto del auxiliar.
     for _lc, _pct in (("MGMT_FEE_3", manual.mgmt_fee_pct_3),
-                      ("MGMT_FEE_5_ROYALTIES", manual.mgmt_fee_pct_5)):
+                      ("MGMT_FEE_5_ROYALTIES", manual.mgmt_fee_pct_5),
+                      ("CAPITAL_RESERVE", manual.capital_reserve_pct)):
+        if seeds.get(_lc):                       # digitado en el auxiliar
+            continue
         if _d(_pct) > ZERO:
             seeds[_lc] = total_rev * _d(_pct)
         else:
             seeds.setdefault(_lc, ZERO)
-    # Capital Reserve as % of revenue (owner-validated). Overrides any manual
-    # amount only when a pct is set.
-    if _d(manual.capital_reserve_pct) > ZERO:
-        seeds["CAPITAL_RESERVE"] = total_rev * _d(manual.capital_reserve_pct)
 
     # Pass 1 — everything except income tax, to read EBT.
     first = calculate_pl_from_mapping(acct_rows, mappings, report_lines, seed_amounts=seeds)
