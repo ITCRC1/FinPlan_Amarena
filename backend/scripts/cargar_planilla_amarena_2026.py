@@ -19,11 +19,17 @@ contesta leyendo este archivo. Es idempotente: reemplaza sólo los departamentos
 que trae, y correrlo dos veces deja lo mismo.
 
 **Este guion NO calcula.** Sólo inserta posiciones. Los conceptos (S&W, CCSS al
-26,83 %, aguinaldo ÷12) los genera el motor con el botón «Recalcular y empujar
-al P&L» del app, o `POST /api/scenarios/{id}/recalculate/`. Se hizo así a
-propósito: reimplementar el cálculo por SQL sería una segunda verdad, y la
-planilla alimenta el P&L. (Además el motor no corre por `railway ssh`: al
-contenedor le falta `libstdc++`, greenlet no carga y SQLAlchemy muere.)
+26,83 %, aguinaldo ÷12) los genera el motor: el botón «Recalcular y empujar al
+P&L» del app, o `POST /api/scenarios/{id}/recalculate/`. Se hizo así a propósito
+— reimplementar el cálculo por SQL sería una segunda verdad, y de la planilla
+sale el P&L.
+
+**Para correr el motor por `railway ssh`** hay que exportarle el
+`LD_LIBRARY_PATH` que el proceso del app sí tiene y la sesión SSH no hereda; sin
+él `greenlet` no encuentra `libstdc++.so.6`, SQLAlchemy no importa y el motor no
+arranca. Y como el linker lee esa variable **al arrancar el proceso**, ponerla a
+mitad de camino no sirve: hay que re-ejecutar (`os.execv`). El valor sale de
+`/proc/1/environ`.
 
 **El Área Recreativa (depto 270) queda vacía** — el Club Madresal la absorbió
 (owner, 2026-08-27). De ahí viene la rareza del archivo fuente: la fórmula del
