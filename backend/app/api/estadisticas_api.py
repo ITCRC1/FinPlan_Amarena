@@ -65,7 +65,7 @@ async def catalogo(_=Depends(get_current_user)):
         }}
 
 
-@router.post("/estadisticas/catalogo/{code}/")
+@router.put("/estadisticas/catalogo/{code}/")
 async def editar_cuenta(code: str, body: dict, _=Depends(get_current_user)):
     """El NOMBRE se puede cambiar; el código no. Misma regla que los tipos de
     habitación: el código es lo que liga el dato y el nombre es la etiqueta.

@@ -113,7 +113,7 @@ async def list_nonop(scenario_id: str, db: AsyncSession = Depends(get_db)):
     return {"scenario_id": scenario_id, "lines": _group_by_line(list(entries))}
 
 
-@router.post("/nonop/{scenario_id}/bulk/")
+@router.put("/nonop/{scenario_id}/bulk/")
 async def bulk_replace_nonop(
     scenario_id: str,
     rows: list[NonOpBulkRow],

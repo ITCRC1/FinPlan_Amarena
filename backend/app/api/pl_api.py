@@ -558,7 +558,7 @@ async def get_manual_inputs(scenario_id: str):
         return [_manual_to_dict(m) for m in rows]
 
 
-@router.post("/pl/{scenario_id}/manual/{month}/")
+@router.put("/pl/{scenario_id}/manual/{month}/")
 async def upsert_manual_input(scenario_id: str, month: int, payload: ManualInputPayload):
     if not 1 <= month <= 12:
         raise ErrorApi(422, "mes.fuera_de_rango")

@@ -191,7 +191,7 @@ class ScenarioMasterBody(BaseModel):
     units: dict[str, int]   # room_type_id -> units
 
 
-@router.post("/scenarios/{scenario_id}/master/")
+@router.put("/scenarios/{scenario_id}/master/")
 async def put_scenario_master(
     scenario_id: str, body: ScenarioMasterBody, db: AsyncSession = Depends(get_db),
 ):
