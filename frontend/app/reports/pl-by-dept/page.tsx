@@ -73,6 +73,31 @@ export default function PLByDeptReportPage() {
   const pctCell = (val: number, rev: number) =>
     Math.abs(rev) > 0.005 ? <div style={{ fontSize: 10.5, fontWeight: 400, color: "var(--text-secondary)" }}>{((val / rev) * 100).toFixed(1)}%</div> : null;
 
+  /* Sumatorias por COLUMNA. Las filas de subtotal traian solo su cifra final
+     --Total Operating Profit solo el GOP, Total Overhead solo el total de
+     gastos-- y saltaban las demas columnas con `colSpan`, asi que no habia
+     forma de leer cuanto del presupuesto es planilla, cuanto gasto operativo y
+     cuanto ingreso sin ir sumando a mano. Pedido del owner, 2026-08-27.
+
+     Se suman los MISMOS campos que ya pinta cada fila de departamento, no un
+     calculo nuevo: `operating` sigue viniendo SIN repartos, igual que arriba
+     (el backend los deja aparte a proposito). Sumar otra cosa haria que el
+     subtotal no cuadrara con la columna que tiene encima. */
+  const suma = (ds: typeof opDepts,
+                k: "revenue" | "payroll" | "operating" | "total_expenses") =>
+    ds.reduce((acc, d) => acc + (d[k] || 0), 0);
+  const opRev = suma(opDepts, "revenue");
+  const opPay = suma(opDepts, "payroll");
+  const opOpx = suma(opDepts, "operating");
+  const opExp = suma(opDepts, "total_expenses");
+  const ohPay = suma(ohDepts, "payroll");
+  const ohOpx = suma(ohDepts, "operating");
+  // Totales del hotel. El overhead no tiene ingreso, asi que el ingreso total
+  // es el de los departamentos operativos.
+  const totPay = opPay + ohPay;
+  const totOpx = opOpx + ohOpx;
+  const totExp = opExp + suma(ohDepts, "total_expenses");
+
   /* El Excel lleva lo mismo que la pantalla, pero en NÚMERO: los % que la vista
      dibuja debajo de cada cifra salen como columna propia (fracción), no como
      texto pegado. Below-GOP va en su propia hoja porque tiene una sola columna
@@ -91,7 +116,9 @@ export default function PLByDeptReportPage() {
       });
     }
     filas.push({ label: "Total Operating Profit", nivel: 0, es_total: true,
-                 valores: [null, null, null, null, null, null, data.total_operating_profit, null] });
+                 valores: [opRev, opPay, razon(opPay, opRev), opOpx, razon(opOpx, opRev),
+                           opExp, data.total_operating_profit,
+                           razon(data.total_operating_profit, opRev)] });
     if (ohDepts.length) {
       filas.push({ label: t("seccionOverhead"), nivel: 0, es_total: true, valores: VACIA });
       for (const d of ohDepts) {
@@ -100,10 +127,11 @@ export default function PLByDeptReportPage() {
                      valores: [null, d.payroll, null, d.operating, null, d.total_expenses, null, null] });
       }
       filas.push({ label: "Total Overhead", nivel: 0, es_total: true,
-                   valores: [null, null, null, null, null, data.total_overhead, null, null] });
+                   valores: [null, ohPay, null, ohOpx, null, data.total_overhead, null, null] });
     }
     filas.push({ label: "GROSS OPERATING PROFIT (GOP)", nivel: 0, es_total: true,
-                 valores: [null, null, null, null, null, null, data.total_gop, null] });
+                 valores: [opRev, totPay, razon(totPay, opRev), totOpx, razon(totOpx, opRev),
+                           totExp, data.total_gop, razon(data.total_gop, opRev)] });
 
     const below: FilaCuadro[] = bg ? [
       { label: "Rent", nivel: 1, valores: [-bg.rent] },
@@ -238,8 +266,12 @@ export default function PLByDeptReportPage() {
                 </tr>
               ))}
               <tr style={{ borderTop: "1px solid var(--border-medium)", background: "rgba(38,166,154,0.08)" }}>
-                <td colSpan={5} style={{ padding: "6px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Total Operating Profit</td>
-                <td className="mono" style={{ ...td, fontWeight: 700, color: data.total_operating_profit < 0 ? "var(--negative)" : "var(--positive)" }}>{usd(data.total_operating_profit)}</td>
+                <td style={{ padding: "6px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Total Operating Profit</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(opPay)}{pctCell(opPay, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(opOpx)}{pctCell(opOpx, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(opExp)}{pctCell(opExp, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700, color: data.total_operating_profit < 0 ? "var(--negative)" : "var(--positive)" }}>{usd(data.total_operating_profit)}{pctCell(data.total_operating_profit, opRev)}</td>
               </tr>
 
               {/* Overhead — gastos no distribuidos (sin ingresos) */}
@@ -258,7 +290,10 @@ export default function PLByDeptReportPage() {
                   </tr>
                 ))}
                 <tr style={{ borderTop: "1px solid var(--border-medium)", background: "rgba(239,83,80,0.08)" }}>
-                  <td colSpan={4} style={{ padding: "6px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Total Overhead</td>
+                  <td style={{ padding: "6px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Total Overhead</td>
+                  <td className="mono" style={{ ...td, color: "var(--text-disabled)" }}>—</td>
+                  <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(ohPay)}</td>
+                  <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(ohOpx)}</td>
                   <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(data.total_overhead)}</td>
                   <td className="mono" style={{ ...td, color: "var(--text-disabled)" }}>—</td>
                 </tr>
@@ -266,8 +301,12 @@ export default function PLByDeptReportPage() {
 
               {/* GOP = Operating Profit − Overhead */}
               <tr style={{ borderTop: "2px solid var(--border-medium)", background: "rgba(255,255,255,0.04)" }}>
-                <td colSpan={5} style={{ padding: "7px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>GROSS OPERATING PROFIT (GOP)</td>
-                <td className="mono" style={{ ...td, fontWeight: 700, color: data.total_gop < 0 ? "var(--negative)" : "var(--positive)" }}>{usd(data.total_gop)}</td>
+                <td style={{ padding: "7px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>GROSS OPERATING PROFIT (GOP)</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(totPay)}{pctCell(totPay, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(totOpx)}{pctCell(totOpx, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700 }}>{usd(totExp)}{pctCell(totExp, opRev)}</td>
+                <td className="mono" style={{ ...td, fontWeight: 700, color: data.total_gop < 0 ? "var(--negative)" : "var(--positive)" }}>{usd(data.total_gop)}{pctCell(data.total_gop, opRev)}</td>
               </tr>
             </tbody>
           </table>
