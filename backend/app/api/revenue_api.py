@@ -3541,7 +3541,8 @@ async def bulk_replace_revenue_checkbook(
 
 @router.post("/scenarios/{scenario_id}/revenue/push-to-checkbook/")
 async def push_revenue_to_checkbook(
-    scenario_id: str, dry_run: bool = Query(False), db: AsyncSession = Depends(get_db),
+    scenario_id: str, dry_run: bool = Query(False),
+    sobrescribir: bool = Query(False), db: AsyncSession = Depends(get_db),
 ):
     """Pasa el ingreso calculado (tarifas × ocupación × canales) al **checkbook de
     ingresos**, que es de donde el P&L toma el ingreso.
@@ -3549,6 +3550,22 @@ async def push_revenue_to_checkbook(
     Existe porque el ingreso del presupuesto sale ÚNICAMENTE del checkbook: las
     pantallas de tarifas/ocupación son la calculadora, y este botón traslada el
     resultado. dry_run=true muestra el antes/después sin escribir.
+
+    **Un cero calculado NO borra un dato digitado.** Misma regla que el motor de
+    planilla: «un driver en cero significa *este concepto no es automático*, y
+    entonces se respeta lo que la fila ya tenga». Sin esto el botón pisaba con
+    cero toda línea sin driver cargado — le borró al owner los US$11.448 del Spa
+    y los US$10.800 de Tours, dos veces, y el total seguía viéndose razonable
+    porque Rooms había entrado por la misma corrida.
+
+    Las líneas derivadas (Rooms, Food, Beverage, Activities, Transport,
+    Sustainability) salen de tarifas × ocupación × configuración del paquete; el
+    resto son montos que se digitan o que deposita su propio driver (el Spa con
+    su capture rate, el Club con su cuota). Con el driver vacío, el motor calcula
+    cero para ambas familias, y ese cero no es un dato: es la ausencia de uno.
+
+    `sobrescribir=true` fuerza el reemplazo completo, cero incluido, para cuando
+    de verdad se quiere que manden los drivers.
     """
     from app.engine.recalculate import load_revenue_results, revenue_line_dict
     import copy as _copy
@@ -3628,12 +3645,28 @@ async def push_revenue_to_checkbook(
 
     detalle = []
     for linea, meses in sorted(lineas.items()):
-        nuevo = sum(meses.values())
         fila = actuales.get(linea)
         anterior = sum((getattr(fila, mk) or Decimal("0")) for mk in _RR_MONTHS) if fila else Decimal("0")
-        detalle.append({"linea": linea, "antes": round(float(anterior), 2),
-                        "despues": round(float(nuevo), 2),
-                        "dif": round(float(nuevo - anterior), 2)})
+        # Lo que va a QUEDAR, no lo que el motor calculó: si un mes viene en cero
+        # y no se pidió sobrescribir, queda lo que ya había. El dry-run tiene que
+        # mostrar el resultado real o no sirve para decidir.
+        meses_respetados = 0
+        nuevo = Decimal("0")
+        for i, mk in enumerate(_RR_MONTHS, start=1):
+            calculado = meses.get(i, Decimal("0"))
+            previo = (getattr(fila, mk) or Decimal("0")) if fila else Decimal("0")
+            if not sobrescribir and not calculado:
+                nuevo += previo
+                if previo:
+                    meses_respetados += 1
+            else:
+                nuevo += calculado
+        d = {"linea": linea, "antes": round(float(anterior), 2),
+             "despues": round(float(nuevo), 2),
+             "dif": round(float(nuevo - anterior), 2)}
+        if meses_respetados:
+            d["meses_respetados"] = meses_respetados
+        detalle.append(d)
         if dry_run:
             continue
         if fila is None:
@@ -3641,7 +3674,11 @@ async def push_revenue_to_checkbook(
                                 hotel_id=scenario.hotel_id, line=linea)
             db.add(fila)
         for i, mk in enumerate(_RR_MONTHS, start=1):
-            setattr(fila, mk, meses.get(i, Decimal("0")))
+            calculado = meses.get(i, Decimal("0"))
+            if not sobrescribir and not calculado:
+                # El motor no calculó nada para este mes: se respeta lo digitado.
+                continue
+            setattr(fila, mk, calculado)
 
     if dry_run:
         await db.rollback()      # deshace el resync en memoria: no escribe nada
@@ -3654,6 +3691,7 @@ async def push_revenue_to_checkbook(
         "total_despues": round(sum(d["despues"] for d in detalle), 2),
         "noches_antes": round(noches_antes, 2),
         "noches_despues": round(noches_despues, 2),
+        "sobrescribir": sobrescribir,
         "lineas": detalle,
     }
 

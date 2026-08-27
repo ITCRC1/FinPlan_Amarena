@@ -275,15 +275,26 @@ export default function RevenueCheckbookPage() {
       // Sustainability: fee por noche ocupada, sin net factor; descuenta el % que no paga.
       SUSTAINABILITY: occupied.map(occ => occ * rates.sustRate * (1 - rates.sustNonPay / 100)),
     };
+    // Un cero calculado NO borra lo digitado. Misma regla que el motor de
+    // planilla: un driver en cero significa «esta línea no es automática», así
+    // que manda el dato manual. Sin esto, llenar pisaba con cero toda línea sin
+    // driver cargado — le borró al owner el Spa y los Tours que había escrito.
+    // Para bajar una línea a cero se escribe el cero a mano, que es explícito.
+    let respetados = 0;
     setRows(prev => prev.map(r => {
       const v = vals[r.line];
       if (!v) return r;
       const upd = { ...r };
-      MONTH_KEYS.forEach((mk, i) => { upd[mk] = money2(v[i]); });
+      MONTH_KEYS.forEach((mk, i) => {
+        if (!v[i] && num(r[mk])) { respetados++; return; }
+        upd[mk] = money2(v[i]);
+      });
       return upd;
     }));
     setDirty(true);
-    setMsg(t("filledFromDrivers"));
+    setMsg(respetados
+      ? `${t("filledFromDrivers")} ${t("keptManual", { n: respetados })}`
+      : t("filledFromDrivers"));
   }
 
   const monthTotals = MONTH_KEYS.map(mk => rows.reduce((s, r) => s + num(r[mk]), 0));

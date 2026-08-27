@@ -2499,7 +2499,8 @@
     "sourceDriversMsg": "Source = Drivers. The P&L will use rate cards × occupancy when it recalculates.",
     "title": "Revenue — Checkbook",
     "xlsCheckbookTitle": "Revenue — Checkbook (USD)",
-    "xlsRoomsTitle": "Rooms — scenario statistics"
+    "xlsRoomsTitle": "Rooms — scenario statistics",
+    "keptManual": "Kept {n} typed cell(s) whose driver is zero."
   },
   "pax": {
     "title": "Pax (Guests) per Month",

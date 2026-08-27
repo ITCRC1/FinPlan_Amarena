@@ -2499,7 +2499,8 @@
     "sourceDriversMsg": "Fuente = Drivers. El P&L usará rate cards × ocupación al recalcular.",
     "title": "Revenue — Checkbook",
     "xlsCheckbookTitle": "Revenue — Checkbook (USD)",
-    "xlsRoomsTitle": "Rooms — estadísticas del escenario"
+    "xlsRoomsTitle": "Rooms — estadísticas del escenario",
+    "keptManual": "Se respetaron {n} celda(s) digitadas cuyo driver está en cero."
   },
   "pax": {
     "title": "Pax (Huéspedes) por Mes",
