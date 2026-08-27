@@ -3214,7 +3214,12 @@
     "subtitle": "Clase 7 · detalle por cuenta y sub-línea",
     "totalIntoPl": "TOTAL QUE SUMA EL P&L (checkbook + reparto)",
     "uploadExcel": "↑ Subir Excel",
-    "uploading": "Subiendo..."
+    "uploading": "Subiendo...",
+    "tcBtn": "↻ Recalcular al TC del budget",
+    "tcRunning": "Recalculando…",
+    "tcHint": "Vuelve a pasar a dólares las líneas en colones con el tipo de cambio del escenario. Las líneas en dólares no se tocan.",
+    "tcDone": "{n} línea(s) en colones recalculadas al TC {tc}.",
+    "tcNone": "No hay líneas en colones en este escenario: nada que recalcular."
   },
   "ownersQ": {
     "bajarExcel": "Bajar Excel",

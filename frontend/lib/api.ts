@@ -1611,6 +1611,18 @@ export async function deleteCostEntry(scenarioId: string, entryId: string): Prom
   await api.delete(`/costs/${scenarioId}/entry/${entryId}/`);
 }
 
+/** Vuelve a pasar a dólares las líneas de OPEX en colones, al TC del escenario.
+ *
+ * El dólar de una línea en colones se calcula al importarla o editarla, con el TC
+ * de ese momento. Si el tipo de cambio del budget cambia después, esas líneas
+ * quedan con el dólar viejo: los colones dicen una cosa y el P&L otra. Esto las
+ * refresca todas de una. Una línea en dólares no se toca. */
+export async function recalcularOpexAlTc(scenarioId: string): Promise<{
+  lineas_en_colones: number; tc_por_mes: Record<string, string>;
+}> {
+  return api.post(`/opex/${scenarioId}/recalcular-tc/`);
+}
+
 export async function recalculateCosts(scenarioId: string): Promise<{ recalculated: number }> {
   return api.post<{ recalculated: number }>(`/costs/${scenarioId}/recalculate/`);
 }

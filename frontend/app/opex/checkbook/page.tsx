@@ -11,7 +11,7 @@ import {
   getTipoCambio,
   opexExcelUrl, importOpexExcel, addOpexLines,
   type Scenario, type OpexAccount, type OpexEntry, type OpexDeptCheckbook,
-  sembrarCuentas,
+  sembrarCuentas, recalcularOpexAlTc,
 } from "@/lib/api";
 import { mergeDepts, deptName, cargarDepartamentos, type CwlDept } from "@/lib/cwl-depts";
 import { money2 } from "@/lib/fmt";
@@ -303,6 +303,28 @@ export default function OpexCheckbookPage() {
     } finally { setSembrando(false); }
   }
 
+  const [recalcTc, setRecalcTc] = useState(false);
+  /** Refresca el dólar de las líneas en COLONES con el TC del escenario.
+   *
+   *  El dólar de una línea en colones se calcula al importarla o al editarla, con
+   *  el TC de ese momento. Cuando el tipo de cambio del budget cambia después
+   *  —lo normal mientras se construye— esas líneas quedan con el dólar viejo y
+   *  el P&L deja de coincidir con los colones que se ven en pantalla, sin que
+   *  nada avise. Antes la única salida era volver a tocar cada línea a mano. */
+  async function recalcularTc() {
+    if (!scenarioId) return;
+    setRecalcTc(true);
+    try {
+      const r = await recalcularOpexAlTc(scenarioId);
+      if (selectedDept) await loadDept(selectedDept);
+      alert(r.lineas_en_colones
+        ? t("tcDone", { n: r.lineas_en_colones, tc: r.tc_por_mes["1"] ?? "?" })
+        : t("tcNone"));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : tc("error"));
+    } finally { setRecalcTc(false); }
+  }
+
   useEffect(() => {
     if (selectedDept) loadDept(selectedDept);
   }, [selectedDept, loadDept]);
@@ -517,6 +539,21 @@ export default function OpexCheckbookPage() {
             }}
           >
             {sembrando ? t("seedRunning") : t("seedBtn")}
+          </button>
+
+          <button
+            onClick={recalcularTc}
+            disabled={recalcTc || !scenarioId}
+            title={t("tcHint")}
+            style={{
+              padding: "5px 14px", fontSize: 12, borderRadius: 4,
+              background: "var(--bg-elevated)",
+              color: recalcTc ? "var(--text-disabled)" : "var(--text-secondary)",
+              border: "1px solid var(--border-subtle)",
+              cursor: recalcTc || !scenarioId ? "default" : "pointer",
+            }}
+          >
+            {recalcTc ? t("tcRunning") : t("tcBtn")}
           </button>
 
           {/* Upload Excel */}

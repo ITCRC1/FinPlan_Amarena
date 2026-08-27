@@ -388,6 +388,47 @@ async def import_opex_excel(
     }
 
 
+@router.post("/opex/{scenario_id}/recalcular-tc/")
+async def recalcular_al_tc_del_budget(
+    scenario_id: str, db: AsyncSession = Depends(get_db),
+):
+    """Vuelve a pasar a dólares las líneas en COLONES, al TC del escenario.
+
+    **Por qué hace falta una acción y no alcanza con derivarlo al escribir.** El
+    dólar de una línea en colones se calcula cuando la línea se importa o se
+    edita, con el TC de ese momento. Si después cambia el tipo de cambio del
+    budget —que es lo normal mientras un presupuesto se construye— esas líneas se
+    quedan con el dólar viejo: los colones dicen una cosa y el P&L otra, sin que
+    nada falle ni avise. Hasta ahora la única forma de refrescarlas era volver a
+    tocar cada una a mano.
+
+    Una línea en dólares no se toca: convertirla sería inventar un efecto
+    cambiario que no existe (misma regla que `OpexEntry.derivar_usd`).
+    """
+    scenario = await _get_scenario_or_404(scenario_id, db)
+    try:
+        scenario.assert_editable()
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    from app.models.exchange_rate import ExchangeRate, get_tc_for_month
+    tasas = (await db.execute(
+        select(ExchangeRate).where(ExchangeRate.scenario_id == scenario_id)
+    )).scalars().all()
+    if not tasas:
+        raise ErrorApi(400, "tc.sin_tipos_de_cambio")
+
+    n = await _derivar_importadas(db, scenario_id)
+    await db.commit()
+    return {
+        "scenario_id": scenario_id,
+        "lineas_en_colones": n,
+        # El TC que se usó, para que la pantalla no lo tenga que adivinar: uno
+        # por mes, porque el TC puede variar mes a mes y la conversión también.
+        "tc_por_mes": {m: str(get_tc_for_month(tasas, m)) for m in range(1, 13)},
+    }
+
+
 class AddLinesBody(BaseModel):
     account_code: str
     account_name: str = ""

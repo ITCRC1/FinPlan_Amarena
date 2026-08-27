@@ -3214,7 +3214,12 @@
     "subtitle": "Class 7 · detail by account and sub-line",
     "totalIntoPl": "TOTAL THAT THE P&L ADDS UP (checkbook + allocation)",
     "uploadExcel": "↑ Upload Excel",
-    "uploading": "Uploading..."
+    "uploading": "Uploading...",
+    "tcBtn": "↻ Recalculate at budget FX",
+    "tcRunning": "Recalculating…",
+    "tcHint": "Re-derives the USD of colón lines using the scenario's exchange rate. Dollar lines are left alone.",
+    "tcDone": "{n} colón line(s) recalculated at FX {tc}.",
+    "tcNone": "No colón lines in this scenario — nothing to recalculate."
   },
   "ownersQ": {
     "bajarExcel": "Download Excel",
