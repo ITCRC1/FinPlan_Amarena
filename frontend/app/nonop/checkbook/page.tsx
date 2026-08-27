@@ -27,6 +27,25 @@ const SECTIONS: Section[] = [
   // Cuentas reales de dueños (8xxx). Owners Fee (8005) y Capital Reserve (8020)
   // son % de revenue → tab Management Fees. Income Tax (8060) se calcula (30% EBT).
   // Aquí van las manuales, mapeadas a las líneas P&L below-GOP existentes.
+  //
+  // ⚠️ Esta lista es la ÚNICA forma de cargar una línea below-GOP: el subtotal de
+  // cada sección y el TOTAL BELOW-GOP se derivan de acá, y lo que no está no se
+  // puede digitar en ninguna parte. Faltaban RENT y PROPERTIES INSURANCE, las dos
+  // marcadas `/nonop` en `lineas_obligatorias.json`: el aviso de «líneas en cero»
+  // las contaba y no había dónde llenarlas. `test_rent_y_seguro_en_el_auxiliar`
+  // compara las dos listas para que no vuelva a pasar.
+  //
+  // El ORDEN es el del P&L, no cosmético: RENT es la 86 y PROPERTIES INSURANCE la
+  // 92, antes de Other (96), las financieras (117-119) y Depreciation (123). Por
+  // eso Property Expenses va primero (owner, 2026-08-27: «deben ir de primero y
+  // que consoliden con el total»).
+  {
+    title: "Property Expenses", subtotal: "Total Property Expenses",
+    lines: [
+      { code: "RENT", name: "Rent", account_code: "8000", kind: "manual" },
+      { code: "PROPERTY_INSURANCE", name: "Properties Insurance", account_code: "8015", kind: "manual" },
+    ],
+  },
   {
     title: "Other / Non-Deductible", subtotal: "Total Other Expenses",
     lines: [
