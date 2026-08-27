@@ -786,6 +786,41 @@ async def pl_by_dept(
     for e in rev_rows:
         acc(group_for_dept(e.dept_code))["revenue"] += msum(e)
 
+    # ── El ingreso que NO tiene apertura por cuenta ───────────────────────────
+    #
+    # `RevenueAccountEntry` es el ingreso abierto por cuenta 4xxx, y hay
+    # escenarios que no lo tienen: los de checkbook presupuestan a nivel de
+    # LÍNEA (rate cards, capture rate del Spa, cuota del Club) y los de drivers
+    # lo calculan. Medido en Amarena el 2026-08-27: los **diez** escenarios
+    # tienen cero filas acá, así que la columna REVENUE del reporte salía vacía
+    # y cada departamento operativo mostraba su gasto como pérdida — Rooms con
+    # −251.543,77 teniendo 547.079,20 de ingreso el hotel.
+    #
+    # Y no se quedaba en la columna: `total_non_op` de más abajo se deriva como
+    # `total_gop − ebitda_before`, y el EBITDA sí sale del P&L oficial (que sí
+    # ve el ingreso). Con el GOP sin ingresos, todo el bloque below-GOP de este
+    # reporte salía corrido.
+    #
+    # La compuerta es «no hay filas», no el modo del escenario, a propósito: hay
+    # DOS campos que dicen de dónde sale el ingreso —`source_mode` y
+    # `revenue_source`— y no siempre coinciden (los Working 2027-2035 de Amarena
+    # están en `imported`/`drivers`). Preguntar por la tabla no puede
+    # equivocarse, y al correr sólo cuando está vacía no puede duplicar nada.
+    #
+    # `load_revenue_results` es el MISMO cargador del P&L y del costo de ventas:
+    # él ramifica por `revenue_source`. Una segunda copia acá es exactamente
+    # cómo el costo de ventas terminó leyendo un ingreso que no existía.
+    if not rev_rows:
+        from app.engine.pl_engine import REVENUE_LINE_TO_GROUP
+        from app.engine.recalculate import load_revenue_results, revenue_line_dict
+
+        resultados = await load_revenue_results(db, scen)
+        for m in months:
+            for linea, monto in revenue_line_dict(resultados[m]).items():
+                grupo = REVENUE_LINE_TO_GROUP.get(linea)
+                if grupo:
+                    acc(grupo)["revenue"] += float(monto or 0)
+
     opex_rows = (await db.execute(select(OpexEntry).where(OpexEntry.scenario_id == scenario_id))).scalars().all()
     for e in opex_rows:
         if e.dept_code in ALLOC_EXCL_OPEX:
