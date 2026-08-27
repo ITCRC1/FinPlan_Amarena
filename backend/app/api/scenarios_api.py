@@ -821,23 +821,74 @@ async def pl_by_dept(
                 if grupo:
                     acc(grupo)["revenue"] += float(monto or 0)
 
+    # ── El origen del reparto muestra su RESIDUO ─────────────────────────────
+    #
+    # Cafeteria (0220) y Lavanderia (0161) reparten su gasto a los departamentos
+    # que usan el servicio. El reporte los sacaba ENTEROS
+    # (`ALLOC_EXCL_PAYROLL/OPEX/COST`), y eso tiene dos problemas:
+    #
+    #  1. Sin reparto cargado no mueve la plata de lugar: la borra. Medido en el
+    #     Working 2026 de Amarena el 2026-08-27, la planilla de Lavanderia
+    #     —US$9.838,52— desaparecia del reporte y no reaparecia en ningun
+    #     departamento. La planilla del reporte daba 252.694,15 contra los
+    #     262.532,67 del auxiliar, y la diferencia no se veia en ninguna fila. Se
+    #     destapo al poner las sumatorias por columna: antes el numero no estaba
+    #     en pantalla y no habia contra que cuadrarlo.
+    #
+    #  2. Con reparto cargado, si el reparto no cubre todo el gasto, el sobrante
+    #     tambien se perdia.
+    #
+    # Owner, 2026-08-27: «DEBE APARECER COMO OVERHEAD AL MENOS» · «cuando ya
+    # tengamos lavanderia fija, se hara el allocation pero CUALQUIER SALDO NO
+    # ALOCADO debe salir como overhead».
+    #
+    # Asi que no se excluye el departamento: se le RESTA lo que efectivamente
+    # repartio, por clase (6025 planilla, 7310/7685 opex, 5301 costo). Lo que
+    # sobra queda en su propia fila, que para 0161 y 0220 cae en el bloque de
+    # overhead. Sin repartos la resta es cero y el gasto sale completo; con un
+    # reparto total el residuo es cero y la fila desaparece sola. Es la misma
+    # regla en los tres casos, sin banderas.
+    #
+    # La 4999 se salta: es el espejo del reparto —el credito que vuelve al
+    # origen— y restarla ademas de las cuentas de clase seria restar dos veces.
+    #
+    # Se mira POR MES: un reparto de junio no puede achicar el gasto de enero.
+    alloc_rows = (await db.execute(
+        select(AllocationEntry).where(AllocationEntry.scenario_id == scenario_id))).scalars().all()
+    _CLASE_A_CAMPO = {"5": ("cost", ALLOC_EXCL_COST),
+                      "6": ("payroll", ALLOC_EXCL_PAYROLL),
+                      "7": ("opex", ALLOC_EXCL_OPEX)}
+    repartido: dict[tuple[str, str], float] = {}
+    for e in alloc_rows:
+        if e.month not in months:
+            continue
+        cuenta = str(e.account or "")
+        if cuenta == "4999" or cuenta[:1] not in _CLASE_A_CAMPO:
+            continue
+        origen = (e.source_dept or "").strip()
+        repartido[(origen, cuenta[:1])] = (
+            repartido.get((origen, cuenta[:1]), 0.0) + float(e.amount_usd or 0))
+
     opex_rows = (await db.execute(select(OpexEntry).where(OpexEntry.scenario_id == scenario_id))).scalars().all()
     for e in opex_rows:
-        if e.dept_code in ALLOC_EXCL_OPEX:
-            continue
         acc(group_for_dept(e.dept_code))["opex"] += msum(e)
 
     cost_rows = (await db.execute(select(CostEntry).where(CostEntry.scenario_id == scenario_id))).scalars().all()
     for e in cost_rows:
-        if e.dept_code in ALLOC_EXCL_COST:
-            continue
         acc(group_for_dept(e.dept_code))["cost"] += msum(e)
 
     pay_rows = (await db.execute(select(PayrollConceptEntry).where(PayrollConceptEntry.scenario_id == scenario_id))).scalars().all()
     for e in pay_rows:
-        if e.month not in months or e.dept_code in ALLOC_EXCL_PAYROLL:
+        if e.month not in months:
             continue
         acc(group_for_dept(e.dept_code))["payroll"] += float(total_entry(e))
+
+    # La resta va DESPUES de acumular: el residuo es «lo que tenia menos lo que
+    # repartio», y para eso el gasto ya tiene que estar sumado.
+    for (origen, clase), monto in repartido.items():
+        campo, deptos_que_reparten = _CLASE_A_CAMPO[clase]
+        if origen in deptos_que_reparten and monto:
+            acc(group_for_dept(origen))[campo] -= monto
 
     # Repartos (cafetería 0220 y lavandería 0161). Los deptos origen se excluyen
     # arriba de payroll/opex/cost justamente porque su gasto se reparte acá: sin
@@ -845,8 +896,7 @@ async def pl_by_dept(
     # (Rooms 2027 se quedaba $64,416 abajo de OPEX_ROOMS). El neto de todos los
     # repartos es cero, así que el GOP total no se mueve — solo se acomoda entre
     # departamentos, que es el punto del reparto.
-    alloc_rows = (await db.execute(
-        select(AllocationEntry).where(AllocationEntry.scenario_id == scenario_id))).scalars().all()
+    # (`alloc_rows` se consulto arriba: el residuo del origen lo necesita antes.)
     # El reparto NO es una categoría de gasto aparte: es planilla, gasto operativo
     # o costo que se movió de departamento, y la cuenta destino dice cuál. El
     # reparto de salarios cae en 6000 (Tours entrega salario a otros deptos), la

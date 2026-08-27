@@ -107,18 +107,15 @@ def test_el_excel_lleva_las_mismas_sumatorias(fuente):
         assert expr in fuente, f"el Excel no lleva la sumatoria: {expr}"
 
 
-def test_el_reporte_deja_afuera_la_planilla_que_se_reparte(fuente):
-    """No es un error del subtotal, es una regla del reporte, y conviene que
-    quede escrita: `ALLOC_EXCL_PAYROLL` saca la planilla de Lavandería (0161) y
-    Cafetería (0220) porque su costo se REPARTE a los departamentos destino.
-
-    En Amarena eso hace que la planilla del reporte (252.694,15) quede 9.838,52
-    abajo de la del auxiliar (262.532,67): es la de 0161, y el escenario **no
-    tiene ningún reparto cargado**, así que ese monto no reaparece en ningún
-    departamento. Es una decisión de negocio pendiente, no algo que el reporte
-    pueda arreglar solo.
+def test_la_planilla_del_reporte_ya_no_pierde_la_de_lavanderia():
+    """Los subtotales destaparon esto: la planilla del reporte daba 252.694,15
+    contra los 262.532,67 del auxiliar. Faltaban los 9.838,52 de Lavandería
+    (0161), que `ALLOC_EXCL_PAYROLL` saca porque su costo se REPARTE — y este
+    escenario no tiene ni un reparto cargado, así que no reaparecía en ningún
+    lado. Ver `test_solo_se_excluye_lo_que_de_verdad_se_reparte`.
     """
     from app.importers.gl_detail_importer import ALLOC_EXCL_PAYROLL
 
-    assert "0161" in ALLOC_EXCL_PAYROLL
-    assert "0220" in ALLOC_EXCL_PAYROLL
+    # La lista sigue igual: lo que cambió es que la exclusión ahora se cruza con
+    # los departamentos que efectivamente reparten en ESE escenario.
+    assert ALLOC_EXCL_PAYROLL == {"0161", "0220"}
