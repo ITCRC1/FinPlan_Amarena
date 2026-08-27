@@ -657,7 +657,8 @@
     "uploadExcel": "↑ Subir Excel",
     "uploading": "Subiendo...",
     "withoutAllocation": "sin el reparto",
-    "xlsImported": "✓ Excel importado: {n} líneas"
+    "xlsImported": "✓ Excel importado: {n} líneas",
+    "referenceTotal": "ingreso total del hotel"
   },
   "control": {
     "activeRules": "Reglas activas:",

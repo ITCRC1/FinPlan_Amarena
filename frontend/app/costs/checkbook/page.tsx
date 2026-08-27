@@ -437,20 +437,49 @@ export default function CostsCheckbookPage() {
               </tr>
             </thead>
             <tbody>
-              {/* Reference revenue rows */}
-              <tr style={{ background: "var(--bg-elevated)" }}>
-                <td colSpan={6} style={{ color: "var(--text-secondary)", fontStyle: "italic", fontSize: 11 }}>
-                  {t("referenceRow")}
-                </td>
-                {MONTHS.map((_, i) => (
-                  <td key={i} className="mono" style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: 11 }}>
-                    {fmtUsd(revRef[i + 1]?.total ?? "0")}
-                  </td>
-                ))}
-                <td className="mono" style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: 11 }}>
-                  {fmtUsd(String(Object.values(revRef).reduce((s, r) => s + parseFloat(r.total || "0"), 0)))}
-                </td>
-              </tr>
+              {/* Reference revenue rows.
+                  Una fila por línea de ingreso que ESTE departamento referencia
+                  de verdad. Antes mostraba siempre `.total` —el ingreso del hotel
+                  completo— sin mirar el selector: un costo del Spa al 75% se leía
+                  contra los $547k del hotel en vez de contra los $11k del Spa, y
+                  cambiar «Ref Ingreso» no movía el número. La fila es la base del
+                  cálculo, así que tiene que ser la MISMA que usa el motor
+                  (`cost_calculator._get_revenue_line`). Si el departamento mezcla
+                  referencias, se muestra una fila por cada una: una sola no puede
+                  servirle a dos bases distintas sin mentirle a alguna. */}
+              {(() => {
+                const refs = Array.from(new Set(
+                  checkbook.entries
+                    .filter(e => e.calc_mode === "DRIVER"
+                              && e.driver_type === "REVENUE_LINE"
+                              && e.revenue_line_ref)
+                    .map(e => String(e.revenue_line_ref)),
+                ));
+                const filas = refs.length
+                  ? refs.map(r => ({
+                      clave: r.toLowerCase(),
+                      rotulo: REV_LINE_OPTIONS.find(o => o.value === r)?.label ?? r,
+                    }))
+                  : [{ clave: "total", rotulo: t("referenceTotal") }];
+                const valor = (mes: number, clave: string) =>
+                  (revRef[mes] as unknown as Record<string, string> | undefined)?.[clave] ?? "0";
+                return filas.map(({ clave, rotulo }) => (
+                  <tr key={clave} style={{ background: "var(--bg-elevated)" }}>
+                    <td colSpan={6} style={{ color: "var(--text-secondary)", fontStyle: "italic", fontSize: 11 }}>
+                      {t("referenceRow")} · {rotulo}
+                    </td>
+                    {MONTHS.map((_, i) => (
+                      <td key={i} className="mono" style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: 11 }}>
+                        {fmtUsd(valor(i + 1, clave))}
+                      </td>
+                    ))}
+                    <td className="mono" style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: 11 }}>
+                      {fmtUsd(String(Object.keys(revRef).reduce(
+                        (s, m) => s + parseFloat(valor(Number(m), clave) || "0"), 0)))}
+                    </td>
+                  </tr>
+                ));
+              })()}
 
               {/* Cost entry rows */}
               {checkbook.entries.length === 0 ? (

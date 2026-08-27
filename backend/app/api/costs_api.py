@@ -29,13 +29,8 @@ from app.importers.gl_detail_importer import ALLOC_EXCL_COST
 from app.engine.cost_calculator import calculate_cost_amount, recalculate_cost_entries
 from app.api._nombres_de_depto import nombres_de_depto
 from app.export.costs_excel import export_costs_to_excel, import_costs_from_excel
-from app.engine.revenue_calculator import calculate_annual_revenue, RevenueResult
-from app.models.sales_channel_config import SalesChannelConfig
-from app.models.rate_card import RateCard
-from app.models.occupancy_budget import OccupancyBudget
-from app.models.package_config import PackageConfig
+from app.engine.revenue_calculator import RevenueResult
 from app.models.revenue_other import RevenueOther
-from app.models.room_type_config import RoomTypeConfig
 from app.models.mapping import AccountMapping
 from app.api._allocated import lineas_del_allocation
 
@@ -144,39 +139,29 @@ def _entry_to_dict(e: CostEntry) -> dict:
 
 
 async def _load_revenue_results(scenario_id: str, scenario: Scenario, db: AsyncSession) -> list[RevenueResult]:
-    """Load and calculate revenue for all 12 months."""
-    channels = (await db.execute(select(SalesChannelConfig).where(SalesChannelConfig.scenario_id == scenario_id))).scalars().all()
-    rate_cards = (await db.execute(select(RateCard).where(RateCard.scenario_id == scenario_id))).scalars().all()
-    occs = (await db.execute(select(OccupancyBudget).where(OccupancyBudget.scenario_id == scenario_id))).scalars().all()
-    pkgs = (await db.execute(select(PackageConfig).where(PackageConfig.scenario_id == scenario_id))).scalars().all()
-    others = (await db.execute(select(RevenueOther).where(RevenueOther.scenario_id == scenario_id))).scalars().all()
-    room_types = (await db.execute(
-        select(RoomTypeConfig)
-        .where(RoomTypeConfig.hotel_id == scenario.hotel_id)
-        .order_by(RoomTypeConfig.sort_order)
-    )).scalars().all()
+    """El ingreso de los 12 meses, por la MISMA vía que el resto del sistema.
 
-    # Group by month (current calculate_annual_revenue signature)
-    rates_by_month: dict[int, list] = {}
-    occ_by_month: dict[int, list] = {}
-    other_by_month: dict[int, list] = {}
-    for rc in rate_cards:
-        rates_by_month.setdefault(rc.month, []).append(rc)
-    for ob in occs:
-        occ_by_month.setdefault(ob.month, []).append(ob)
-    for ot in others:
-        other_by_month.setdefault(ot.month, []).append(ot)
-    room_type_units = {rt.id: rt.units for rt in room_types}
+    ⚠️ **Acá había una segunda forma de calcular el ingreso, y no sabía leer el
+    checkbook.** Esta función armaba el resultado siempre desde los drivers
+    —tarifas × ocupación × paquetes × `RevenueOther`— sin mirar
+    `scenario.revenue_source`. En un escenario en modo `checkbook` eso devuelve un
+    ingreso que no existe: las líneas que sólo viven en el checkbook salen en
+    CERO, y con ellas todo costo que las referencie.
 
-    return calculate_annual_revenue(
-        year=scenario.year,
-        rate_cards_by_month=rates_by_month,
-        occ_by_month=occ_by_month,
-        channels=channels,
-        pkg_configs=pkgs,
-        other_by_month=other_by_month,
-        room_type_units=room_type_units,
-    )
+    Medido en el Budget 2026 de Amarena: el Spa tenía US$11.448 de ingreso y su
+    costo al 75 % daba **0,00**; los Tours, US$10.800 al 80 %, también **0,00**.
+    La fila de REFERENCIA de la pantalla mostraba US$524.831 —Rooms más Club, que
+    sí están en `RevenueOther`— o sea el ingreso de otro cálculo, y el owner lo
+    leyó como «me está poniendo el ingreso total del hotel». Nada fallaba: el
+    costo de ventas simplemente no existía.
+
+    Ahora delega en `recalculate.load_revenue_results`, que respeta el modo del
+    escenario. De paso hereda el override de unidades por escenario
+    (`ScenarioMaster`), que esta copia tampoco aplicaba.
+    """
+    from app.engine.recalculate import load_revenue_results
+    por_mes = await load_revenue_results(db, scenario)
+    return [por_mes[m] for m in range(1, 13)]
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
