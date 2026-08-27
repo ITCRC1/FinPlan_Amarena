@@ -177,19 +177,38 @@ def test_pedir_el_anual_ignora_las_excepciones_de_mes():
 
 # ── A quién manda el mixer ──────────────────────────────────────────────────
 
+#: El corte es por instalación (`MIXER_DESDE_EL_ANO`), así que los tests se
+#: escriben CONTRA EL CORTE y no contra un año literal. Con el 2027 clavado acá,
+#: bajar el corte para Amarena rompía la suite aunque el comportamiento fuera el
+#: correcto — y peor: el caso «el año del corte sí entra» no se probaba nunca.
+CORTE = mixer.DESDE_EL_ANO
+
+
 @pytest.mark.parametrize("esc", [
-    Esc(2027, "BUDGET"), Esc(2027, "FORECAST"), Esc(2028, "BUDGET"),
+    Esc(CORTE, "BUDGET"), Esc(CORTE, "FORECAST"), Esc(CORTE + 1, "BUDGET"),
 ])
-def test_manda_sobre_lo_que_se_construye_desde_2027(esc):
+def test_manda_sobre_lo_que_se_construye_desde_el_corte(esc):
     """Owner: «a partir de enero 2027, el forecast, el budget, todo lo que se
-    construye ahí, como auxiliar, tiene que dar con esos parámetros»."""
+    construye ahí, como auxiliar, tiene que dar con esos parámetros». El año del
+    corte ENTRA: es el primero que se construye con estos parámetros."""
     assert mixer.gobierna(esc)[0]
 
 
+def test_el_ano_del_corte_es_editable_en_esta_instalacion():
+    """El budget del año de corte tiene que poder tocarse.
+
+    Amarena arrancó con el 2027 heredado de Corcovado: su budget 2026 —el que se
+    está construyendo— quedaba excluido, la pantalla deshabilitaba Guardar y no
+    se le podía poner ni comisión 0. El default de una instalación es el de la
+    instalación."""
+    aplica, clave, _ = mixer.gobierna(Esc(CORTE, "BUDGET", "Working"))
+    assert aplica, f"el budget {CORTE} debería ser editable, dijo: {clave}"
+
+
 @pytest.mark.parametrize("esc,parte_del_motivo", [
-    (Esc(2026, "BUDGET", "Final"), "2026"),
-    (Esc(2027, "ACTUAL"), "ACTUAL"),
-    (Esc(2027, "BUDGET", is_locked=True), "enllavado"),
+    (Esc(CORTE - 1, "BUDGET", "Final"), str(CORTE - 1)),
+    (Esc(CORTE, "ACTUAL"), "ACTUAL"),
+    (Esc(CORTE, "BUDGET", is_locked=True), "enllavado"),
 ])
 def test_no_toca_lo_que_ya_es_lo_que_es(esc, parte_del_motivo):
     """Budget Final 2026 —«ya es lo que es»—, los ACTUAL —registran lo que pasó,
@@ -210,8 +229,8 @@ def test_no_toca_lo_que_ya_es_lo_que_es(esc, parte_del_motivo):
 def test_siempre_dice_por_que_no():
     """Un escenario excluido sin motivo no se puede discutir: la pantalla
     muestra la lista completa y el motivo es lo que la hace legible."""
-    for esc in [Esc(2026, "BUDGET"), Esc(2027, "ACTUAL"),
-                Esc(2027, "BUDGET", is_locked=True)]:
+    for esc in [Esc(CORTE - 1, "BUDGET"), Esc(CORTE, "ACTUAL"),
+                Esc(CORTE, "BUDGET", is_locked=True)]:
         assert mixer.gobierna(esc)[1].strip(), "sin clave de motivo"
 
 

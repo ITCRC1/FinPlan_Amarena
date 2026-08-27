@@ -24,6 +24,7 @@ owner dice que paga entre 7% y 10%. Como el Net Factor multiplica el ingreso de
 habitaciones de todo el presupuesto, esa diferencia mueve el neto del año — y
 nada la delataba, porque cada tabla se veía razonable por su lado.
 """
+import os
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -182,7 +183,20 @@ def mix_cierra(canales: list, tolerancia: Decimal = Decimal("0.0001")) -> bool:
 # dar con esos parámetros.»
 #
 #: Desde este año el mixer manda. Antes es historia y no se reescribe.
-DESDE_EL_ANO = 2027
+#:
+#: **Es un valor POR INSTALACIÓN, no una constante del grupo.** El 2027 salió de
+#: Corcovado y de un supuesto suyo —«no voy a subir budget final 2026, porque ya
+#: es lo que es»—, que en Amarena no se cumple: la propiedad es nueva, no tiene
+#: historia, y su **budget 2026 es justo el que se está construyendo**. Con el
+#: 2027 heredado, `gobierna()` lo excluía, la pantalla dejaba el botón Guardar
+#: deshabilitado y no se podía tocar el mix del 2026 — ni para ponerle comisión 0
+#: (reportado por el owner el 2026-08-27).
+#:
+#: Se lee del entorno por la misma razón que `HOTEL_ID` (ver `app/hotel_actual.py`):
+#: un hotel es un despliegue, y **el default de una instalación tiene que ser el
+#: de la instalación, no el de la de al lado**. Corcovado pone
+#: `MIXER_DESDE_EL_ANO=2027` en su entorno y conserva su regla intacta.
+DESDE_EL_ANO = int(os.getenv("MIXER_DESDE_EL_ANO", "2026"))
 
 #: Los que se CONSTRUYEN. Un ACTUAL no se planifica: registra lo que pasó, y su
 #: net factor es el que hubo, no el que se quisiera.
