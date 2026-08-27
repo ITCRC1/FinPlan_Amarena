@@ -240,7 +240,16 @@ export default function RevenueCheckbookPage() {
   // ¿Hay con qué llenar? No importa si vino de la semilla o lo digitó el
   // usuario: lo que no puede pasar es llenar doce meses de ceros, que en
   // pantalla se ve idéntico a haberlos llenado bien.
-  const hayTarifas = rates.food > 0 || rates.tours > 0 || rates.transport > 0
+  //
+  // El **Room Revenue no sale de estos drivers**: sale de tarifa rack × ocupación
+  // × canales, que es lo que muestra Total Revenue. Dejarlo afuera de esta
+  // comprobación apagaba el botón para una propiedad con tarifas cargadas y
+  // drivers de pax todavía en cero — el caso de Amarena recién abierta: la
+  // primera línea del checkbook quedaba en cero con $374.791 calculados al lado,
+  // y el botón ni se podía clickear.
+  const hayRoomRev = (stats?.roomRev ?? []).some(v => v > 0);
+  const hayTarifas = hayRoomRev
+    || rates.food > 0 || rates.tours > 0 || rates.transport > 0
     || rates.sustRate > 0 || rates.retailPct > 0 || rates.innoceanaPct > 0;
 
   // Llena Room/Food/Tours/Transport desde los drivers (ocupación → pax-noche).
