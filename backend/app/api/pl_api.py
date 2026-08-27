@@ -1040,16 +1040,39 @@ async def _nonalloc_account_breakdown(session, scenario, month: int):
 
 
 async def _nonalloc_desde_cuentas(session, scenario, month: int):
-    """Respaldo: las cuentas 8xxx cargadas, cuando el P&L no trae nada below-GOP."""
+    """Respaldo: las cuentas 8xxx cargadas, cuando el P&L no trae nada below-GOP.
+
+    **Se desglosa por cuenta Y POR DEPARTAMENTO.** Antes agregaba solo por cuenta,
+    así que el Owners Fees del Club Madresal y el de la propiedad caían en una
+    sola línea y no había forma de separarlos: la línea del P&L los suma —eso es
+    correcto, el below-GOP no se asigna— pero el drill-down existe justamente
+    para poder abrirla, y sin el departamento no abría nada.
+
+    Y el rótulo sale del `account_name` de la fila, no de la tabla fija de
+    nombres. Esa tabla ignoraba lo que el usuario le hubiera puesto a la cuenta:
+    el «— CM» con que el owner marcó las del Club no llegaba a la pantalla.
+    """
     names = {"8000": "Rent", "8010": "Rent", "8005": "Owner / Management Fees",
              "8015": "Property Insurance", "8025": "Other Expenses"}
-    agg, src = {}, None
+    #: (cuenta, depto) → monto. El depto va en la clave para que dos
+    #: departamentos con la misma cuenta no se pisen.
+    agg: dict[tuple[str, str], float] = {}
+    rotulos: dict[tuple[str, str], str] = {}
+    src = None
+
+    def sumar(clave, monto, nombre):
+        agg[clave] = agg.get(clave, 0.0) + monto
+        if nombre:
+            rotulos[clave] = nombre
+
     bg = (await session.execute(select(BelowGopAccountEntry).where(
         BelowGopAccountEntry.scenario_id == scenario.id))).scalars().all()
     for e in bg:
         c = (e.account_code or "").strip()
         if c in _NONALLOC_ACCTS:
-            agg[c] = agg.get(c, 0.0) + float(getattr(e, _BG_MONTH_COLS[month - 1], 0) or 0)
+            sumar((c, (e.dept_code or "").strip()),
+                  float(getattr(e, _BG_MONTH_COLS[month - 1], 0) or 0),
+                  (e.account_name or "").strip())
             src = "BelowGopAccountEntry — detalle GL 8xxx (mismo del reporte de dueños)"
     if not agg:
         ae = (await session.execute(select(ActualEntry).where(
@@ -1057,7 +1080,9 @@ async def _nonalloc_desde_cuentas(session, scenario, month: int):
         for e in ae:
             c = (e.account_code or "").strip()
             if c in _NONALLOC_ACCTS:
-                agg[c] = agg.get(c, 0.0) + float(e.get_month(month) or 0)
+                sumar((c, (e.dept_code or "").strip()),
+                      float(e.get_month(month) or 0),
+                      (getattr(e, "account_name", "") or "").strip())
                 src = "ActualEntry — GL importado, cuentas 8xxx"
     if not agg:
         ln_names = {"RENT": "Rent", "MGMT_FEE_3": "Management Fees (3%)",
@@ -1068,11 +1093,28 @@ async def _nonalloc_desde_cuentas(session, scenario, month: int):
         for e in no:
             lc = (e.report_line_code or "").strip()
             if lc in _NONALLOC_LINES:
-                agg[lc] = agg.get(lc, 0.0) + float(e.get_month(month) or 0)
+                # NonOpEntry es a nivel propiedad: no tiene departamento.
+                sumar((lc, ""), float(e.get_month(month) or 0), ln_names.get(lc, lc))
                 src = "NonOpEntry — mini-checkbook below-GOP"
-        parts = [{"code": k, "label": ln_names.get(k, k), "amount": round(v, 2)} for k, v in agg.items() if v]
+        parts = [{"code": k, "label": rotulos.get((k, d), ln_names.get(k, k)),
+                  "amount": round(v, 2)}
+                 for (k, d), v in agg.items() if v]
     else:
-        parts = [{"code": k, "label": f"{k} · {names.get(k, k)}", "amount": round(v, 2)} for k, v in agg.items() if v]
+        # El departamento va en el rótulo sólo cuando hay más de uno con esa
+        # cuenta: con uno solo sería ruido, con dos es la única forma de saber
+        # cuál es cuál.
+        deptos_por_cuenta: dict[str, set[str]] = {}
+        for (c, d) in agg:
+            deptos_por_cuenta.setdefault(c, set()).add(d)
+        parts = []
+        for (c, d), v in agg.items():
+            if not v:
+                continue
+            nombre = rotulos.get((c, d)) or names.get(c, c)
+            sufijo = f" · {d}" if d and len(deptos_por_cuenta[c]) > 1 else ""
+            parts.append({"code": f"{c}·{d}" if d else c,
+                          "label": f"{c} · {nombre}{sufijo}",
+                          "amount": round(v, 2)})
     return parts, (src or "Sin datos 8xxx cargados → $0 (cargá el below-GOP para que aparezca)"), "/nonop/checkbook"
 
 
