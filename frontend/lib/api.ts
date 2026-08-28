@@ -2560,6 +2560,10 @@ export interface PLKpis {
   // apagan solos.
   /** Socios pagando: el SALDO del último mes del período, NO la suma. */
   club_pagando?: number;
+  /** Miembros TOTALES: incluye condicionados y en acuerdo de pago. Mismo
+   *  criterio de saldo. En Amarena hoy llega en 0 —sólo se cargó «pagando»—
+   *  y por eso la fila de la junta no se dibuja hasta que haya dato. */
+  club_total?: number;
   /** Socios-mes del período — el denominador de la cuota, como las noches del ADR. */
   club_socios_mes?: number;
   /** Ingreso del Club ÷ socios-mes: la cuota mensual promedio. */

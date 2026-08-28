@@ -203,12 +203,18 @@ async def _monthly_results(session, scenario) -> list[dict]:
     # Ausente cuando la propiedad no tiene el Club: la clave no se pone, y la
     # pantalla no dibuja el renglón. Nada de ceros que se leen como «no hay
     # socios» donde en realidad no hay Club.
-    socios = {s.month: s.pagando for s in (await session.execute(
+    socios = {s.month: (s.pagando, s.total) for s in (await session.execute(
         select(ClubMembershipStat).where(
             ClubMembershipStat.scenario_id == scenario.id))).scalars().all()}
     if socios:
         for m in out:
-            m["kpis"]["club_pagando"] = socios.get(m["month"], 0)
+            pagando, total = socios.get(m["month"], (0, 0))
+            m["kpis"]["club_pagando"] = pagando
+            # El TOTAL incluye condicionados y en acuerdo de pago: es el tamaño
+            # del Club. El que explica la cuota es el que PAGA, y por eso viajan
+            # los dos — con uno solo, la junta multiplica socios por cuota y no
+            # le da el ingreso.
+            m["kpis"]["club_total"] = total
     return out
 
 
@@ -414,6 +420,7 @@ def _aggregate_selected(sel: list[dict], *, lo_subido_manda: bool = False,
     if any("club_pagando" in m["kpis"] for m in sel):
         socios_mes = sum(m["kpis"].get("club_pagando", 0) for m in sel)
         kpis["club_pagando"] = sel[-1]["kpis"].get("club_pagando", 0) if sel else 0
+        kpis["club_total"] = sel[-1]["kpis"].get("club_total", 0) if sel else 0
         kpis["club_socios_mes"] = socios_mes
         kpis["club_cuota_promedio"] = (
             amounts.get("REV_CLUB", 0.0) / socios_mes) if socios_mes else 0.0

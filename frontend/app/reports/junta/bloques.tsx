@@ -119,13 +119,34 @@ export type FilaSerie = {
    *  P&L —el desglose por departamento, p.ej.— y necesitan buscar por escenario. */
   get: (c?: PLColumn, v?: Version) => number;
   fuerte?: boolean; grupo?: string; puntos?: boolean; sangria?: boolean;
+  /** Cuándo la fila TIENE SENTIDO. Ausente = siempre.
+   *
+   *  Existe por el Club Madresal: es de Amarena y el owner avisó que se va a
+   *  operar por fuera del hotel. Una fila «Miembros del Club: 0» en la
+   *  presentación a la junta de una propiedad que no tiene Club no es un dato,
+   *  es ruido — y peor, se lee como que el Club existe y está vacío. */
+  soloSi?: (vs: Version[]) => boolean;
 };
 
+/** ¿Alguna versión trae socios del Club? Se mira el DATO, nunca el hotel: el día
+ *  que el Club salga, el backend deja de mandar la clave y las filas se apagan
+ *  solas. */
+const hayClub = (vs: Version[]) =>
+  vs.some(v => v.col?.kpis.club_pagando != null);
+
+/** El TOTAL de miembros incluye condicionados y en acuerdo de pago. Hoy en
+ *  Amarena está en cero los doce meses —sólo se cargó «pagando»—, así que la
+ *  fila no se dibuja hasta que alguien lo cargue. Mostrar un 0 al lado de 129
+ *  pagando invitaría a leer que el Club perdió a todos sus socios. */
+const hayTotalDeClub = (vs: Version[]) =>
+  vs.some(v => (v.col?.kpis.club_total ?? 0) > 0);
+
 /** Tabla genérica de la serie: una fila por indicador, una columna por versión. */
-export function TablaSerie({ vs, filas, primera }: { vs: Version[]; filas: FilaSerie[]; primera: string }) {
+export function TablaSerie({ vs, filas: filasTodas, primera }: { vs: Version[]; filas: FilaSerie[]; primera: string }) {
   const t = useTranslations("junta");
   const tc = useTranslations("common");
   if (!vs.length || !vs.some(v => v.col)) return <Vacio que={t("thisSection")} />;
+  const filas = filasTodas.filter(f => !f.soloSi || f.soloSi(vs));
   return (
     <table className="fin-table" style={{ width: "100%" }}>
       <Cabecera vs={vs} primera={primera} />
@@ -174,9 +195,15 @@ export const FILAS_RESUMEN: FilaSerie[] = [
   { label: "Habitaciones ocupadas", formato: "conteo", get: c => c?.kpis.rooms_occupied ?? 0 },
   { label: "Huéspedes", lk: "@common.guests", formato: "conteo", get: c => c?.kpis.guests ?? 0 },
   { label: "Ocupación", lk: "occupancy", formato: "pct", puntos: true, get: c => (c?.kpis.occupancy_pct ?? 0) * 100 },
+  { label: "Miembros del Club (total)", formato: "conteo", soloSi: hayTotalDeClub,
+    get: c => c?.kpis.club_total ?? 0 },
+  { label: "Miembros del Club (pagando)", formato: "conteo", soloSi: hayClub,
+    get: c => c?.kpis.club_pagando ?? 0 },
   { grupo: "Precio", label: "ADR", formato: "money2", get: c => c?.kpis.adr ?? 0 },
   { label: "RevPAR", formato: "money2", get: c => c?.kpis.revpar ?? 0 },
   { label: "TRevPOR", formato: "money2", get: trevpor },
+  { label: "Cuota promedio por miembro", formato: "money2", soloSi: hayClub,
+    get: c => c?.kpis.club_cuota_promedio ?? 0 },
   { grupo: "Ingresos", label: "Ingreso total", formato: "dinero", fuerte: true, get: c => linea(c, "TOTAL_REVENUES") },
   { label: "Habitaciones", formato: "dinero", get: c => linea(c, "REV_ROOMS") },
   { label: "A&B", formato: "dinero", get: c => linea(c, "REV_FB") },
@@ -197,6 +224,10 @@ export const FILAS_VOLUMEN: FilaSerie[] = [
   { label: "Ocupación", lk: "occupancy", formato: "pct", puntos: true, fuerte: true, get: c => (c?.kpis.occupancy_pct ?? 0) * 100 },
   { label: "Huéspedes por habitación ocupada", lk: "guestsPerOccupiedRoom", formato: "razon", get: c => {
       const o = c?.kpis.rooms_occupied ?? 0; return o ? (c?.kpis.guests ?? 0) / o : 0; } },
+  { label: "Miembros del Club (total)", formato: "conteo", soloSi: hayTotalDeClub,
+    get: c => c?.kpis.club_total ?? 0 },
+  { label: "Miembros del Club (pagando)", formato: "conteo", soloSi: hayClub,
+    get: c => c?.kpis.club_pagando ?? 0 },
 ];
 
 export const FILAS_PRECIO: FilaSerie[] = [
@@ -207,6 +238,8 @@ export const FILAS_PRECIO: FilaSerie[] = [
   { label: "Ingreso fuera de habitación por hab. ocupada", lk: "nonRoomRevPerOccupied", formato: "money2", get: c => {
       const o = c?.kpis.rooms_occupied ?? 0;
       return o ? (linea(c, "TOTAL_REVENUES") - linea(c, "REV_ROOMS")) / o : 0; } },
+  { label: "Cuota promedio por miembro", formato: "money2", soloSi: hayClub,
+    get: c => c?.kpis.club_cuota_promedio ?? 0 },
 ];
 
 // ─── Estacionalidad: una fila por versión + su variación ─────────────────────

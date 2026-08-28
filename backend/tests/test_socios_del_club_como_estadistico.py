@@ -41,6 +41,8 @@ RAIZ = pathlib.Path(__file__).resolve().parents[1]
 API = (RAIZ / "app" / "api" / "pl_api.py").read_text(encoding="utf-8")
 PANTALLA = (RAIZ.parent / "frontend" / "app" / "month-end" / "pl" /
             "page.tsx").read_text(encoding="utf-8")
+JUNTA = (RAIZ.parent / "frontend" / "app" / "reports" / "junta" /
+         "bloques.tsx").read_text(encoding="utf-8")
 
 
 def _bloque_club() -> str:
@@ -108,3 +110,32 @@ def test_la_pantalla_no_pregunta_por_el_hotel():
 def test_los_dos_renglones_estan_rotulados():
     assert "Socios pagando" in PANTALLA
     assert "Cuota promedio por socio" in PANTALLA
+
+
+# ── La presentacion a la Junta (owner, 2026-08-27) ────────────────────────────
+
+def test_la_junta_muestra_los_socios_y_la_cuota():
+    assert "Miembros del Club (pagando)" in JUNTA
+    assert "Miembros del Club (total)" in JUNTA
+    assert "Cuota promedio por miembro" in JUNTA
+
+
+def test_la_junta_esconde_las_filas_sin_dato():
+    """Un «Miembros del Club: 0» en la lámina de una propiedad sin Club no es un
+    dato: se lee como que el Club existe y se quedó vacío."""
+    assert "soloSi" in JUNTA
+    assert "hayClub" in JUNTA and "hayTotalDeClub" in JUNTA
+    # Y la tabla tiene que RESPETARLO, no solo declararlo.
+    assert "filasTodas.filter(f => !f.soloSi || f.soloSi(vs))" in JUNTA
+
+
+def test_el_total_de_la_junta_espera_a_tener_dato():
+    """`club_total` llega en 0 mientras nadie lo cargue — y un 0 al lado de 129
+    pagando invita a leer que el Club perdio a todos sus socios."""
+    bloque = JUNTA.split("const hayTotalDeClub")[1].split(";")[0]
+    assert "> 0" in bloque, "la fila del total se dibujaría con el conteo en cero"
+
+
+def test_la_junta_no_pregunta_por_el_hotel():
+    bloque = JUNTA.split("const hayClub")[1].split(";")[0]
+    assert "AMA" not in bloque and "HOTEL_ID" not in bloque
