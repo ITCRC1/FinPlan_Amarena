@@ -123,9 +123,60 @@ def _drivers(p) -> dict[str, str]:
     }
 
 
+def _bloque_posiciones(ws, fila: int, posiciones: list[dict]) -> int:
+    """Las posiciones que componen el S&W, justo ANTES de la fila que las suma.
+
+    Owner, 2026-08-27: *«que ese S&W sea el total, así tengo visibilidad de la
+    posición y de lo que lo compone»*.
+
+    ⚠️ **Los montos salen de `payroll_concept_entries`, que se guardan POR
+    POSICIÓN × mes — no de recalcular salario × FTE ÷ TC acá.** Es lo que hace
+    que el bloque sume exactamente la fila 6000 **por construcción** y no por
+    reconciliación: son literalmente los mismos números, agrupados de otra
+    forma. Recalcularlos daría un desglose que casi siempre cuadra, y el día
+    que no —un TC editado, un recálculo a medias— habría dos verdades en la
+    misma hoja sin nada que avise cuál es.
+    """
+    if not posiciones:
+        return fila
+
+    c = ws.cell(row=fila, column=2, value="POSICIONES")
+    c.font = font(bold=True, size=9, color=C["text_mid"])
+    ws.cell(row=fila, column=3,
+            value="lo que compone el S&W de abajo").font = font(
+                size=8, italic=True, color=C["text_mid"])
+    for col in range(1, 17):
+        ws.cell(row=fila, column=col).fill = fill(C["gray_light"])
+    fila += 1
+
+    for p in posiciones:
+        ws.cell(row=fila, column=1, value=p.get("codigo") or "")
+        ws.cell(row=fila, column=2, value="  " + (p.get("puesto") or ""))
+        ws.cell(row=fila, column=3, value=p.get("detalle") or "")
+        anual = 0.0
+        for m in range(12):
+            v = float(p["meses"][m]) if m < len(p["meses"]) else 0.0
+            anual += v
+            cc = ws.cell(row=fila, column=4 + m, value=v if v else None)
+            cc.number_format = MONEDA
+        cc = ws.cell(row=fila, column=16, value=anual if anual else None)
+        cc.number_format = MONEDA
+        for col in range(1, 17):
+            cc = ws.cell(row=fila, column=col)
+            cc.border = border()
+            cc.font = font(size=9, color=C["text_mid"])
+            cc.fill = fill(C["gray_light"])
+            if col == 3:
+                cc.alignment = align("left", wrap=True)
+            elif col >= 4:
+                cc.alignment = align("right")
+        fila += 1
+    return fila
+
+
 def _hoja(wb: Workbook, titulo: str, dept_code: str, dept_name: str,
           meses: list[dict], drv: dict[str, str], etiqueta: str, anio: int,
-          usados: set[str]) -> None:
+          usados: set[str], posiciones: list[dict] | None = None) -> None:
     ws = wb.create_sheet(nombre_de_hoja(f"{dept_code} {dept_name}"[:28], usados))
 
     ws["A1"] = f"{dept_code} — {dept_name}"
@@ -147,6 +198,10 @@ def _hoja(wb: Workbook, titulo: str, dept_code: str, dept_name: str,
 
     fila = ENC + 1
     for clave, cuenta, rotulo, tipo in FILAS:
+        # Las posiciones van pegadas ARRIBA del S&W: la fila 6000 se lee como
+        # el total de lo que está justo encima, sin tener que buscarlo.
+        if clave == "c6000":
+            fila = _bloque_posiciones(ws, fila, posiciones or [])
         es_resumen = tipo in ("sub", "tot")
         relleno = (C["blue_light"] if tipo == "sub"
                    else C["blue_header"] if tipo == "tot" else None)
@@ -255,6 +310,7 @@ def export_conceptos_por_depto(
 
     for d in datos:
         _hoja(wb, d["dept_name"], d["dept_code"], d["dept_name"],
-              d["monthly"], drv, etiqueta, anio, usados)
+              d["monthly"], drv, etiqueta, anio, usados,
+              d.get("posiciones"))
 
     return workbook_to_bytes(wb)

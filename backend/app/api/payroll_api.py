@@ -1347,6 +1347,52 @@ async def export_payroll_excel(scenario_id: str, db: AsyncSession = Depends(get_
     )
 
 
+def _sw_por_posicion(entradas, puestos: dict) -> list[dict]:
+    """El S&W de un departamento, abierto por posición.
+
+    ⚠️ **Sale de las MISMAS `payroll_concept_entries` que la fila 6000**, sólo
+    que agrupadas por posición en vez de sumadas. Por eso el desglose cuadra
+    con el total por construcción. Recalcular `salario × FTE ÷ TC` acá daría un
+    segundo número que casi siempre coincide — y el día que no (un TC editado,
+    un recálculo a medias) habría dos verdades en la misma hoja.
+
+    La posición sintética `GL` —la que crea el importador del mayor para el
+    costo que no tiene a nadie detrás— se marca, no se esconde: aporta al total
+    y sin ella el desglose no sumaría.
+    """
+    por_pos: dict[str, list[float]] = {}
+    for e in entradas:
+        if not (1 <= e.month <= 12):
+            continue
+        por_pos.setdefault(e.position_id, [0.0] * 12)[e.month - 1] += float(
+            e.c6000_sw or 0)
+
+    filas = []
+    for pid, meses in por_pos.items():
+        if not any(meses):
+            continue          # una posición sin S&W no agrega nada que leer
+        p = puestos.get(pid)
+        if p is None:
+            filas.append({"codigo": "", "puesto": "(posición dada de baja)",
+                          "detalle": "sus montos siguen en el total",
+                          "meses": meses})
+            continue
+        persona = (p.employee_name or "").strip()
+        moneda = p.salary_currency or "CRC"
+        salario = float(p.salary_amount or 0)
+        simbolo = "₡" if moneda == "CRC" else "$"
+        detalle = f"{persona or 'VACANTE'} · {simbolo}{salario:,.2f} {moneda}"
+        if p.position_code == "GL":
+            detalle = "del mayor (sin posición) · " + detalle
+        filas.append({"codigo": p.position_code or "",
+                      "puesto": p.position_name or "(sin nombre)",
+                      "detalle": detalle, "meses": meses})
+    # Por lo que pesa en el año: quien mira un departamento quiere ver primero
+    # las posiciones que mueven la aguja, no el orden en que se cargaron.
+    filas.sort(key=lambda f: -sum(f["meses"]))
+    return filas
+
+
 @router.get("/payroll/{scenario_id}/conceptos/excel/")
 async def export_conceptos_excel(scenario_id: str, db: AsyncSession = Depends(get_db)):
     """Los 17 conceptos YA CALCULADOS, un tab por departamento.
@@ -1376,6 +1422,11 @@ async def export_conceptos_excel(scenario_id: str, db: AsyncSession = Depends(ge
     )).scalars().all()
 
     nombres = await nombres_de_depto(db)
+    puestos = {p.id: p for p in (await db.execute(
+        select(PayrollPosition).where(
+            PayrollPosition.scenario_id == scenario_id)
+    )).scalars().all()}
+
     por_depto: dict[str, list] = {}
     for e in entries:
         if e.dept_code in ALLOC_EXCL_PAYROLL:
@@ -1402,7 +1453,8 @@ async def export_conceptos_excel(scenario_id: str, db: AsyncSession = Depends(ge
             })
         datos.append({"dept_code": code,
                       "dept_name": nombres.get(code, code),
-                      "monthly": mensual})
+                      "monthly": mensual,
+                      "posiciones": _sw_por_posicion(por_depto[code], puestos)})
 
     params = (await db.execute(
         select(PayrollParams).where(PayrollParams.scenario_id == scenario_id)

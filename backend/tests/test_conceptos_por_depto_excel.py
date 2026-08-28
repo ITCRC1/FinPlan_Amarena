@@ -53,6 +53,16 @@ class ParamsFalsos:
     ins_annual_crc = Decimal("1130647.80")
 
 
+#: Dos posiciones que, sumadas, dan el S&W del departamento. Es la propiedad
+#: que importa: el desglose sale de las MISMAS filas que el total.
+POSICIONES = [
+    {"codigo": "P01", "puesto": "Supervisor", "detalle": "Ana · ₡500,000.00 CRC",
+     "meses": [700.0] * 12},
+    {"codigo": "P02", "puesto": "Oficial", "detalle": "VACANTE · ₡300,000.00 CRC",
+     "meses": [300.0] * 12},
+]
+
+
 def _mes(base=1000.0):
     """Un mes con BASE y sus derivados, coherente con los drivers de arriba."""
     ccss = base * 0.2683
@@ -72,12 +82,27 @@ def _mes(base=1000.0):
 def libro():
     datos = [
         {"dept_code": "0111", "dept_name": "Front Desk",
-         "monthly": [_mes(1000.0) for _ in range(12)]},
+         "monthly": [_mes(1000.0) for _ in range(12)],
+         "posiciones": POSICIONES},
         {"dept_code": "0113", "dept_name": "Housekeeping",
          "monthly": [_mes(500.0) for _ in range(12)]},
     ]
     xlsx = export_conceptos_por_depto(datos, ParamsFalsos(), "AMA BUDGET Working", 2026)
     return load_workbook(io.BytesIO(xlsx))
+
+
+def _fila_de(ws, texto: str) -> int:
+    """Ubica una fila por su ROTULO, no por su indice.
+
+    Las filas se corren cuando se inserta el bloque de posiciones; una prueba
+    atada a un numero fijo se rompe por el motivo equivocado y hace perder el
+    tiempo buscando un bug que no existe.
+    """
+    for r in range(1, ws.max_row + 1):
+        v = ws.cell(row=r, column=2).value
+        if v and str(v).strip() == texto:
+            return r
+    raise AssertionError(f"no se encontró la fila {texto!r}")
 
 
 def test_una_hoja_por_departamento_mas_el_resumen(libro):
@@ -90,8 +115,9 @@ def test_una_hoja_por_departamento_mas_el_resumen(libro):
 def test_cada_fila_trae_su_cuenta(libro):
     hoja = [h for h in libro.sheetnames if "0111" in h][0]
     ws = libro[hoja]
-    por_concepto = {ws.cell(row=r, column=2).value: ws.cell(row=r, column=1).value
-                    for r in range(6, 6 + len(FILAS))}
+    por_concepto = {n: ws.cell(row=_fila_de(ws, n), column=1).value
+                    for _c, _cta, n, _t in
+                    [(f[0], f[1], f[2], f[3]) for f in FILAS]}
     assert por_concepto["Social Security"] == "6020"
     assert por_concepto["Vacation Provision"] == "6023"
     assert por_concepto["Aguinaldo"] == "6021"
@@ -116,8 +142,9 @@ def test_base_va_despues_de_sus_componentes_y_total_al_final():
 def test_el_driver_lleva_el_valor_del_escenario(libro):
     hoja = [h for h in libro.sheetnames if "0111" in h][0]
     ws = libro[hoja]
-    drivers = {ws.cell(row=r, column=2).value: (ws.cell(row=r, column=3).value or "")
-               for r in range(6, 6 + len(FILAS))}
+    drivers = {n: (ws.cell(row=_fila_de(ws, n), column=3).value or "")
+               for _c, _cta, n, _t in
+               [(f[0], f[1], f[2], f[3]) for f in FILAS]}
     # No alcanza con decir «CCSS»: el número tiene que poder auditarse sin
     # abrir el código.
     assert "26.830%" in drivers["Social Security"]
@@ -150,8 +177,7 @@ def test_el_resumen_suma_lo_mismo_que_las_hojas(libro):
     for code in ("0111", "0113"):
         hoja = [h for h in libro.sheetnames if code in h][0]
         ws2 = libro[hoja]
-        fila_total = 5 + len(FILAS)          # encabezado en 5, TOTAL al final
-        assert ws2.cell(row=fila_total, column=2).value == "TOTAL"
+        fila_total = _fila_de(ws2, "TOTAL")
         assert ws2.cell(row=fila_total, column=16).value == pytest.approx(
             anual_resumen[code]), f"{code}: el resumen no cuadra con su hoja"
 
@@ -165,3 +191,54 @@ def test_el_excel_que_se_sube_no_cambio():
     import app.export.conceptos_por_depto_excel as nuevo
     assert not hasattr(nuevo, "import_conceptos_from_excel"), (
         "este archivo es un REPORTE: no debe crecerle un importador")
+
+
+# ── El desglose por posición (owner, 2026-08-27) ──────────────────────────────
+
+def test_las_posiciones_van_justo_antes_del_sw(libro):
+    """La fila 6000 tiene que leerse como el total de lo que está encima."""
+    ws = libro[[h for h in libro.sheetnames if "0111" in h][0]]
+    encabezado = _fila_de(ws, "POSICIONES")
+    sw = _fila_de(ws, "Salary and Wages")
+    assert encabezado < sw
+    # Entre el encabezado del bloque y el S&W van exactamente las posiciones.
+    assert sw - encabezado - 1 == len(POSICIONES)
+
+
+def test_el_sw_es_la_suma_de_las_posiciones(libro):
+    """La propiedad que hace confiable el desglose.
+
+    Si el bloque se calculara aparte (salario × FTE ÷ TC) en vez de agrupar las
+    mismas `payroll_concept_entries`, esto cuadraría casi siempre — y el día que
+    no, habría dos verdades en la misma hoja sin nada que avise cuál es.
+    """
+    ws = libro[[h for h in libro.sheetnames if "0111" in h][0]]
+    sw = _fila_de(ws, "Salary and Wages")
+    primera = _fila_de(ws, "POSICIONES") + 1
+    for col in list(range(4, 16)) + [16]:          # los 12 meses y el anual
+        suma = sum(float(ws.cell(row=r, column=col).value or 0)
+                   for r in range(primera, sw))
+        total = float(ws.cell(row=sw, column=col).value or 0)
+        assert suma == pytest.approx(total), (
+            f"columna {col}: las posiciones suman {suma} y el S&W dice {total}")
+
+
+def test_la_posicion_muestra_quien_y_cuanto(libro):
+    ws = libro[[h for h in libro.sheetnames if "0111" in h][0]]
+    primera = _fila_de(ws, "POSICIONES") + 1
+    puestos = [str(ws.cell(row=r, column=2).value or "").strip()
+               for r in range(primera, primera + len(POSICIONES))]
+    detalles = [str(ws.cell(row=r, column=3).value or "")
+                for r in range(primera, primera + len(POSICIONES))]
+    assert "Supervisor" in puestos and "Oficial" in puestos
+    assert any("Ana" in d for d in detalles)
+    assert any("VACANTE" in d for d in detalles), (
+        "una plaza sin ocupar tiene que decirlo: su costo igual está en el total")
+
+
+def test_un_departamento_sin_posiciones_no_rompe(libro):
+    """`0113` se armó sin bloque: la hoja tiene que salir igual."""
+    ws = libro[[h for h in libro.sheetnames if "0113" in h][0]]
+    assert _fila_de(ws, "Salary and Wages")
+    with pytest.raises(AssertionError):
+        _fila_de(ws, "POSICIONES")
