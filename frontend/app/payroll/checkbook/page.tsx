@@ -8,6 +8,7 @@ import {
   getScenarios, getPayrollDepts, getDeptCheckbook, getDeptSummary,
   addPositions, getNextPositionCode, duplicatePosition, deletePosition,
   downloadPayrollExcel, uploadPayrollExcel, updatePosition,
+  bajarConceptosPorDepto,
   bajarBeneficiosExcel, subirBeneficiosExcel,
   type Scenario, type Dept, type Position, type DeptSummaryMonth,
 } from "@/lib/api";
@@ -206,6 +207,24 @@ export default function PayrollCheckbookPage() {
     } finally { setBusy(null); }
   }, [scenarioId]);
 
+  // Los 17 conceptos YA CALCULADOS, un tab por departamento. Es un REPORTE:
+  // no se vuelve a subir. El de subir es «⬇ Excel», que trae posiciones y FTE.
+  const handleConceptos = useCallback(async () => {
+    if (!scenarioId) return;
+    setBusy("conceptos");
+    try {
+      const blob = await bajarConceptosPorDepto(scenarioId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `Planilla_conceptos_${hotelSlug()}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      flash(t("excelDownloaded"));
+    } catch (e) {
+      flash(e instanceof Error ? e.message : t("errorDownloading"));
+    } finally { setBusy(null); }
+  }, [scenarioId]);
+
   // Upload the filled Excel → re-applies salary + FTE (structure stays as in app)
   const handleUpload = useCallback(async (file: File) => {
     if (!scenarioId) return;
@@ -358,6 +377,13 @@ export default function PayrollCheckbookPage() {
               background: "var(--bg-surface)", color: "var(--text-primary)",
               border: "1px solid var(--border-medium)", fontWeight: 600 }}>
             {t("addPositionsBtn")}
+          </button>
+          <button onClick={handleConceptos} disabled={!!busy}
+            title="Los 17 conceptos ya calculados, con cuenta y driver, un tab por departamento"
+            style={{ padding: "5px 12px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+              background: "var(--bg-surface)", color: "var(--text-primary)",
+              border: "1px solid var(--border-medium)", fontWeight: 600 }}>
+            {busy === "conceptos" ? t("downloading") : "↓ Conceptos x depto"}
           </button>
           <button onClick={handleDownload} disabled={!!busy}
             style={{ padding: "5px 12px", fontSize: 12, borderRadius: 4, cursor: "pointer",

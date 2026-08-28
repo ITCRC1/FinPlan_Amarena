@@ -1337,6 +1337,16 @@ export async function downloadPayrollExcel(scenarioId: string): Promise<Blob> {
   return res.blob();
 }
 
+// Los 17 conceptos YA CALCULADOS, un tab por departamento.
+// ⚠️ Es un REPORTE, no la plantilla: no se vuelve a subir. La que se sube es
+// `downloadPayrollExcel` de arriba, que trae posiciones y FTE.
+export async function bajarConceptosPorDepto(scenarioId: string): Promise<Blob> {
+  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  const res = await fetch(`${base}/payroll/${scenarioId}/conceptos/excel/`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.blob();
+}
+
 // Upload the filled payroll Excel (multipart) → re-applies salary + FTE
 export async function uploadPayrollExcel(scenarioId: string, file: File) {
   const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";

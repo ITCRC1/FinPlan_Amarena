@@ -38,6 +38,7 @@ from app.models.actual_dept_fte import ActualDeptFte
 from app.models.scenario import Scenario
 from app.api._nombres_de_depto import nombres_de_depto
 from app.export.payroll_excel import export_payroll_to_excel, import_payroll_from_excel
+from app.export.conceptos_por_depto_excel import export_conceptos_por_depto
 from app.models.exchange_rate import get_tc_for_month, ExchangeRate
 from app.models.payroll_params import (
     PayrollParams, DEFAULT_CCSS_RATE, DEFAULT_AGUINALDO_DIVISOR,
@@ -1343,6 +1344,78 @@ async def export_payroll_excel(scenario_id: str, db: AsyncSession = Depends(get_
         content=xlsx,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="payroll_{scenario_id}.xlsx"'},
+    )
+
+
+@router.get("/payroll/{scenario_id}/conceptos/excel/")
+async def export_conceptos_excel(scenario_id: str, db: AsyncSession = Depends(get_db)):
+    """Los 17 conceptos YA CALCULADOS, un tab por departamento.
+
+    ⚠️ **No confundir con `/export/excel/`**, que baja las POSICIONES y es la
+    plantilla que vuelve a subirse. Ésta es un reporte y no se sube: trae los
+    conceptos derivados —CCSS, aguinaldo, provisión de vacaciones, cesantía—
+    que el motor calcula y que hasta ahora sólo se veían en pantalla, un
+    departamento a la vez.
+
+    Cada fila lleva su CUENTA y su DRIVER —la regla con la que se calculó, con
+    el valor de este escenario— para que el número se pueda auditar sin abrir
+    el código.
+
+    Usa el mismo `summarize_dept` que la pantalla, a propósito: si sumara por
+    su cuenta, el día que cambie una fórmula el Excel y la pantalla dirían
+    cosas distintas y nadie sabría cuál creer.
+    """
+    from app.models.scenario import Scenario
+    scenario = await db.get(Scenario, scenario_id)
+    if not scenario:
+        raise ErrorApi(404, "escenario.no_encontrado")
+
+    entries = (await db.execute(
+        select(PayrollConceptEntry).where(
+            PayrollConceptEntry.scenario_id == scenario_id)
+    )).scalars().all()
+
+    nombres = await nombres_de_depto(db)
+    por_depto: dict[str, list] = {}
+    for e in entries:
+        if e.dept_code in ALLOC_EXCL_PAYROLL:
+            continue          # allocation: netea a 0, no es planilla del depto
+        por_depto.setdefault(e.dept_code, []).append(e)
+
+    datos = []
+    for code in sorted(por_depto):
+        mensual = []
+        for m in range(1, 13):
+            s = summarize_dept([e for e in por_depto[code] if e.month == m],
+                               code, m, scenario.year)
+            mensual.append({
+                "c6000": float(s.c6000), "c6001": float(s.c6001),
+                "c6002": float(s.c6002), "c6003": float(s.c6003),
+                "c6010": float(s.c6010), "c6024": float(s.c6024),
+                "c6027": float(s.c6027), "base": float(s.base),
+                "c6020": float(s.c6020), "c6021": float(s.c6021),
+                "c6004": float(s.c6004), "c6022": float(s.c6022),
+                "c6023": float(s.c6023), "c6025": float(s.c6025),
+                "c6026": float(s.c6026), "c6028": float(s.c6028),
+                "c6029": float(s.c6029), "c6030": float(s.c6030),
+                "total": float(s.total),
+            })
+        datos.append({"dept_code": code,
+                      "dept_name": nombres.get(code, code),
+                      "monthly": mensual})
+
+    params = (await db.execute(
+        select(PayrollParams).where(PayrollParams.scenario_id == scenario_id)
+    )).scalar_one_or_none()
+
+    xlsx = export_conceptos_por_depto(
+        datos, params, f"{scenario.hotel_id} {scenario.type} {scenario.version}",
+        scenario.year)
+    nombre = f"Planilla_conceptos_{scenario.type}_{scenario.year}.xlsx"
+    return Response(
+        content=xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
 
