@@ -38,6 +38,7 @@ from app.db import get_session
 from app.engine import recalculate as recalc
 from app.models.actual_entry import ActualEntry
 from app.models.belowgop_account_entry import BelowGopAccountEntry
+from app.models.pl_line import PLLine
 from app.models.scenario import Scenario
 
 router = APIRouter()
@@ -127,6 +128,22 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
     below = (await session.execute(select(BelowGopAccountEntry).where(
         BelowGopAccountEntry.scenario_id == scenario_id))).scalars().all()
 
+    # Las lineas de INGRESO del P&L, por mes. Se leen una vez, no doce.
+    #
+    # `TOTAL_REVENUES` y `SEC_REVENUES` son agregados —el total y el encabezado
+    # de la seccion—: incluirlos duplicaria el ingreso en el cuadro, y el error
+    # se veria como «el doble», que es de los que pasan desapercibidos porque
+    # todo sigue sumando consigo mismo.
+    lineas_ingreso: dict[int, list] = {}
+    if detalle is not None:
+        for ln in (await session.execute(select(PLLine).where(
+                PLLine.scenario_id == scenario_id,
+                PLLine.section == "REVENUES",
+                PLLine.line_code.notin_(["TOTAL_REVENUES", "SEC_REVENUES"]),
+        ))).scalars().all():
+            lineas_ingreso.setdefault(ln.month, []).append(ln)
+            _nombra(detalle, ln.line_code, ln.line_name or "")
+
     # El nombre de cada cuenta 8xxx. `actual_rows_for_month` devuelve solo
     # codigo, depto y monto, asi que el nombre se busca aparte — una vez, no una
     # por mes.
@@ -207,6 +224,24 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
                 for e in below:
                     _suma(detalle, "property", str(e.account_code or ""), m,
                           Decimal(str(getattr(e, col) or 0)))
+                # ⚠️ El INGRESO de un presupuesto armado con checkbooks NO tiene
+                # departamento: se carga por LINEA (Rooms, Spa, Tours, Club…), y
+                # una linea como ROOMS abarca cinco departamentos
+                # (`OPERATING_DEPT_GROUPS`). Repartirla entre ellos seria inventar
+                # una atribucion que nadie cargo.
+                #
+                # Antes esta rama simplemente no abria el ingreso, y el tab
+                # «Revenue x Depto» salia vacio con el aviso «los presupuestos
+                # armados solo con drivers no tienen detalle» — falso cuando SI
+                # hay checkbook de ingresos (owner, 2026-08-27: «¿y por que aca
+                # si sale?», mostrando el P&L con las mismas cifras).
+                #
+                # Sale de `pl_lines`, que es de donde las lee el tab de P&L. Es a
+                # proposito: los dos cuadros muestran el mismo numero porque leen
+                # la misma fila, no porque dos calculos coincidan.
+                for ln in lineas_ingreso.get(m, []):
+                    _suma(detalle, "revenue", ln.line_code, m,
+                          Decimal(str(ln.amount_usd or 0)))
 
         filas.append({
             "month": m,
@@ -252,4 +287,10 @@ async def gasto_por_clase(
         async with get_session() as s:
             for d in (await s.execute(select(DepartmentCatalog))).scalars().all():
                 nombres[d.dept_code] = d.dept_name
+        # Los rótulos de las LINEAS de ingreso viajan en el mismo mapa que los de
+        # departamento porque es el que la pantalla consulta para encabezar cada
+        # fila. No chocan: un departamento es `0110` o `260`, una línea es
+        # `REV_ROOMS`. Sin esto la fila diría «REV_ROOMS» a secas.
+        for e in salida:
+            nombres.update(e.get("nombres_cuenta") or {})
     return {"clases": CLASES, "escenarios": salida, "departamentos": nombres}
