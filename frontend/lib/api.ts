@@ -2570,6 +2570,9 @@ export interface PLDetail {
           guests: number[]; rooms_revenue: number[] };
   comparar: { scenario_id: string; escenario: string;
               kpis: PLDetail["kpis"] } | null;
+  /** Los cuatro totales por NATURALEZA del pie del cuadro de cierre, por mes.
+   *  Salen del mismo calculo que el tab de Cierre de Mes. */
+  clases: { a: Record<string, number[]>; b: Record<string, number[]> | null };
   club: { meses: Record<string, number[]>;
           cierre: Record<string, number> } | null;
   filas: PLDetailFila[];

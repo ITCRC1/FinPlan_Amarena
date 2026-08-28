@@ -351,8 +351,33 @@ async def pl_detail(
             "kpis": await _kpis(s, scenario_id),
             "club": await _socios(s, scenario_id) if ambito == "club" else None,
             "filas": filas,
+            "clases": await _por_clase(s, scenario_id, otro),
             "control": _control(filas, ambito),
         }
+
+
+async def _por_clase(s, scenario_id: str, otro) -> dict:
+    """Los cuatro totales por NATURALEZA del pie del cuadro de cierre.
+
+    Owner, 2026-08-27, mostrando su formato de cierre mensual: *«con las líneas
+    más importantes»*. Debajo de la cascada su cuadro lleva planilla, opex,
+    costo y gastos de propiedad — un corte por naturaleza, no por departamento.
+
+    ⚠️ **Sale del MISMO `_por_mes` que el tab de Cierre de Mes**, no de una
+    consulta propia. Las líneas del P&L están cortadas por departamento y
+    sumarlas no da «todas las cuentas 7»: la planilla y el costo de esos mismos
+    departamentos entran en la misma línea. Es otro eje, y ya tiene quien lo
+    calcule bien.
+    """
+    from app.api.gasto_por_clase_api import _por_mes
+
+    async def serie(sid):
+        meses = await _por_mes(s, sid)
+        return {c: [float(m[c]) for m in meses]
+                for c in ("payroll", "cost", "opex", "property")}
+
+    return {"a": await serie(scenario_id),
+            "b": await serie(otro.id) if otro is not None else None}
 
 
 async def _serie_por_codigo(s, scenario_id: str) -> dict[str, list[float]]:

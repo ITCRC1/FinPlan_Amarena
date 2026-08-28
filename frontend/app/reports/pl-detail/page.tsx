@@ -27,6 +27,7 @@ import { HOTEL_ID } from "@/lib/hotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
+import Cierre from "./Cierre";
 
 const AMBITOS = [
   { id: "consolidado", rotulo: "Consolidado", ayuda: "Hotel + Club Madresal" },
@@ -62,6 +63,9 @@ export default function PLDetailPage() {
     "reports/pl-detail:budget", escenarios, "budget", undefined, true);
   const [comparar, setComparar] = useState("");
   const [horizonte, setHorizonte] = useState<Horizonte>("full");
+  /** «Cascada» es el reporte completo del libro; «Cierre» es el cuadro compacto
+   *  que el owner usa cada mes, con los tres cortes lado a lado. */
+  const [vista, setVista] = useState<"cascada" | "cierre">("cascada");
   const [mes, setMes] = useState(12);
   const [datos, setDatos] = useState<PLDetail | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -221,9 +225,21 @@ export default function PLDetailPage() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
                     marginBottom: 14 }}>
+        <nav aria-label="Vista" style={{ display: "inline-flex", borderRadius: 6,
+             overflow: "hidden", border: "1px solid var(--border-medium)" }}>
+          {([["cascada", "Cascada"], ["cierre", "Cierre (mes · YTD · año)"]] as const)
+            .map(([x, r], i) => (
+              <button key={x} onClick={() => setVista(x)}
+                style={{ ...btn(vista === x),
+                         borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+                {r}
+              </button>
+            ))}
+        </nav>
+
         <nav aria-label="Corte" style={{ display: "inline-flex", borderRadius: 6,
              overflow: "hidden", border: "1px solid var(--border-medium)" }}>
-          {([["mes", "Mes"], ["ytd", "YTD"], ["full", "Full Year"]] as const).map(
+          {vista === "cierre" ? null : ([["mes", "Mes"], ["ytd", "YTD"], ["full", "Full Year"]] as const).map(
             ([h, r], i) => (
               <button key={h} onClick={() => setHorizonte(h)}
                 style={{ ...btn(horizonte === h),
@@ -233,7 +249,7 @@ export default function PLDetailPage() {
             ))}
         </nav>
 
-        {horizonte !== "full" && (
+        {(horizonte !== "full" || vista === "cierre") && (
           <select value={mes} onChange={e => setMes(Number(e.target.value))}
             className="fin-input" style={{ fontSize: 12.5, padding: "5px 8px" }}>
             {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -300,6 +316,7 @@ export default function PLDetailPage() {
             </table>
           )}
 
+          {vista === "cierre" ? <Cierre datos={datos} mes={mes} /> : (
           <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
             <table className="fin-table" style={{ minWidth: 300 + anchoCols * 95 }}>
               <thead>
@@ -366,6 +383,7 @@ export default function PLDetailPage() {
               </tbody>
             </table>
           </div>
+          )}
 
           {/* El cuadre del owner, con la diferencia CALCULADA. Va sobre el AÑO:
               es el que cierra contra la utilidad del motor. */}
