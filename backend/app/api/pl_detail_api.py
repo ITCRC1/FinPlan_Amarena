@@ -227,157 +227,202 @@ def _serie(por_codigo: dict[str, list[float]], codigos: list[str]) -> list[float
     return out
 
 
+MAX_VERSIONES = 4          # la del owner: Forecast, Budget, Reforecast y Actual LY
+
+
 @router.get("/reports/pl-detail/{ambito}/")
 async def pl_detail(
     ambito: str,
     scenario_id: str = Query(...),
     comparar: str | None = Query(
-        None, description="otra versión, para la columna de variación"),
+        None, description="hasta 3 versiones mas, separadas por coma"),
     _=Depends(get_current_user),
 ):
-    """El P&L Detail del owner, en uno de sus tres ámbitos.
+    """El P&L Detail del owner, en uno de sus tres ambitos y hasta 4 versiones.
 
-    Devuelve los doce meses de cada fila —el cliente arma Mes, YTD o Año con
-    ellos— y, si se pasa `comparar`, la misma cascada de la otra versión.
+    Owner, 2026-08-27: *«aca tiene que haber al menos 2 versiones mas —actual,
+    budget, forecast, actual del año pasado— pero escogibles»*. Su cuadro de
+    Full Year lleva exactamente eso: `Forecast 2026 | Budget 2026 | Variance $ |
+    Variance % | Reforecast 2026 | Actual 2025`.
 
-    ⚠️ **La variación se calcula en el cliente, no acá.** El corte lo elige el
-    usuario (un mes, YTD a marzo, el año) y mandar las tres variaciones ya
-    hechas sería mandar tres veces lo mismo — y obligar a un viaje nuevo cada
-    vez que cambia de botón. Con los doce meses de las dos versiones, cualquier
-    corte es una resta en la pantalla.
+    Devuelve los doce meses de cada fila POR VERSION. Los cortes —Mes, YTD,
+    Año— y las variaciones se arman en el cliente: mandar cada corte ya hecho
+    seria mandar tres veces el mismo dato y un viaje por boton.
 
-    Las dos columnas del Excel del owner —`YTD December Actual vs Budget` y
-    `Full Year Forecast vs Budget`— son exactamente eso: el mismo par de
-    versiones mirado con dos cortes distintos.
+    Todas las versiones se rearman con la MISMA plantilla del ambito. Comparar
+    dos cascadas distintas daria filas que no se corresponden y una variacion
+    que no significa nada.
     """
     if ambito not in AMBITOS:
         raise ErrorApi(422, "reporte.ambito_desconocido", ambito=ambito)
 
+    ids = [scenario_id] + [x.strip() for x in (comparar or "").split(",") if x.strip()]
+    # Sin repetidos y conservando el orden: una version comparada contra si
+    # misma da una columna de ceros que se lee como «no cambio nada».
+    vistos, orden = set(), []
+    for i in ids:
+        if i not in vistos:
+            vistos.add(i)
+            orden.append(i)
+    ids = orden[:MAX_VERSIONES]
+
     async with get_session() as s:
-        escenario = await s.get(Scenario, scenario_id)
-        if escenario is None:
-            raise ErrorApi(404, "escenario.no_encontrado")
+        escenarios = []
+        for sid in ids:
+            e = await s.get(Scenario, sid)
+            if e is None:
+                raise ErrorApi(404, "escenario.no_encontrado")
+            escenarios.append(e)
 
-        otro = await s.get(Scenario, comparar) if comparar else None
-        if comparar and otro is None:
-            raise ErrorApi(404, "escenario.no_encontrado")
-
-        por_codigo: dict[str, list[float]] = {}
-        for ln in (await s.execute(select(PLLine).where(
-                PLLine.scenario_id == scenario_id))).scalars().all():
-            if not 1 <= ln.month <= 12:
-                continue
-            por_codigo.setdefault(ln.line_code, [0.0] * 12)[ln.month - 1] += float(
-                ln.amount_usd or 0)
-
-        # El Club, para poder restarlo del Hotel y para armar su propia hoja.
-        club_profit = _serie(por_codigo, [CLUB["profit"]])
-
-        if ambito == "club":
-            plantilla = CLUB_FILAS
-            derivadas = await _derivadas_del_club(s, scenario_id, por_codigo)
-        else:
-            plantilla = list(CONSOLIDADO)
-            derivadas = {}
-            if ambito == "hotel":
-                plantilla = _plantilla_hotel(plantilla)
+        plantilla = None
+        series: list[list[list[float] | None]] = []
+        for e in escenarios:
+            plantilla, cascada = await _cascada(s, e.id, ambito)
+            series.append(cascada)
 
         filas = []
-        for tipo, rotulo, codigos in plantilla:
-            if tipo == "esp":
-                filas.append({"tipo": "esp", "rotulo": "", "meses": None,
-                              "ytd": None, "full": None})
+        for j, (tipo, rotulo, _cods) in enumerate(plantilla):
+            if tipo in ("esp", "sec"):
+                filas.append({"tipo": tipo, "rotulo": rotulo if tipo == "sec" else "",
+                              "series": [None] * len(ids)})
                 continue
-            if tipo == "sec":
-                filas.append({"tipo": "sec", "rotulo": rotulo, "meses": None,
-                              "ytd": None, "full": None})
-                continue
-            propias = [c for c in codigos if not c.startswith("@")]
-            serie = _serie(por_codigo, propias)
-            for c in codigos:
-                if c.startswith("@"):
-                    for i, v in enumerate(derivadas.get(c, [0.0] * 12)):
-                        serie[i] += v
-            # El Hotel es el Consolidado MENOS el Club, también por debajo de
-            # Operating Profit: ahí el corrimiento es el resultado del Club, una
-            # sola vez. Restarlo en cada total por separado daría el mismo
-            # número por caminos distintos y sin nada que los ate.
-            if ambito == "hotel":
-                resta = _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit)
-                if resta:
-                    serie = [a - b for a, b in zip(serie, resta)]
             filas.append({
                 "tipo": tipo, "rotulo": rotulo,
-                "meses": [round(v, 2) for v in serie],
-                "ytd": round(sum(serie), 2), "full": round(sum(serie), 2),
+                "series": [[round(v, 2) for v in serie[j]] for serie in series],
             })
 
-        # La otra versión, con la MISMA plantilla: comparar dos cascadas
-        # distintas daría filas que no se corresponden y una variación que no
-        # significa nada. Por eso se rearma con el mismo ámbito, no se pide otra
-        # cosa.
-        if otro is not None:
-            b = await _serie_por_codigo(s, otro.id)
-            club_b = _serie(b, [CLUB["profit"]])
-            der_b = (await _derivadas_del_club(s, otro.id, b)
-                     if ambito == "club" else {})
-            for fila, (tipo, rotulo, codigos) in zip(filas, plantilla):
-                if fila["meses"] is None:
-                    fila["meses_b"] = None
-                    fila["full_b"] = None
-                    continue
-                serie = _serie(b, [c for c in codigos if not c.startswith("@")])
-                for c in codigos:
-                    if c.startswith("@"):
-                        for i, v in enumerate(der_b.get(c, [0.0] * 12)):
-                            serie[i] += v
-                if ambito == "hotel":
-                    resta = _que_resta_el_hotel(rotulo, codigos, b, club_b)
-                    if resta:
-                        serie = [x - y for x, y in zip(serie, resta)]
-                fila["meses_b"] = [round(v, 2) for v in serie]
-                fila["full_b"] = round(sum(serie), 2)
-
+        principal = escenarios[0]
         return {
             "ambito": ambito,
-            "scenario_id": scenario_id,
-            "escenario": f"{escenario.type} {escenario.version} {escenario.year}",
-            "year": escenario.year,
-            "comparar": None if otro is None else {
-                "scenario_id": otro.id,
-                "escenario": f"{otro.type} {otro.version} {otro.year}",
-                "kpis": await _kpis(s, otro.id),
-            },
-            "kpis": await _kpis(s, scenario_id),
-            "club": await _socios(s, scenario_id) if ambito == "club" else None,
+            "scenario_id": principal.id,
+            "escenario": _nombre(principal),
+            "year": principal.year,
+            "versiones": [{"scenario_id": e.id, "escenario": _nombre(e),
+                           "kpis": await _kpis(s, e.id)} for e in escenarios],
+            "club": await _socios(s, principal.id) if ambito == "club" else None,
             "filas": filas,
-            "clases": await _por_clase(s, scenario_id, otro),
-            "control": _control(filas, ambito),
+            "clases": [await _clases_de(s, e.id) for e in escenarios],
+            "control": _control(
+                [{"rotulo": f["rotulo"], "meses": f["series"][0],
+                  "full": round(sum(f["series"][0]), 2) if f["series"][0] else None}
+                 for f in filas], ambito),
         }
 
 
-async def _por_clase(s, scenario_id: str, otro) -> dict:
+#: Los rotulos del cuadro de cierre, en el orden del owner.
+CLAVE_CIERRE = [
+    "TOTAL REVENUES", "Total Operationg expenses", "OPERATING PROFIT",
+    "TOTAL OVERHEAD EXPENSES", "TOTAL GROSS OPERATING PROFIT",
+    "TOTAL NON OP EXPENSES", "EBITDA BEFORE CAPITAL", "EBITDA AFTER CAPITAL",
+    "EARNINGS BEFORE INCOME TAXES", "NET PROFIT",
+]
+CLASES_ROTULOS = [("payroll", "Total Payroll and Benefits"),
+                  ("opex", "Total Operating Expenses"),
+                  ("cost", "Total Cost"),
+                  ("property", "Total Property Expenses")]
+_NOTA_AMBITO = {"consolidado": "Hotel + Club Madresal",
+                "hotel": "Sin el Club Madresal",
+                "club": "Solo el departamento 260"}
+_TITULO_AMBITO = {"consolidado": "Consolidado", "hotel": "Hotel",
+                  "club": "Club Madresal"}
+
+
+@router.get("/reports/pl-detail/{ambito}/excel/")
+async def pl_detail_excel(
+    ambito: str,
+    scenario_id: str = Query(...),
+    comparar: str | None = Query(None),
+    mes: int = Query(12, ge=1, le=12),
+    _=Depends(get_current_user),
+):
+    """El mismo reporte, en Excel y con su forma.
+
+    Owner, 2026-08-27: *«el excel no baja lo que esta viendo en la pantalla,
+    abre cualquier cosa»* y *«que se baje super nitido y profesional»*.
+
+    Antes bajaba por el exportador GENERICO, que arma una tabla plana. Este
+    cuadro tiene encabezados de dos pisos —el bloque `Mayo`/`YTD`/`Full Year` y
+    adentro cada version— y aplanarlo daba columnas seguidas sin decir a que
+    bloque pertenece cada una: por eso «abria cualquier cosa».
+
+    Se recalcula del lado del servidor con los MISMOS parametros de la pantalla,
+    en vez de mandarle el cuadro ya armado. Asi no hay dos formas de llegar al
+    numero, que es como empiezan a diferir.
+    """
+    from app.export.pl_detail_excel import export_pl_detail
+    from fastapi import Response
+
+    datos = await pl_detail(ambito, scenario_id, comparar, _)
+    datos["clave"] = CLAVE_CIERRE
+    datos["clases_rotulos"] = CLASES_ROTULOS
+    datos["titulo_ambito"] = _TITULO_AMBITO[ambito]
+    datos["nota_ambito"] = _NOTA_AMBITO[ambito]
+
+    nombre = (f"PL_Detail_{_TITULO_AMBITO[ambito].replace(' ', '_')}"
+              f"_{datos['year']}.xlsx")
+    return Response(
+        content=export_pl_detail(datos, mes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+def _nombre(e) -> str:
+    return f"{e.type} {e.version} {e.year}"
+
+
+async def _cascada(s, scenario_id: str, ambito: str):
+    """La plantilla del ambito y, en el mismo orden, los doce meses de cada fila.
+
+    Devuelve las dos cosas juntas a proposito: la fila `j` de la salida es la
+    fila `j` de la plantilla, y separarlas invita a que alguien las recorra en
+    ordenes distintos.
+    """
+    por_codigo = await _serie_por_codigo(s, scenario_id)
+    club_profit = _serie(por_codigo, [CLUB["profit"]])
+
+    if ambito == "club":
+        plantilla = CLUB_FILAS
+        derivadas = await _derivadas_del_club(s, scenario_id, por_codigo)
+    else:
+        plantilla = list(CONSOLIDADO)
+        derivadas = {}
+        if ambito == "hotel":
+            plantilla = _plantilla_hotel(plantilla)
+
+    salida: list[list[float] | None] = []
+    for tipo, rotulo, codigos in plantilla:
+        if tipo in ("esp", "sec"):
+            salida.append(None)
+            continue
+        serie = _serie(por_codigo, [c for c in codigos if not c.startswith("@")])
+        for c in codigos:
+            if c.startswith("@"):
+                for i, v in enumerate(derivadas.get(c, [0.0] * 12)):
+                    serie[i] += v
+        if ambito == "hotel":
+            resta = _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit)
+            if resta:
+                serie = [a - b for a, b in zip(serie, resta)]
+        salida.append(serie)
+    return plantilla, salida
+
+
+async def _clases_de(s, scenario_id: str) -> dict:
     """Los cuatro totales por NATURALEZA del pie del cuadro de cierre.
 
-    Owner, 2026-08-27, mostrando su formato de cierre mensual: *«con las líneas
-    más importantes»*. Debajo de la cascada su cuadro lleva planilla, opex,
-    costo y gastos de propiedad — un corte por naturaleza, no por departamento.
+    Owner, 2026-08-27: su cuadro lleva planilla, opex, costo y gastos de
+    propiedad — un corte por naturaleza, no por departamento.
 
-    ⚠️ **Sale del MISMO `_por_mes` que el tab de Cierre de Mes**, no de una
-    consulta propia. Las líneas del P&L están cortadas por departamento y
-    sumarlas no da «todas las cuentas 7»: la planilla y el costo de esos mismos
-    departamentos entran en la misma línea. Es otro eje, y ya tiene quien lo
-    calcule bien.
+    ⚠️ **Sale del MISMO `_por_mes` que el tab de Cierre de Mes.** Las lineas del
+    P&L estan cortadas por departamento y sumarlas no da «todas las cuentas 7»:
+    la planilla y el costo de esos mismos departamentos entran en la misma
+    linea. Es otro eje, y ya tiene quien lo calcule bien.
     """
     from app.api.gasto_por_clase_api import _por_mes
 
-    async def serie(sid):
-        meses = await _por_mes(s, sid)
-        return {c: [float(m[c]) for m in meses]
-                for c in ("payroll", "cost", "opex", "property")}
-
-    return {"a": await serie(scenario_id),
-            "b": await serie(otro.id) if otro is not None else None}
+    meses = await _por_mes(s, scenario_id)
+    return {c: [float(m[c]) for m in meses]
+            for c in ("payroll", "cost", "opex", "property")}
 
 
 async def _serie_por_codigo(s, scenario_id: str) -> dict[str, list[float]]:

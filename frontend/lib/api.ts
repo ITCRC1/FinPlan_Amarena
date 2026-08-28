@@ -2551,40 +2551,55 @@ export interface PLDetailFila {
   /** sec = encabezado · det = detalle · sub = subtotal · tot = total · esp = espacio */
   tipo: "sec" | "det" | "sub" | "tot" | "esp";
   rotulo: string;
-  /** null en encabezados y espacios: no son filas de numeros. */
-  meses: number[] | null;
-  ytd: number | null;
-  full: number | null;
-  /** La otra version, cuando se pide `comparar`. */
-  meses_b?: number[] | null;
-  full_b?: number | null;
+  /** Los doce meses POR VERSION, en el orden de `versiones`. `null` en
+   *  encabezados y espacios: no son filas de numeros. */
+  series: (number[] | null)[];
+}
+export interface PLDetailVersion {
+  scenario_id: string;
+  escenario: string;
+  /** Numeradores y denominadores POR MES: ocupacion, ADR y RevPAR se rederivan
+   *  en el corte que se elija — son razones, no se suman. */
+  kpis: { rooms_available: number[]; rooms_occupied: number[];
+          guests: number[]; rooms_revenue: number[] };
 }
 export interface PLDetail {
   ambito: string;
   scenario_id: string;
   escenario: string;
   year: number;
-  /** Los numeradores y denominadores POR MES. Ocupacion, ADR y RevPAR se
-   *  rederivan en el corte que se elija: son razones, no se suman. */
-  kpis: { rooms_available: number[]; rooms_occupied: number[];
-          guests: number[]; rooms_revenue: number[] };
-  comparar: { scenario_id: string; escenario: string;
-              kpis: PLDetail["kpis"] } | null;
-  /** Los cuatro totales por NATURALEZA del pie del cuadro de cierre, por mes.
-   *  Salen del mismo calculo que el tab de Cierre de Mes. */
-  clases: { a: Record<string, number[]>; b: Record<string, number[]> | null };
+  versiones: PLDetailVersion[];
   club: { meses: Record<string, number[]>;
           cierre: Record<string, number> } | null;
   filas: PLDetailFila[];
+  /** Los cuatro totales por naturaleza, uno por version. */
+  clases: Record<string, number[]>[];
   /** El cuadre del owner, con la diferencia calculada — no escrita a mano. */
   control: { ingresos: number; gastos: number; utilidad: number; diferencia: number };
 }
 export async function getPLDetail(
-  ambito: string, scenarioId: string, comparar?: string,
+  ambito: string, scenarioId: string, comparar: string[] = [],
 ): Promise<PLDetail> {
-  const cmp = comparar ? `&comparar=${encodeURIComponent(comparar)}` : "";
+  const cmp = comparar.length
+    ? `&comparar=${encodeURIComponent(comparar.join(","))}` : "";
   return api.get<PLDetail>(
     `/reports/pl-detail/${encodeURIComponent(ambito)}/?scenario_id=${encodeURIComponent(scenarioId)}${cmp}`);
+}
+/** El Excel con la FORMA del cuadro (dos pisos de encabezado). Lo arma el
+ *  servidor con los mismos parametros de la pantalla: mandarle el cuadro ya
+ *  armado seria una segunda forma de llegar al numero. */
+export async function bajarPLDetailExcel(
+  ambito: string, scenarioId: string, comparar: string[], mes: number,
+): Promise<Blob> {
+  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  const cmp = comparar.length
+    ? `&comparar=${encodeURIComponent(comparar.join(","))}` : "";
+  const res = await fetch(
+    `${base}/reports/pl-detail/${encodeURIComponent(ambito)}/excel/`
+    + `?scenario_id=${encodeURIComponent(scenarioId)}${cmp}&mes=${mes}`,
+    { headers: authHeaders() });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.blob();
 }
 
 export interface PLKpis {

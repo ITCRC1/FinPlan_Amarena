@@ -26,7 +26,7 @@ import { getScenarios, getPLDetail, type Scenario, type PLDetail } from "@/lib/a
 import { HOTEL_ID } from "@/lib/hotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
-import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
+import { bajarPLDetailExcel } from "@/lib/api";
 import Cierre from "./Cierre";
 
 const AMBITOS = [
@@ -61,7 +61,11 @@ export default function PLDetailPage() {
   const [escenarios, setEscenarios] = useState<Scenario[]>([]);
   const [scenarioId, setScenarioId] = useEscenarioDe(
     "reports/pl-detail:budget", escenarios, "budget", undefined, true);
-  const [comparar, setComparar] = useState("");
+  /** Hasta tres versiones mas. Owner, 2026-08-27: «tiene que haber al menos 2
+   *  versiones mas —actual, budget, forecast, actual del año pasado— pero
+   *  escogibles». Su cuadro de Full Year lleva exactamente cuatro columnas. */
+  const [comparar, setComparar] = useState<string[]>(["", "", ""]);
+  const cmp = useMemo(() => comparar.filter(Boolean), [comparar]);
   const [horizonte, setHorizonte] = useState<Horizonte>("full");
   /** «Cascada» es el reporte completo del libro; «Cierre» es el cuadro compacto
    *  que el owner usa cada mes, con los tres cortes lado a lado. */
@@ -85,12 +89,12 @@ export default function PLDetailPage() {
     if (!scenarioId) return;
     setCargando(true); setError(null);
     try {
-      setDatos(await getPLDetail(ambito, scenarioId, comparar || undefined));
+      setDatos(await getPLDetail(ambito, scenarioId, cmp));
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar el reporte");
       setDatos(null);
     } finally { setCargando(false); }
-  }, [ambito, scenarioId, comparar]);
+  }, [ambito, scenarioId, cmp]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -119,7 +123,7 @@ export default function PLDetailPage() {
    * mismo peso a un mes lleno que a uno cerrado — y Amarena tiene cinco meses
    * en cero, así que el ADR del año habría salido 5/12 más bajo.
    */
-  const stats = useCallback((k: PLDetail["kpis"] | undefined) => {
+  const stats = useCallback((k: PLDetail["versiones"][number]["kpis"] | undefined) => {
     if (!k) return null;
     const av = corte(k.rooms_available) ?? 0;
     const oc = corte(k.rooms_occupied) ?? 0;
@@ -135,55 +139,30 @@ export default function PLDetailPage() {
     };
   }, [corte]);
 
-  const statsA = useMemo(() => stats(datos?.kpis), [stats, datos]);
-  const statsB = useMemo(() => stats(datos?.comparar?.kpis), [stats, datos]);
+  /** Una columna de estadisticas por version. */
+  const statsPorVersion = useMemo(
+    () => (datos?.versiones ?? []).map(v => stats(v.kpis)),
+    [stats, datos]);
 
+  /** Baja el Excel CON LA FORMA del cuadro. Antes usaba el exportador
+   *  generico, que aplana los dos pisos de encabezado — el owner lo describio
+   *  como «abre cualquier cosa», y tenia razon: doce columnas seguidas sin
+   *  decir a que bloque pertenece cada una. */
   const bajar = useCallback(async () => {
     if (!datos) return;
     setBajando(true);
     try {
-      const cols = [
-        { label: "ACCOUNT DESCRIPTION", ancho: 46, formato: "texto" as const },
-        ...ventana.map(i => ({ label: MESES[i], formato: "usd2" as const })),
-        { label: rotuloCorte, formato: "usd2" as const },
-      ];
-      if (datos.comparar) {
-        cols.push({ label: "Comparación", formato: "usd2" as const });
-        cols.push({ label: "Variación", formato: "usd2" as const });
-      }
-      const vacias = () => Array(cols.length - 1).fill(null);
-      const filas: FilaCuadro[] = datos.filas
-        .filter(f => f.tipo !== "esp")
-        .map(f => {
-          const a = corte(f.meses);
-          const b = datos.comparar ? corte(f.meses_b) : null;
-          let valores: (number | string | null)[];
-          if (f.meses === null) {
-            valores = vacias();
-          } else {
-            valores = [...ventana.map(i => f.meses![i]), a];
-            if (datos.comparar) valores.push(b, (a ?? 0) - (b ?? 0));
-          }
-          return {
-            label: f.rotulo, nivel: f.tipo === "det" ? 1 : 0,
-            es_total: f.tipo === "tot" || f.tipo === "sec", valores,
-          };
-        });
-      filas.push({ label: "", valores: vacias() });
-      filas.push({
-        label: `CONTROL · ingresos ${datos.control.ingresos} · gastos ${datos.control.gastos}`
-             + ` · utilidad ${datos.control.utilidad} · diferencia ${datos.control.diferencia}`,
-        es_total: true, valores: vacias(),
-      });
-      await bajarCuadros(`PL_Detail_${act.rotulo}_${rotuloCorte}_${datos.year}`, [{
-        titulo: `P&L Detail — ${act.rotulo}`,
-        subtitulo: `${datos.escenario} · ${rotuloCorte}`
-                 + (datos.comparar ? ` · vs ${datos.comparar.escenario}` : "")
-                 + ` · ${act.ayuda} · USD`,
-        hoja: act.rotulo, columnas: cols, filas,
-      }]);
+      const blob = await bajarPLDetailExcel(ambito, scenarioId, cmp, mes);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `PL_Detail_${act.rotulo}_${datos.year}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo bajar el Excel");
     } finally { setBajando(false); }
-  }, [datos, act, ventana, rotuloCorte, corte]);
+  }, [datos, ambito, scenarioId, cmp, mes, act]);
 
   const btn = (activo: boolean): React.CSSProperties => ({
     padding: "5px 12px", fontSize: 12, fontWeight: 600, border: "none",
@@ -192,7 +171,8 @@ export default function PLDetailPage() {
     color: activo ? "#fff" : "var(--text-primary)",
   });
 
-  const anchoCols = ventana.length + 1 + (datos?.comparar ? 2 : 0);
+  const hayVar = (datos?.versiones.length ?? 0) >= 2;
+  const anchoCols = ventana.length + (datos?.versiones.length ?? 1) + (hayVar ? 2 : 0);
 
   return (
     <div style={{ padding: "18px 22px" }}>
@@ -264,13 +244,18 @@ export default function PLDetailPage() {
         </select>
 
         <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>vs</span>
-        <select value={comparar} onChange={e => setComparar(e.target.value)}
-          className="fin-input" style={{ fontSize: 12.5, padding: "5px 8px" }}>
-          <option value="">— sin comparación —</option>
-          {escenarios.filter(s => s.id !== scenarioId).map(s => (
-            <option key={s.id} value={s.id}>{s.year} · {s.type} {s.version}</option>
-          ))}
-        </select>
+        {comparar.map((c, i) => (
+          <select key={i} value={c}
+            onChange={e => setComparar(v => v.map((x, j) => j === i ? e.target.value : x))}
+            className="fin-input" style={{ fontSize: 12.5, padding: "5px 8px" }}>
+            <option value="">{i === 0 ? "— sin comparación —" : "— +versión —"}</option>
+            {escenarios
+              .filter(s => s.id !== scenarioId && !comparar.some((o, j) => o === s.id && j !== i))
+              .map(s => (
+                <option key={s.id} value={s.id}>{s.year} · {s.type} {s.version}</option>
+              ))}
+          </select>
+        ))}
       </div>
 
       {error && (
@@ -285,31 +270,48 @@ export default function PLDetailPage() {
         <>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
             {datos.escenario} · {rotuloCorte}
-            {datos.comparar ? ` · vs ${datos.comparar.escenario}` : ""} · {act.ayuda} · USD
+            {datos.versiones.length > 1
+              ? ` · vs ${datos.versiones.slice(1).map(v => v.escenario).join(" · ")}`
+              : ""}
+            {" · "}{act.ayuda} · USD
           </div>
 
-          {/* Las estadísticas del Excel (filas 3–9 de sus hojas). */}
-          {statsA && (
+          {/* Las estadísticas del Excel (filas 3–9 de sus hojas), una columna
+              por versión. */}
+          {statsPorVersion[0] && (
             <table className="fin-table" style={{ marginBottom: 16, minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...TDL, textAlign: "left" }}>
+                    ESTADÍSTICAS · {rotuloCorte}
+                  </th>
+                  {datos.versiones.map(v => (
+                    <th key={v.scenario_id} style={TD}>{v.escenario}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
-                {Object.entries(statsA).map(([k, v]) => (
+                {Object.keys(statsPorVersion[0]!).map(k => (
                   <tr key={k}>
                     <td style={{ ...TDL, fontWeight: 500 }}>{k}</td>
-                    <td className="mono" style={{ ...TD, fontWeight: 700 }}>{v}</td>
-                    {statsB && (
-                      <td className="mono" style={{ ...TD, color: "var(--text-secondary)" }}>
-                        {statsB[k as keyof typeof statsB]}
+                    {statsPorVersion.map((st, i) => (
+                      <td key={i} className="mono"
+                          style={{ ...TD, fontWeight: i === 0 ? 700 : 400,
+                                   color: i ? "var(--text-secondary)" : undefined }}>
+                        {st ? st[k as keyof typeof st] : "—"}
                       </td>
-                    )}
+                    ))}
                   </tr>
                 ))}
                 {datos.club && (
                   <tr>
-                    <td style={{ ...TDL, fontWeight: 500 }}>Membresías (total · pagando)</td>
+                    <td style={{ ...TDL, fontWeight: 500 }}>
+                      Membresías (total · pagando)
+                    </td>
                     <td className="mono" style={{ ...TD, fontWeight: 700 }}>
                       {datos.club.cierre.total} · {datos.club.cierre.pagando}
                     </td>
-                    {statsB && <td />}
+                    {datos.versiones.slice(1).map((v, i) => <td key={i} />)}
                   </tr>
                 )}
               </tbody>
@@ -323,11 +325,18 @@ export default function PLDetailPage() {
                 <tr>
                   <th style={{ ...TDL, textAlign: "left" }}>ACCOUNT DESCRIPTION</th>
                   {ventana.map(i => <th key={i} style={TD}>{MESES[i]}</th>)}
-                  <th style={{ ...TD, fontWeight: 800 }}>{rotuloCorte}</th>
-                  {datos.comparar && (
+                  {datos.versiones.map((v, i) => (
+                    <th key={v.scenario_id}
+                        style={{ ...TD, fontWeight: i === 0 ? 800 : 600,
+                                 borderLeft: i === 0
+                                   ? "2px solid var(--border-medium)" : undefined }}>
+                      {i === 0 ? `${rotuloCorte} · ${v.escenario}` : v.escenario}
+                    </th>
+                  ))}
+                  {hayVar && (
                     <>
-                      <th style={TD}>{datos.comparar.escenario}</th>
-                      <th style={{ ...TD, fontWeight: 800 }}>Variación</th>
+                      <th style={TD}>Var $</th>
+                      <th style={TD}>Var %</th>
                     </>
                   )}
                 </tr>
@@ -344,35 +353,49 @@ export default function PLDetailPage() {
                   const fuerte = f.tipo === "tot";
                   const fondo = f.tipo === "sec" ? "var(--bg-elevated)"
                     : fuerte ? "var(--bg-subtle)" : undefined;
-                  const a = corte(f.meses);
-                  const b = datos.comparar ? corte(f.meses_b) : null;
-                  const v = a !== null && b !== null ? a - b : null;
+                  const tot = f.series.map(sr => corte(sr));
+                  const a = tot[0] ?? null;
+                  const b = hayVar ? (tot[1] ?? null) : null;
+                  const d = a !== null && b !== null ? a - b : null;
+                  // Sobre base cero no hay porcentaje: un 0% o un ∞ serían una
+                  // lectura inventada. Con enero a mayo en cero pasa seguido.
+                  const p = d !== null && b ? d / Math.abs(b) : null;
+                  const principal = f.series[0];
                   return (
                     <tr key={i} style={{ background: fondo }}>
                       <td style={{ ...TDL,
                         fontWeight: f.tipo === "sec" || fuerte ? 700 : 400,
                         paddingLeft: f.tipo === "det" ? 24 : 10 }}>{f.rotulo}</td>
-                      {f.meses === null
+                      {principal === null || principal === undefined
                         ? <td colSpan={anchoCols} />
                         : (
                           <>
                             {ventana.map(j => (
                               <td key={j} className="mono" style={{ ...TD,
                                 fontWeight: fuerte ? 700 : 400,
-                                color: (f.meses![j] ?? 0) < 0 ? "var(--negative)" : undefined,
-                              }}>{usd(f.meses![j])}</td>
+                                color: (principal[j] ?? 0) < 0
+                                  ? "var(--negative)" : undefined,
+                              }}>{usd(principal[j])}</td>
                             ))}
-                            <td className="mono" style={{ ...TD, fontWeight: 800,
-                              color: (a ?? 0) < 0 ? "var(--negative)" : undefined,
-                            }}>{usd(a)}</td>
-                            {datos.comparar && (
+                            {tot.map((v, k) => (
+                              <td key={k} className="mono" style={{ ...TD,
+                                fontWeight: k === 0 ? 800 : 500,
+                                color: (v ?? 0) < 0 ? "var(--negative)"
+                                  : k ? "var(--text-secondary)" : undefined,
+                                borderLeft: k === 0
+                                  ? "2px solid var(--border-medium)" : undefined,
+                              }}>{usd(v)}</td>
+                            ))}
+                            {hayVar && (
                               <>
-                                <td className="mono" style={{ ...TD,
-                                  color: "var(--text-secondary)" }}>{usd(b)}</td>
                                 <td className="mono" style={{ ...TD, fontWeight: 700,
-                                  color: v === null ? undefined
-                                    : v < 0 ? "var(--negative)" : "var(--positive)",
-                                }}>{usd(v)}</td>
+                                  color: d === null ? undefined
+                                    : d < 0 ? "var(--negative)" : "var(--positive)",
+                                }}>{usd(d)}</td>
+                                <td className="mono" style={{ ...TD,
+                                  color: p === null ? undefined
+                                    : p < 0 ? "var(--negative)" : "var(--positive)",
+                                }}>{p === null ? "—" : (p * 100).toFixed(1) + "%"}</td>
                               </>
                             )}
                           </>
