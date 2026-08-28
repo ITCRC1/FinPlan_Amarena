@@ -2555,23 +2555,33 @@ export interface PLDetailFila {
   meses: number[] | null;
   ytd: number | null;
   full: number | null;
+  /** La otra version, cuando se pide `comparar`. */
+  meses_b?: number[] | null;
+  full_b?: number | null;
 }
 export interface PLDetail {
   ambito: string;
   scenario_id: string;
   escenario: string;
   year: number;
-  kpis: { rooms_available: number; rooms_occupied: number; guests: number;
-          occupancy_pct: number; adr: number };
+  /** Los numeradores y denominadores POR MES. Ocupacion, ADR y RevPAR se
+   *  rederivan en el corte que se elija: son razones, no se suman. */
+  kpis: { rooms_available: number[]; rooms_occupied: number[];
+          guests: number[]; rooms_revenue: number[] };
+  comparar: { scenario_id: string; escenario: string;
+              kpis: PLDetail["kpis"] } | null;
   club: { meses: Record<string, number[]>;
           cierre: Record<string, number> } | null;
   filas: PLDetailFila[];
   /** El cuadre del owner, con la diferencia calculada — no escrita a mano. */
   control: { ingresos: number; gastos: number; utilidad: number; diferencia: number };
 }
-export async function getPLDetail(ambito: string, scenarioId: string): Promise<PLDetail> {
+export async function getPLDetail(
+  ambito: string, scenarioId: string, comparar?: string,
+): Promise<PLDetail> {
+  const cmp = comparar ? `&comparar=${encodeURIComponent(comparar)}` : "";
   return api.get<PLDetail>(
-    `/reports/pl-detail/${encodeURIComponent(ambito)}/?scenario_id=${encodeURIComponent(scenarioId)}`);
+    `/reports/pl-detail/${encodeURIComponent(ambito)}/?scenario_id=${encodeURIComponent(scenarioId)}${cmp}`);
 }
 
 export interface PLKpis {

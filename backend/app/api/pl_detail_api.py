@@ -231,11 +231,24 @@ def _serie(por_codigo: dict[str, list[float]], codigos: list[str]) -> list[float
 async def pl_detail(
     ambito: str,
     scenario_id: str = Query(...),
+    comparar: str | None = Query(
+        None, description="otra versión, para la columna de variación"),
     _=Depends(get_current_user),
 ):
     """El P&L Detail del owner, en uno de sus tres ámbitos.
 
-    Devuelve los doce meses, el YTD y el año, más el bloque de control del pie.
+    Devuelve los doce meses de cada fila —el cliente arma Mes, YTD o Año con
+    ellos— y, si se pasa `comparar`, la misma cascada de la otra versión.
+
+    ⚠️ **La variación se calcula en el cliente, no acá.** El corte lo elige el
+    usuario (un mes, YTD a marzo, el año) y mandar las tres variaciones ya
+    hechas sería mandar tres veces lo mismo — y obligar a un viaje nuevo cada
+    vez que cambia de botón. Con los doce meses de las dos versiones, cualquier
+    corte es una resta en la pantalla.
+
+    Las dos columnas del Excel del owner —`YTD December Actual vs Budget` y
+    `Full Year Forecast vs Budget`— son exactamente eso: el mismo par de
+    versiones mirado con dos cortes distintos.
     """
     if ambito not in AMBITOS:
         raise ErrorApi(422, "reporte.ambito_desconocido", ambito=ambito)
@@ -243,6 +256,10 @@ async def pl_detail(
     async with get_session() as s:
         escenario = await s.get(Scenario, scenario_id)
         if escenario is None:
+            raise ErrorApi(404, "escenario.no_encontrado")
+
+        otro = await s.get(Scenario, comparar) if comparar else None
+        if comparar and otro is None:
             raise ErrorApi(404, "escenario.no_encontrado")
 
         por_codigo: dict[str, list[float]] = {}
@@ -295,16 +312,58 @@ async def pl_detail(
                 "ytd": round(sum(serie), 2), "full": round(sum(serie), 2),
             })
 
+        # La otra versión, con la MISMA plantilla: comparar dos cascadas
+        # distintas daría filas que no se corresponden y una variación que no
+        # significa nada. Por eso se rearma con el mismo ámbito, no se pide otra
+        # cosa.
+        if otro is not None:
+            b = await _serie_por_codigo(s, otro.id)
+            club_b = _serie(b, [CLUB["profit"]])
+            der_b = (await _derivadas_del_club(s, otro.id, b)
+                     if ambito == "club" else {})
+            for fila, (tipo, rotulo, codigos) in zip(filas, plantilla):
+                if fila["meses"] is None:
+                    fila["meses_b"] = None
+                    fila["full_b"] = None
+                    continue
+                serie = _serie(b, [c for c in codigos if not c.startswith("@")])
+                for c in codigos:
+                    if c.startswith("@"):
+                        for i, v in enumerate(der_b.get(c, [0.0] * 12)):
+                            serie[i] += v
+                if ambito == "hotel":
+                    resta = _que_resta_el_hotel(rotulo, codigos, b, club_b)
+                    if resta:
+                        serie = [x - y for x, y in zip(serie, resta)]
+                fila["meses_b"] = [round(v, 2) for v in serie]
+                fila["full_b"] = round(sum(serie), 2)
+
         return {
             "ambito": ambito,
             "scenario_id": scenario_id,
             "escenario": f"{escenario.type} {escenario.version} {escenario.year}",
             "year": escenario.year,
+            "comparar": None if otro is None else {
+                "scenario_id": otro.id,
+                "escenario": f"{otro.type} {otro.version} {otro.year}",
+                "kpis": await _kpis(s, otro.id),
+            },
             "kpis": await _kpis(s, scenario_id),
             "club": await _socios(s, scenario_id) if ambito == "club" else None,
             "filas": filas,
             "control": _control(filas, ambito),
         }
+
+
+async def _serie_por_codigo(s, scenario_id: str) -> dict[str, list[float]]:
+    """Los doce meses de cada línea del P&L de un escenario."""
+    out: dict[str, list[float]] = {}
+    for ln in (await s.execute(select(PLLine).where(
+            PLLine.scenario_id == scenario_id))).scalars().all():
+        if 1 <= ln.month <= 12:
+            out.setdefault(ln.line_code, [0.0] * 12)[ln.month - 1] += float(
+                ln.amount_usd or 0)
+    return out
 
 
 #: Los totales que, en el Hotel, se corren por el resultado del Club. Todo lo que
@@ -405,19 +464,35 @@ async def _derivadas_del_club(s, scenario_id: str, por_codigo) -> dict:
 
 
 async def _kpis(s, scenario_id: str) -> dict:
-    """Las estadísticas del encabezado: las mismas siete del Excel."""
-    stats = (await s.execute(select(ScenarioStat).where(
-        ScenarioStat.scenario_id == scenario_id))).scalars().all()
-    avail = sum(int(x.rooms_available or 0) for x in stats)
-    occ = sum(float(x.rooms_occupied or 0) for x in stats)
-    guests = sum(float(x.guests or 0) for x in stats)
-    adr = sum(float(x.adr or 0) * float(x.rooms_occupied or 0) for x in stats)
+    """Las siete estadísticas del encabezado del Excel, MES A MES.
+
+    Owner, 2026-08-27: *«mete la estadística que estaba en el excel»*. Son las
+    filas 3 a 9 de sus hojas.
+
+    ⚠️ **Ocupación, ADR y RevPAR no se suman: se rederivan.** Son razones. El
+    promedio simple de doce meses le daría el mismo peso a un mes lleno que a
+    uno cerrado, y con enero a mayo en cero —que es el caso de Amarena— el ADR
+    del año habría salido 5/12 más bajo. Por eso el cliente recibe los
+    numeradores y denominadores por mes y arma cada corte con ellos.
+    """
+    stats = {x.month: x for x in (await s.execute(select(ScenarioStat).where(
+        ScenarioStat.scenario_id == scenario_id))).scalars().all()}
+
+    def serie(f):
+        return [round(f(stats[m]), 4) if m in stats else 0.0 for m in MESES]
+
+    avail = serie(lambda x: float(x.rooms_available or 0))
+    occ = serie(lambda x: float(x.rooms_occupied or 0))
+    guests = serie(lambda x: float(x.guests or 0))
+    # El ingreso de habitaciones del mes, para poder rederivar ADR y RevPAR en
+    # cualquier corte: ADR = ingreso / noches ocupadas.
+    ingreso = [round(a * o, 2) for a, o in
+               zip(serie(lambda x: float(x.adr or 0)), occ)]
     return {
         "rooms_available": avail,
-        "rooms_occupied": round(occ, 2),
-        "guests": round(guests, 2),
-        "occupancy_pct": round(occ / avail, 6) if avail else 0.0,
-        "adr": round(adr / occ, 2) if occ else 0.0,
+        "rooms_occupied": occ,
+        "guests": guests,
+        "rooms_revenue": ingreso,
     }
 
 
