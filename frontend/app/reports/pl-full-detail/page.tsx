@@ -6,6 +6,7 @@ import { elegir } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
 import { useHotel } from "@/lib/useHotel";
 import IrA from "@/components/IrA";
+import NivelDeDetalle from "@/components/NivelDeDetalle";
 import {
   getScenarios, getPLFullDetail, plFullDetailExcelUrl,
   type Scenario, type PLFullDetail, type PLDetalleFila, type PLDetalleSet,
@@ -318,6 +319,9 @@ export default function PLFullDetailPage() {
   return (
     <div className="pag pag-ancha" style={{ padding: "24px 20px 60px" }}>
       <IrA esc={scenarioId} />
+      <div style={{ margin: "0 0 14px" }}>
+        <NivelDeDetalle esc={scenarioId} />
+      </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>{t("title")}</h1>
         <select value={scenarioId} onChange={e => setScenarioId(e.target.value)}

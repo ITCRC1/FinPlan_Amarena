@@ -10,6 +10,7 @@ import {
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
+import NivelDeDetalle from "@/components/NivelDeDetalle";
 import { useImprimirEnUnaHoja } from "@/lib/imprimirEnUnaHoja";
 
 const MONTHS_FALLBACK = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -192,6 +193,9 @@ export default function PLByDeptReportPage() {
   return (
     <div ref={hoja} className="print-una-hoja pag pag-media" style={{ padding: "20px 24px" }}>
       <IrA esc={scenarioId} />
+      <div style={{ margin: "0 0 14px" }}>
+        <NivelDeDetalle esc={scenarioId} mes={month || undefined} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{t("titulo")}</h1>

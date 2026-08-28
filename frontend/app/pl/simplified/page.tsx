@@ -7,6 +7,7 @@ import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
 import { useHotel } from "@/lib/useHotel";
 import IrA from "@/components/IrA";
+import NivelDeDetalle from "@/components/NivelDeDetalle";
 
 const MONTHS_FALLBACK = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const TYPE_LABEL: Record<string,string> = { ACTUAL:"Actual", BUDGET:"Budget", FORECAST:"Forecast" };
@@ -329,6 +330,14 @@ export default function SimplifiedPLPage() {
     `}</style>
     <div className="pag pag-lectura" style={{ padding: "28px 28px 64px" }}>
       <IrA esc={col2Id} />
+      {/* Se lleva el de la COLUMNA 2, igual que `IrA` de arriba. No es una
+          preferencia estética: en esta pantalla el `?esc=` de la dirección es
+          el que maneja la columna 2 (`useEscenarioDe(..., desdeUrl)`), así que
+          es el único que vuelve puesto al regresar. Llevar el de la 1 haría
+          que ir y volver cambiara la columna que se estaba mirando. */}
+      <div style={{ margin: "0 0 14px" }}>
+        <NivelDeDetalle esc={col2Id} mes={month || undefined} />
+      </div>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
