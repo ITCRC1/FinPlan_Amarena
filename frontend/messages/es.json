@@ -130,7 +130,10 @@
       "costMasterData": "Master Data",
       "costFloors": "Price Floors",
       "costEscalones": "Cost Steps",
-      "costSimulator": "Group Simulator"
+      "costSimulator": "Group Simulator",
+      "plDetailFull": "P&L Detail Full (consolidado)",
+      "plDetailHotel": "P&L Detail Hotel",
+      "plDetailClub": "P&L Detail Club"
     },
     "groupsFull": {
       "financials": "Estados financieros",

@@ -134,6 +134,12 @@ export const NAV: NavGroup[] = [
     key: "reports",
     items: [
       { key: "pl", header: true },
+      // Las tres hojas del libro del owner (`BUDGET 2026-AMA formato.xlsx`).
+      // Van como TRES entradas porque asi las pide, y apuntan a una sola
+      // pantalla con `?ambito=`: los tres son la misma cascada con otro alcance.
+      { key: "plDetailFull", href: "/reports/pl-detail?ambito=consolidado" },
+      { key: "plDetailHotel", href: "/reports/pl-detail?ambito=hotel" },
+      { key: "plDetailClub", href: "/reports/pl-detail?ambito=club" },
       { key: "plFullDetail", href: "/reports/pl-full-detail" },
       { key: "plByDept", href: "/reports/pl-by-dept" },
       { key: "plByDeptCompare", href: "/reports/pl-by-dept-compare" },

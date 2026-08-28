@@ -43,6 +43,7 @@ from app.api.mixer_api import router as mixer_router
 from app.api.chequeo_api import router as chequeo_router
 from app.api.lineas_obligatorias_api import router as lineas_obligatorias_router
 from app.api.consulta_api import router as consulta_router
+from app.api.pl_detail_api import router as pl_detail_router
 from app.api.payroll_position_report_api import router as payroll_position_report_router
 from app.api.provisioning_api import router as provisioning_router
 from app.api.export_api import router as export_router
@@ -157,6 +158,7 @@ app.include_router(mixer_router, prefix="/api", dependencies=_guard)
 app.include_router(chequeo_router, prefix="/api", dependencies=_guard)
 app.include_router(lineas_obligatorias_router, prefix="/api", dependencies=_guard)
 app.include_router(consulta_router, prefix="/api", dependencies=_guard)
+app.include_router(pl_detail_router, prefix="/api", dependencies=_guard)
 app.include_router(payroll_position_report_router, prefix="/api", dependencies=_guard)
 app.include_router(provisioning_router, prefix="/api", dependencies=_guard)
 app.include_router(export_router, prefix="/api", dependencies=_guard)

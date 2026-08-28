@@ -47,6 +47,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "propiedad.no_encontrada": {
         "es": "Propiedad no encontrada",
         "en": "Property not found"},
+    "reporte.ambito_desconocido": {
+        "es": "Ámbito de reporte desconocido: {ambito}",
+        "en": "Unknown report scope: {ambito}"},
     "entrada.no_encontrada": {
         "es": "Entrada no encontrada",
         "en": "Entry not found"},

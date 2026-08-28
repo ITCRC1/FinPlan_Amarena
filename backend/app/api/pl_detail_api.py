@@ -1,0 +1,476 @@
+# -*- coding: utf-8 -*-
+"""Los tres P&L Detail del owner: Consolidado, Hotel y Club.
+
+Owner, 2026-08-27, entregando `BUDGET 2026-AMA formato.xlsx`: *«lee bien estos
+formatos de excel uno a uno, creálos en Reporting … con la información de
+presupuesto Budget 2026»*.
+
+Son tres hojas de ese libro —`P&L Detail Owners Full`, `P&L Detail Hotel` y
+`P&L Detail Club`—. La cuarta, `P&L Full Detail`, **ya existía**:
+`pl_full_detail_api.py` se construyó con este mismo formato, cuenta por cuenta.
+
+## Los tres son el MISMO reporte con un ámbito distinto
+
+Medido contra el libro del owner, celda por celda:
+
+    Consolidado   TOTAL REVENUES  547,078.00   GOP  -312,617.08
+    Hotel         TOTAL REVENUES  397,038.00   GOP  -255,895.89
+    Club          TOTAL REVENUES  150,040.00   NET   -56,721.19
+
+    547,078.00 - 150,040.00 = 397,038.00          ✔ el ingreso se parte
+    -312,617.08 - (-56,721.19) = -255,895.89      ✔ y el resultado también
+
+Ésa es la propiedad que hace que esto sea UN reporte y no tres: **el Hotel es el
+Consolidado menos el Club**, y por debajo de Operating Profit todo se corre por
+el resultado del Club. El overhead NO se parte —administración, ventas y
+mantenimiento sirven a los dos— y en el Excel del owner el total de overhead es
+idéntico en las dos hojas, que es lo que lo confirma.
+
+Escribirlos como tres plantillas sueltas habría dejado tres verdades que hay que
+mantener sincronizadas a mano; la primera vez que alguien agregue una línea de
+ingreso, dos de las tres se quedan viejas y ninguna avisa.
+
+## De dónde sale cada número
+
+De `pl_lines` — las mismas filas que lee el tab de P&L y el reporte a la Junta.
+No se recalcula nada acá: si el motor cambia una fórmula, los tres reportes
+cambian con él. Un reporte que recalcula por su cuenta es un segundo motor que
+hay que mantener, y el día que discrepan nadie sabe cuál creer.
+
+## El bloque de control, al pie
+
+El Excel del owner cierra con cuatro totales por naturaleza —planilla, opex,
+costo y propiedad— y una línea `Variance 0`. No es decoración: es su cuadre.
+Acá se replica y **se calcula la diferencia de verdad**, así que si algún día no
+cierra, se ve. Un reporte de control que no se controla a sí mismo no controla
+nada.
+"""
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
+
+from app.auth import get_current_user
+from app.db import get_session
+from app.errores import ErrorApi
+from app.models.club_membership_stat import ClubMembershipStat
+from app.models.pl_line import PLLine
+from app.models.scenario import Scenario
+from app.models.scenario_stat import ScenarioStat
+
+router = APIRouter(tags=["pl-detail"])
+
+AMBITOS = ("consolidado", "hotel", "club")
+
+#: Las líneas del Club. En el ámbito `hotel` se restan; en `club` son lo único.
+CLUB = {"revenue": "REV_CLUB", "opex": "OPEX_CLUB",
+        "cost": "COS_CLUB", "profit": "PROFIT_CLUB"}
+
+#: (tipo, rótulo, [códigos que suma]). `tipo`:
+#:   sec   encabezado de sección, sin números
+#:   det   línea de detalle
+#:   sub   subtotal
+#:   tot   total fuerte
+#:   esp   espacio en blanco (el Excel los usa para respirar)
+#:
+#: ⚠️ Los rótulos son los del owner, **con sus erratas incluidas** («Total
+#: Operationg expenses», «Miscellaneous  Revenue» con dos espacios). Corregirlas
+#: rompería el cotejo contra su libro, que es para lo que sirve este reporte.
+CONSOLIDADO: list[tuple] = [
+    ("sec", "REVENUES", []),
+    ("det", "Rooms", ["REV_ROOMS", "REV_ROOMS_OTHER"]),
+    ("det", "F&B", ["REV_FB", "REV_FB_BEV", "REV_FB_MISC"]),
+    ("det", "SPA", ["REV_SPA"]),
+    ("det", "Tours", ["REV_TOURS"]),
+    ("det", "Retail-Gift Shop", ["REV_RETAIL", "REV_TIENDA"]),
+    ("det", "Madresal Club", ["REV_CLUB"]),
+    ("det", "Laundry", ["REV_LAUNDRY"]),
+    ("det", "Private Bar", ["REV_PRIVATE_BAR"]),
+    ("det", "Miscellaneous  Revenue", ["REV_MISC_OTHER", "REV_SUSTAINABILITY",
+                                       "REV_TRANSPORTATION", "REV_INNOCEANA"]),
+    ("esp", "", []),
+    ("tot", "TOTAL REVENUES", ["TOTAL_REVENUES"]),
+    ("esp", "", []),
+    ("sec", "Operating Expenses", []),
+    ("det", "Rooms", ["OPEX_ROOMS"]),
+    ("det", "F&B", ["OPEX_FB", "COS_FB_FOOD", "COS_FB_BEV", "COS_FB_MISC"]),
+    ("det", "SPA", ["OPEX_SPA", "COS_SPA"]),
+    ("det", "Tours", ["OPEX_TOURS", "COS_TOURS"]),
+    ("det", "Retail-Gift Shop", ["OPEX_RETAIL", "COS_RETAIL",
+                                 "OPEX_TIENDA", "COS_TIENDA"]),
+    ("det", "Madresal Club", ["OPEX_CLUB", "COS_CLUB"]),
+    ("det", "Laundry", ["OPEX_LAUNDRY", "COS_LAUNDRY"]),
+    ("det", "Private Bar", ["OPEX_PRIVATE_BAR", "COS_PRIVATE_BAR"]),
+    ("det", "Miscellaneous  Revenue", ["OPEX_MISCELLANEOUS", "OPEX_TRANSPORTATION",
+                                       "COS_TRANSPORTATION", "OPEX_INNOCEANA",
+                                       "COS_INNOCEANA"]),
+    ("esp", "", []),
+    ("tot", "Total Operationg expenses", ["TOTAL_OPERATING_EXPENSES"]),
+    ("esp", "", []),
+    ("sec", "Operating Profit", []),
+    ("det", "Rooms", ["PROFIT_ROOMS"]),
+    ("det", "F&B", ["PROFIT_FB"]),
+    ("det", "SPA", ["PROFIT_SPA"]),
+    ("det", "Tours", ["PROFIT_TOURS"]),
+    ("det", "Retail-Gift Shop", ["PROFIT_RETAIL", "PROFIT_TIENDA"]),
+    ("det", "Madresal Club", ["PROFIT_CLUB"]),
+    ("det", "Laundry", ["PROFIT_LAUNDRY"]),
+    ("det", "Private Bar", ["PROFIT_PRIVATE_BAR"]),
+    ("det", "Miscellaneous  Revenue", ["PROFIT_MISC_OTHER", "PROFIT_SUSTAINABILITY",
+                                       "PROFIT_TRANSPORTATION", "PROFIT_INNOCEANA"]),
+    ("esp", "", []),
+    ("tot", "OPERATING PROFIT", ["OPERATING_PROFIT"]),
+    ("esp", "", []),
+    ("sec", "OVERHEAD EXPENSES", []),
+    ("det", "Administrations", ["OH_ADMIN"]),
+    ("det", "Sales & Marketing", ["OH_SALES_MARKETING"]),
+    ("det", "Maintenance", ["OH_MAINTENANCE"]),
+    ("det", "Information System", ["OH_INFORMATION_SYSTEM"]),
+    ("det", "Utilities", ["OH_UTILITIES"]),
+    ("det", "Area Recreativa", ["OH_AREC"]),
+    ("esp", "", []),
+    ("tot", "TOTAL OVERHEAD EXPENSES", ["TOTAL_OVERHEAD"]),
+    ("esp", "", []),
+    ("tot", "TOTAL GROSS OPERATING PROFIT", ["GOP"]),
+    ("esp", "", []),
+    ("det", "Rent", ["RENT"]),
+    ("det", "Management Fees (5%)", ["MGMT_FEE_5_ROYALTIES", "MGMT_FEE_3"]),
+    ("sub", "TOTAL RENT AND MANAGEMENT FEES", ["TOTAL_RENT_MGMT_FEES"]),
+    ("esp", "", []),
+    ("det", "Property Insurance", ["PROPERTY_INSURANCE"]),
+    ("sub", "PROPERTY INSURANCE", ["TOTAL_PROPERTY_INSURANCE"]),
+    ("esp", "", []),
+    ("det", "Other Expenses", ["OTHER_EXPENSES"]),
+    ("sub", "TOTAL OTHER EXPENSES", ["TOTAL_OTHER_EXPENSES"]),
+    ("esp", "", []),
+    ("tot", "TOTAL NON OP EXPENSES", ["TOTAL_NON_OP"]),
+    ("esp", "", []),
+    ("tot", "EBITDA BEFORE CAPITAL", ["EBITDA_BEFORE"]),
+    ("esp", "", []),
+    ("det", "Capital Reserve", ["CAPITAL_RESERVE"]),
+    ("det", "Large Improvement", ["LARGE_CAPEX"]),
+    ("sub", "CAPITAL EXPENSE", ["CAPITAL_EXPENSE"]),
+    ("esp", "", []),
+    ("tot", "EBITDA AFTER CAPITAL", ["EBITDA_AFTER"]),
+    ("esp", "", []),
+    ("det", "Financial Loss", ["FINANCIAL_LOSSES", "BANK_INTEREST", "LEASINGS_RENTS"]),
+    ("sub", "FINANCIAL EXPENSES", ["FINANCIAL_EXPENSES"]),
+    ("esp", "", []),
+    ("det", "Depreciation", ["DEPRECIATION", "ASSET_LOSS"]),
+    ("sub", "TOTAL DEPRECIATIONS", ["TOTAL_DEPRECIATIONS"]),
+    ("esp", "", []),
+    ("tot", "EARNINGS BEFORE INCOME TAXES", ["EBT"]),
+    ("det", "Income Taxes (30%)", ["INCOME_TAXES"]),
+    ("esp", "", []),
+    ("tot", "NET PROFIT", ["NET_PROFIT"]),
+]
+
+#: Lo que cambia en la hoja `P&L Detail Hotel`: el Club sale del detalle, y el
+#: overhead lista los tres departamentos de servicio que el consolidado resume.
+HOTEL_QUITA = {"Madresal Club"}
+HOTEL_OVERHEAD = [
+    ("det", "Claro Huerta", ["OH_CLARO_HUERTA"]),
+    ("det", "Cafeteria", ["OH_CAFETERIA"]),
+    ("det", "Laundry", ["OH_LAUNDRY"]),
+]
+
+#: `P&L Detail Club`: el departamento 260 solo, con la planilla abierta como en
+#: el libro del owner (salario, cargas y beneficios).
+CLUB_FILAS: list[tuple] = [
+    ("sec", "REVENUES", []),
+    ("det", "Cuotas", ["REV_CLUB"]),
+    ("esp", "", []),
+    ("tot", "TOTAL REVENUES", ["REV_CLUB"]),
+    ("esp", "", []),
+    ("sec", "Salary and Benefits", []),
+    ("esp", "", []),
+    ("det", "Total Salary", ["@CLUB_SALARIO"]),
+    ("det", "Payroll Taxes", ["@CLUB_CARGAS"]),
+    ("det", "Employee Benefits", ["@CLUB_BENEFICIOS"]),
+    ("esp", "", []),
+    ("sub", "Total Slary and Benefits", ["@CLUB_PLANILLA"]),
+    ("esp", "", []),
+    ("sec", "Operating Expenses", []),
+    # ⚠️ **Sin la planilla.** `OPEX_CLUB` del motor YA la contiene: es el gasto
+    # del departamento, no el gasto no-salarial. Listar las dos cosas y sumarlas
+    # contaba la planilla dos veces —279,184 de gasto donde el motor dice
+    # 187,079— y el reporte cerraba igual contra su propio total. Lo delató el
+    # cuadre contra la utilidad del motor.
+    ("det", "Operating Expenses", ["@CLUB_OPEX_SIN_PLANILLA"]),
+    ("esp", "", []),
+    ("sub", "Total Operating Expenses", ["@CLUB_OPEX_SIN_PLANILLA"]),
+    ("esp", "", []),
+    ("tot", "Total Gastos", ["OPEX_CLUB", "COS_CLUB"]),
+    ("esp", "", []),
+    ("tot", "NET PROFIT", ["PROFIT_CLUB"]),
+    ("esp", "", []),
+    # El seguro de propiedad va DEBAJO del GOP en el motor, así que no entra en
+    # la utilidad del departamento. Se muestra como memo —el owner lo tiene
+    # adentro en su hoja— para que la diferencia contra su libro se vea, en vez
+    # de meterlo acá y que las dos cuadren por construcción sin ser lo mismo.
+    ("det", "Property Insurance (memo, va bajo GOP)", ["@CLUB_SEGURO"]),
+]
+
+MESES = list(range(1, 13))
+
+
+def _serie(por_codigo: dict[str, list[float]], codigos: list[str]) -> list[float]:
+    """Los doce meses de la suma de `codigos`. Un código que no existe suma 0.
+
+    No se rompe si falta: una propiedad puede no tener Private Bar, y ahí el
+    renglón tiene que salir en cero — no tumbar el reporte.
+    """
+    out = [0.0] * 12
+    for c in codigos:
+        for i, v in enumerate(por_codigo.get(c, [0.0] * 12)):
+            out[i] += v
+    return out
+
+
+@router.get("/reports/pl-detail/{ambito}/")
+async def pl_detail(
+    ambito: str,
+    scenario_id: str = Query(...),
+    _=Depends(get_current_user),
+):
+    """El P&L Detail del owner, en uno de sus tres ámbitos.
+
+    Devuelve los doce meses, el YTD y el año, más el bloque de control del pie.
+    """
+    if ambito not in AMBITOS:
+        raise ErrorApi(422, "reporte.ambito_desconocido", ambito=ambito)
+
+    async with get_session() as s:
+        escenario = await s.get(Scenario, scenario_id)
+        if escenario is None:
+            raise ErrorApi(404, "escenario.no_encontrado")
+
+        por_codigo: dict[str, list[float]] = {}
+        for ln in (await s.execute(select(PLLine).where(
+                PLLine.scenario_id == scenario_id))).scalars().all():
+            if not 1 <= ln.month <= 12:
+                continue
+            por_codigo.setdefault(ln.line_code, [0.0] * 12)[ln.month - 1] += float(
+                ln.amount_usd or 0)
+
+        # El Club, para poder restarlo del Hotel y para armar su propia hoja.
+        club_profit = _serie(por_codigo, [CLUB["profit"]])
+
+        if ambito == "club":
+            plantilla = CLUB_FILAS
+            derivadas = await _derivadas_del_club(s, scenario_id, por_codigo)
+        else:
+            plantilla = list(CONSOLIDADO)
+            derivadas = {}
+            if ambito == "hotel":
+                plantilla = _plantilla_hotel(plantilla)
+
+        filas = []
+        for tipo, rotulo, codigos in plantilla:
+            if tipo == "esp":
+                filas.append({"tipo": "esp", "rotulo": "", "meses": None,
+                              "ytd": None, "full": None})
+                continue
+            if tipo == "sec":
+                filas.append({"tipo": "sec", "rotulo": rotulo, "meses": None,
+                              "ytd": None, "full": None})
+                continue
+            propias = [c for c in codigos if not c.startswith("@")]
+            serie = _serie(por_codigo, propias)
+            for c in codigos:
+                if c.startswith("@"):
+                    for i, v in enumerate(derivadas.get(c, [0.0] * 12)):
+                        serie[i] += v
+            # El Hotel es el Consolidado MENOS el Club, también por debajo de
+            # Operating Profit: ahí el corrimiento es el resultado del Club, una
+            # sola vez. Restarlo en cada total por separado daría el mismo
+            # número por caminos distintos y sin nada que los ate.
+            if ambito == "hotel":
+                resta = _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit)
+                if resta:
+                    serie = [a - b for a, b in zip(serie, resta)]
+            filas.append({
+                "tipo": tipo, "rotulo": rotulo,
+                "meses": [round(v, 2) for v in serie],
+                "ytd": round(sum(serie), 2), "full": round(sum(serie), 2),
+            })
+
+        return {
+            "ambito": ambito,
+            "scenario_id": scenario_id,
+            "escenario": f"{escenario.type} {escenario.version} {escenario.year}",
+            "year": escenario.year,
+            "kpis": await _kpis(s, scenario_id),
+            "club": await _socios(s, scenario_id) if ambito == "club" else None,
+            "filas": filas,
+            "control": _control(filas, ambito),
+        }
+
+
+#: Los totales que, en el Hotel, se corren por el resultado del Club. Todo lo que
+#: está POR DEBAJO de Operating Profit: el Club aporta su utilidad al
+#: consolidado, así que sacarlo mueve toda la cascada por el mismo monto.
+_DEBAJO_DEL_PROFIT = {
+    "OPERATING PROFIT", "TOTAL GROSS OPERATING PROFIT", "EBITDA BEFORE CAPITAL",
+    "EBITDA AFTER CAPITAL", "EARNINGS BEFORE INCOME TAXES", "NET PROFIT",
+}
+
+
+def _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit):
+    """Qué se le saca a cada total para pasar del Consolidado al Hotel.
+
+    **NO es una sola resta: son tres**, y confundirlas fue el primer bug de este
+    archivo. Al ingreso se le saca el INGRESO del Club; al gasto operativo, su
+    GASTO; y de Operating Profit para abajo, su RESULTADO — una sola vez, porque
+    ahí ingreso y gasto ya vienen netos.
+
+    Restar el resultado (que es negativo) del ingreso lo hacía SUBIR: 584,118
+    donde tenían que ser 397,039. Y el reporte seguía cuadrando contra sí mismo
+    —la diferencia daba 0— que es justo lo que hace que estos errores pasen
+    desapercibidos. Lo que lo delató fue cotejar contra el libro del owner.
+    """
+    if codigos == ["TOTAL_REVENUES"]:
+        return _serie(por_codigo, [CLUB["revenue"]])
+    if codigos == ["TOTAL_OPERATING_EXPENSES"]:
+        return _serie(por_codigo, [CLUB["opex"], CLUB["cost"]])
+    if rotulo in _DEBAJO_DEL_PROFIT:
+        return club_profit
+    return None
+
+
+def _plantilla_hotel(plantilla: list[tuple]) -> list[tuple]:
+    """Saca el Club del detalle y abre los tres departamentos de servicio.
+
+    El overhead NO se parte: administración, ventas y mantenimiento sirven al
+    hotel y al Club por igual, y en el libro del owner el total de overhead es
+    idéntico en las dos hojas.
+    """
+    out = []
+    for fila in plantilla:
+        tipo, rotulo, codigos = fila
+        if tipo == "det" and rotulo in HOTEL_QUITA:
+            continue
+        if tipo == "det" and rotulo == "Area Recreativa":
+            out.extend(HOTEL_OVERHEAD)
+            continue
+        out.append(fila)
+    return out
+
+
+async def _derivadas_del_club(s, scenario_id: str, por_codigo) -> dict:
+    """Las filas del Club que el P&L no emite como línea propia.
+
+    La planilla del Club se abre en salario / cargas / beneficios, que es como
+    la mira el owner. Sale de `payroll_concept_entries` del depto 260 — la misma
+    fuente que el checkbook, agrupada de otra forma.
+    """
+    from app.models.payroll_concept_entry import PayrollConceptEntry
+
+    salario = [0.0] * 12
+    cargas = [0.0] * 12
+    beneficios = [0.0] * 12
+    for e in (await s.execute(select(PayrollConceptEntry).where(
+            PayrollConceptEntry.scenario_id == scenario_id,
+            PayrollConceptEntry.dept_code == "260"))).scalars().all():
+        if not 1 <= e.month <= 12:
+            continue
+        i = e.month - 1
+        # El BRUTO gravable: lo que el owner llama «Total Salary».
+        salario[i] += sum(float(getattr(e, c) or 0) for c in (
+            "c6000_sw", "c6001_overtime", "c6002_day_off", "c6003_working_holiday",
+            "c6010_commissions", "c6024_vacations_taken", "c6027_incentive_bonus"))
+        # Las CARGAS de ley: CCSS y aguinaldo son las dos que el motor calcula.
+        cargas[i] += sum(float(getattr(e, c) or 0) for c in (
+            "c6020_ccss", "c6021_aguinaldo", "c6022_occ_hazard",
+            "c6023_vacation_prov", "c6026_severance"))
+        # Y el RESTO son beneficios al empleado.
+        beneficios[i] += sum(float(getattr(e, c) or 0) for c in (
+            "c6004_disabilities", "c6025_cafeteria", "c6028_housing",
+            "c6029_transport", "c6030_other"))
+
+    seguro = _serie(por_codigo, ["PROPERTY_INSURANCE"])
+    opex = _serie(por_codigo, ["OPEX_CLUB", "COS_CLUB"])
+    planilla = [a + b + c for a, b, c in zip(salario, cargas, beneficios)]
+    return {
+        "@CLUB_SALARIO": salario,
+        "@CLUB_CARGAS": cargas,
+        "@CLUB_BENEFICIOS": beneficios,
+        "@CLUB_PLANILLA": planilla,
+        "@CLUB_SEGURO": seguro,
+        # El gasto del departamento MENOS su planilla: es la parte que el owner
+        # lista aparte. Sumar `opex` entero al lado de la planilla la contaría
+        # dos veces (ver `CLUB_FILAS`).
+        "@CLUB_OPEX_SIN_PLANILLA": [o - p for o, p in zip(opex, planilla)],
+    }
+
+
+async def _kpis(s, scenario_id: str) -> dict:
+    """Las estadísticas del encabezado: las mismas siete del Excel."""
+    stats = (await s.execute(select(ScenarioStat).where(
+        ScenarioStat.scenario_id == scenario_id))).scalars().all()
+    avail = sum(int(x.rooms_available or 0) for x in stats)
+    occ = sum(float(x.rooms_occupied or 0) for x in stats)
+    guests = sum(float(x.guests or 0) for x in stats)
+    adr = sum(float(x.adr or 0) * float(x.rooms_occupied or 0) for x in stats)
+    return {
+        "rooms_available": avail,
+        "rooms_occupied": round(occ, 2),
+        "guests": round(guests, 2),
+        "occupancy_pct": round(occ / avail, 6) if avail else 0.0,
+        "adr": round(adr / occ, 2) if occ else 0.0,
+    }
+
+
+async def _socios(s, scenario_id: str) -> dict | None:
+    """Los cuatro conteos del Club. Ver `ClubMembershipStat`: el del período es
+    el SALDO del último mes con dato, nunca la suma."""
+    filas = sorted((await s.execute(select(ClubMembershipStat).where(
+        ClubMembershipStat.scenario_id == scenario_id))).scalars().all(),
+        key=lambda x: x.month)
+    if not filas:
+        return None
+    def serie(campo):
+        return [next((getattr(f, campo) for f in filas if f.month == m), 0)
+                for m in MESES]
+    con_dato = [f for f in filas if (f.total or f.pagando)]
+    ultimo = con_dato[-1] if con_dato else filas[-1]
+    return {
+        "meses": {c: serie(c) for c in
+                  ("total", "condicionados", "pagando", "acuerdo_pago")},
+        "cierre": {c: getattr(ultimo, c) for c in
+                   ("total", "condicionados", "pagando", "acuerdo_pago")},
+    }
+
+
+def _control(filas: list[dict], ambito: str = "consolidado") -> dict:
+    """El cuadre del pie, con la diferencia CALCULADA.
+
+    El Excel del owner cierra con una línea `Variance 0` escrita a mano. Acá la
+    diferencia se computa: si algún día no cierra, se ve. Un reporte de control
+    que no se controla a sí mismo no controla nada.
+    """
+    def total(rotulo: str) -> float:
+        for f in filas:
+            if f["rotulo"] == rotulo and f["meses"] is not None:
+                return f["full"]
+        return 0.0
+
+    ingresos = total("TOTAL REVENUES")
+    neto = total("NET PROFIT")
+    if ambito == "club":
+        # La hoja del Club tiene su propia cascada: un solo total de gasto, sin
+        # overhead ni no-operativos. Sumar los rótulos del consolidado acá daba
+        # gasto 0 y una diferencia de 187,079 — el reporte se acusaba a sí mismo
+        # de un descuadre que era del control, no del dato.
+        gastos = total("Total Gastos")
+    else:
+        gastos = (total("Total Operationg expenses") + total("TOTAL OVERHEAD EXPENSES")
+                  + total("TOTAL NON OP EXPENSES") + total("CAPITAL EXPENSE")
+                  + total("FINANCIAL EXPENSES") + total("TOTAL DEPRECIATIONS")
+                  + total("Income Taxes (30%)"))
+    return {
+        "ingresos": round(ingresos, 2),
+        "gastos": round(gastos, 2),
+        "utilidad": round(neto, 2),
+        "diferencia": round(ingresos - gastos - neto, 2),
+    }

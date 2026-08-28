@@ -2546,6 +2546,34 @@ export interface PLLine {
   por?: number;   // Per Occupied Room (USALI)
 }
 
+// ── P&L Detail: Consolidado · Hotel · Club (owner, 2026-08-27) ───────────────
+export interface PLDetailFila {
+  /** sec = encabezado · det = detalle · sub = subtotal · tot = total · esp = espacio */
+  tipo: "sec" | "det" | "sub" | "tot" | "esp";
+  rotulo: string;
+  /** null en encabezados y espacios: no son filas de numeros. */
+  meses: number[] | null;
+  ytd: number | null;
+  full: number | null;
+}
+export interface PLDetail {
+  ambito: string;
+  scenario_id: string;
+  escenario: string;
+  year: number;
+  kpis: { rooms_available: number; rooms_occupied: number; guests: number;
+          occupancy_pct: number; adr: number };
+  club: { meses: Record<string, number[]>;
+          cierre: Record<string, number> } | null;
+  filas: PLDetailFila[];
+  /** El cuadre del owner, con la diferencia calculada — no escrita a mano. */
+  control: { ingresos: number; gastos: number; utilidad: number; diferencia: number };
+}
+export async function getPLDetail(ambito: string, scenarioId: string): Promise<PLDetail> {
+  return api.get<PLDetail>(
+    `/reports/pl-detail/${encodeURIComponent(ambito)}/?scenario_id=${encodeURIComponent(scenarioId)}`);
+}
+
 export interface PLKpis {
   rooms_available: number;
   rooms_occupied: number;
