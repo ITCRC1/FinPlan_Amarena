@@ -759,6 +759,13 @@ export default function MonthEndPLPage() {
     padding: "5px 9px", fontSize: 12.5,
   };
 
+  /** ¿Alguna columna trae socios del Club? Se mira el DATO, no el hotel: el
+   *  owner avisó que el Club se va a operar por fuera, y el día que salga el
+   *  backend deja de mandar la clave y estos renglones se apagan solos, sin
+   *  tocar código ni acordarse de un `if hotel === "AMA"`. */
+  const hayClub = datos.some(v => (["month", "ytd", "full"] as const)
+    .some(h => v[h]?.kpis?.club_pagando != null));
+
   const kpis: { label: string; get: (c?: PLColumn) => string }[] = [
     { label: "Total available Rooms", get: c => c ? num0(c.kpis.rooms_available) : "—" },
     { label: "Total Rooms Occupied", get: c => c ? num0(c.kpis.rooms_occupied) : "—" },
@@ -766,6 +773,21 @@ export default function MonthEndPLPage() {
     { label: "% Occupancy", get: c => c ? pct(c.kpis.occupancy_pct) : "—" },
     { label: "Average Daily Room Only", get: c => c ? usd(c.kpis.adr) : "—" },
     { label: "Total RevPAR", get: c => c ? usd(c.kpis.revpar) : "—" },
+    // Club Madresal. Sólo aparecen si la propiedad tiene el Club: el backend
+    // no manda la clave cuando no hay socios cargados, y dos renglones en «—»
+    // se leerían como «no hay socios» donde en realidad no hay Club.
+    //
+    // ⚠️ El conteo es el SALDO del último mes del período, no la suma — son
+    // socios, no ingresos (`ClubMembershipStat`). La cuota SÍ se pondera, por
+    // socios-mes: es el ADR de este negocio.
+    ...(hayClub ? [
+      { label: "Socios pagando (Club)",
+        get: (c?: PLColumn) => c?.kpis.club_pagando != null
+          ? num0(c.kpis.club_pagando) : "—" },
+      { label: "Cuota promedio por socio",
+        get: (c?: PLColumn) => c?.kpis.club_cuota_promedio != null
+          ? usd(c.kpis.club_cuota_promedio) : "—" },
+    ] : []),
   ];
 
   const vacias = usadas.filter(u => vacia(cols[u.i]));

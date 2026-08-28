@@ -28,6 +28,7 @@ from app.models.scenario import Scenario, ScenarioLockedError
 from app.models.pl_manual_input import PLManualInput
 from app.models.historical_kpi import HistoricalKpi
 from app.models.scenario_stat import ScenarioStat
+from app.models.club_membership_stat import ClubMembershipStat
 from app.models.cashflow_params import CashFlowParams
 from app.models.tax_params import TaxParams
 from app.engine import recalculate as recalc
@@ -189,6 +190,25 @@ async def _monthly_results(session, scenario) -> list[dict]:
                 revenue_results[month] if revenue_results else None)
             kpis = _kpis(kpis_src)
         out.append({"month": month, "kpis": kpis, "lines": lines})
+
+    # Socios PAGANDO del Club Madresal, mes a mes (owner, 2026-08-27). Es lo que
+    # explica la cuota de `REV_CLUB`: viaja con los KPIs de habitaciones porque
+    # es un estadístico, no una línea del estado de resultados.
+    #
+    # ⚠️ **No es aditivo.** Ver `ClubMembershipStat`: son socios, no ingresos —
+    # el valor de un período es el SALDO del último mes, no la suma. Sumar los
+    # doce daría 1.500 socios donde hay 129. El corte lo hace
+    # `_aggregate_selected`; acá sólo se cuelga el dato de cada mes.
+    #
+    # Ausente cuando la propiedad no tiene el Club: la clave no se pone, y la
+    # pantalla no dibuja el renglón. Nada de ceros que se leen como «no hay
+    # socios» donde en realidad no hay Club.
+    socios = {s.month: s.pagando for s in (await session.execute(
+        select(ClubMembershipStat).where(
+            ClubMembershipStat.scenario_id == scenario.id))).scalars().all()}
+    if socios:
+        for m in out:
+            m["kpis"]["club_pagando"] = socios.get(m["month"], 0)
     return out
 
 
@@ -379,6 +399,24 @@ def _aggregate_selected(sel: list[dict], *, lo_subido_manda: bool = False,
         # sobre REV_ROOMS rompería la identidad RevPAR = ADR × occ/avail.
         "revpar": (adr * occ / avail) if avail else 0.0,
     }
+
+    # ── Club Madresal: socios pagando y cuota promedio ───────────────────────
+    #
+    # **El conteo NO se suma: es el SALDO del último mes del período.** Son
+    # socios, no ingresos (ver `ClubMembershipStat`): sumar los doce daría 1.500
+    # donde hay 129.
+    #
+    # **La cuota promedio SÍ se pondera, y por SOCIOS-MES.** Es la misma cuenta
+    # que el ADR —ingreso sobre unidades vendidas— sólo que la unidad acá es un
+    # socio durante un mes. Dividir el ingreso del año entre los socios de
+    # diciembre daría la cuota ANUAL disfrazada de mensual, y un mes que entra a
+    # mitad de año contaría como si hubiera pagado los doce.
+    if any("club_pagando" in m["kpis"] for m in sel):
+        socios_mes = sum(m["kpis"].get("club_pagando", 0) for m in sel)
+        kpis["club_pagando"] = sel[-1]["kpis"].get("club_pagando", 0) if sel else 0
+        kpis["club_socios_mes"] = socios_mes
+        kpis["club_cuota_promedio"] = (
+            amounts.get("REV_CLUB", 0.0) / socios_mes) if socios_mes else 0.0
     lines = []
     for code, amt in amounts.items():
         ln = meta[code]

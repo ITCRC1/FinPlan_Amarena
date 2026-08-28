@@ -2553,6 +2553,17 @@ export interface PLKpis {
   occupancy_pct: number;
   adr: number;
   revpar: number;
+  // Club Madresal. OPCIONALES a propósito: el backend no manda la clave cuando
+  // la propiedad no tiene socios cargados, y así la pantalla distingue «no hay
+  // Club» de «hay Club con cero socios». El owner avisó que el Club se va a
+  // operar por fuera; el día que salga, dejan de venir y los renglones se
+  // apagan solos.
+  /** Socios pagando: el SALDO del último mes del período, NO la suma. */
+  club_pagando?: number;
+  /** Socios-mes del período — el denominador de la cuota, como las noches del ADR. */
+  club_socios_mes?: number;
+  /** Ingreso del Club ÷ socios-mes: la cuota mensual promedio. */
+  club_cuota_promedio?: number;
 }
 
 export interface PLMonth {
