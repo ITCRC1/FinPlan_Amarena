@@ -17,7 +17,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getPLDoceMeses, type PLDoceMeses, type Scenario } from "@/lib/api";
+import { getPLDoceMeses, getPLManualInputs, savePLManualInput,
+         type PLDoceMeses, type PLManualInput, type Scenario } from "@/lib/api";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -141,6 +142,55 @@ export default function DoceMeses({ escenarios, inicial }: {
     return s.reduce((a, b) => a + b, 0);
   }, [serie]);
 
+  // ── Lo editable del Budget ────────────────────────────────────────────────
+  //
+  // Owner, 2026-08-28: «12 meses budget pero que quede editable».
+  //
+  // ⚠️ **Sólo los PORCENTAJES.** Viven en `pl_manual_inputs` y ésa es su única
+  // puerta. Los MONTOS de abajo del GOP —renta, seguro, capex, depreciación—
+  // ya se digitan en el checkbook de Gastos de Propiedad, y meterlos también
+  // acá sería una segunda puerta al mismo número: el día que difieran, nadie
+  // sabría cuál mandó. La pantalla de Management Fees ya lo dice en su código.
+  const EDITABLES: { campo: keyof PLManualInput; label: string }[] = [
+    { campo: "mgmt_fee_pct_3", label: "Management Fee 3 %" },
+    { campo: "mgmt_fee_pct_5", label: "Management Fee 5 %" },
+    { campo: "capital_reserve_pct", label: "Capital Reserve %" },
+    { campo: "income_tax_rate", label: "Income Tax %" },
+  ];
+  const [manual, setManual] = useState<PLManualInput[]>([]);
+  const [guardando, setGuardando] = useState<string | null>(null);
+  const editable = panel === "budget";
+
+  useEffect(() => {
+    if (!scenarioId || !editable) { setManual([]); return; }
+    getPLManualInputs(scenarioId).then(setManual).catch(() => setManual([]));
+  }, [scenarioId, editable]);
+
+  const valorManual = (campo: keyof PLManualInput, mes: number) => {
+    const f = manual.find(x => x.month === mes);
+    // Se guarda como fracción y se muestra como porcentaje: 0.05 → 5.
+    return f ? String(Number(f[campo] ?? 0) * 100) : "0";
+  };
+
+  /** Guarda UN mes y recarga el año: el P&L lee estos parámetros al calcular,
+   *  así que el efecto se ve sin recalcular nada a mano. */
+  const guardar = useCallback(async (campo: keyof PLManualInput, mes: number,
+                                     texto: string) => {
+    if (!scenarioId) return;
+    const n = Number(texto.replace(",", "."));
+    if (!isFinite(n)) return;
+    setGuardando(`${campo}-${mes}`); setError(null);
+    try {
+      await savePLManualInput(scenarioId, mes, { [campo]: String(n / 100) });
+      setManual(await getPLManualInputs(scenarioId));
+      await cargar();
+    } catch (e) {
+      // El 409 del candado tiene que decirse, no tragarse: si no, el usuario
+      // escribe, ve el número volver al viejo y no sabe por qué.
+      setError(e instanceof Error ? e.message : "No se pudo guardar");
+    } finally { setGuardando(null); }
+  }, [scenarioId, cargar]);
+
   const fmt = (code: string, v: number) =>
     code === "K_OCC" ? pct(v)
       : code === "K_ROOMS_AVAIL" || code === "K_ROOMS_OCC" ? num(v)
@@ -224,6 +274,55 @@ export default function DoceMeses({ escenarios, inicial }: {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!cargando && datos && editable && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+            PARÁMETROS EDITABLES · {datos.escenario}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginBottom: 8 }}>
+            Se guardan al salir de la celda y el cuadro de arriba se actualiza solo.
+            Los montos de abajo del GOP —renta, seguro, capex, depreciación— se
+            digitan en Gastos de Propiedad, que es su única puerta.
+          </div>
+          <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
+            <table className="fin-table" style={{ minWidth: 1100 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...TDL, textAlign: "left" }}>PARÁMETRO</th>
+                  {MESES.map(m => <th key={m} style={TD}>{m}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {EDITABLES.map(({ campo, label }) => (
+                  <tr key={String(campo)}>
+                    <td style={{ ...TDL, fontWeight: 500 }}>{label}</td>
+                    {MESES.map((_m, i) => (
+                      <td key={i} style={{ ...TD, padding: "2px 4px" }}>
+                        <input
+                          className="fin-input mono"
+                          defaultValue={valorManual(campo, i + 1)}
+                          key={`${campo}-${i}-${scenarioId}-${manual.length}`}
+                          inputMode="decimal"
+                          onBlur={e => {
+                            const v = e.target.value;
+                            if (v !== valorManual(campo, i + 1)) guardar(campo, i + 1, v);
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          }}
+                          disabled={guardando !== null}
+                          style={{ width: 62, textAlign: "right", padding: "3px 5px",
+                                   fontSize: 11.5 }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

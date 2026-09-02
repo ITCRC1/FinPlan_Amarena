@@ -237,3 +237,35 @@ def test_no_lee_pl_lines():
         "escenario que no se haya recalculado")
     assert "_monthly_results" in fuente, (
         "el reporte tiene que calcular con el mismo motor que el resto de la app")
+
+
+# ── El panel de 12 meses: una sola puerta por numero (owner, 2026-08-28) ─────
+
+def test_el_panel_editable_solo_toca_los_porcentajes():
+    """Owner: «12 meses budget pero que quede editable».
+
+    Los PORCENTAJES viven en `pl_manual_inputs` y ésa es su única puerta. Los
+    MONTOS de abajo del GOP —renta, seguro, capex, depreciación, intereses— ya
+    se digitan en el checkbook de Gastos de Propiedad; ponerlos también acá
+    sería una segunda puerta al mismo número, y el día que difieran nadie
+    sabría cuál mandó. Lo mismo que ya advierte `nonop/management-fees`.
+    """
+    p = (RAIZ.parent / "frontend" / "app" / "month-end" / "pl" /
+         "DoceMeses.tsx").read_text(encoding="utf-8")
+    bloque = p.split("const EDITABLES")[1].split("];")[0]
+    for campo in ("mgmt_fee_pct_3", "mgmt_fee_pct_5", "capital_reserve_pct",
+                  "income_tax_rate"):
+        assert campo in bloque, f"falta {campo} entre los editables"
+    for monto in ("rent", "properties_insurance", "large_capex", "depreciation",
+                  "bank_interest", "capital_reserve\""):
+        assert monto not in bloque, (
+            f"«{monto}» se edita en el checkbook de Gastos de Propiedad: acá "
+            "seria una segunda puerta al mismo numero")
+
+
+def test_el_panel_editable_es_solo_del_budget():
+    """En el panel de Actual no se digita: un actual es lo que paso, no una
+    decision. Editarlo ahi seria reescribir el historico desde un reporte."""
+    p = (RAIZ.parent / "frontend" / "app" / "month-end" / "pl" /
+         "DoceMeses.tsx").read_text(encoding="utf-8")
+    assert 'const editable = panel === "budget";' in p
