@@ -36,9 +36,11 @@ una ruta y la atrapan las pruebas.
 `auth_router`, que va fuera de `_guard`. Un lector tiene que poder cambiar su
 idioma y su paleta: son de él, no del libro contable.
 
-**Las descargas.** Bajar un Excel es `GET`. Un perfil que ve el reporte en
-pantalla pero no lo puede exportar sería una restricción sin sentido — el dato
-ya lo tiene delante.
+**Las descargas y las simulaciones.** Un perfil que ve el reporte en pantalla
+pero no lo puede exportar sería una restricción sin sentido: el dato ya lo tiene
+delante. Casi todas son `GET`, pero **tres son `POST` sin escribir nada** —el
+cuadro o la cotización viajan en el cuerpo porque no caben en una URL— y estaban
+quedando afuera. Ver `SIN_EFECTO`.
 
 ## Y esto sí es un permiso
 
@@ -63,11 +65,37 @@ ESCRITURA = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #: perfil de sólo lectura mañana —un auditor externo, un banco— sea una línea.
 PERFILES_SIN_ESCRITURA = frozenset({"viewer"})
 
+#: Los `POST` que **no escriben nada**: reciben datos en el cuerpo y devuelven un
+#: resultado calculado. El método dice «escritura» pero la operación no lo es.
+#:
+#: ⚠️ **El criterio para entrar acá es uno solo y no admite matices: el endpoint
+#: NO puede tocar la base.** No «casi no toca», no «sólo escribe una bitácora».
+#: Una excepción mal puesta acá abre un agujero que ninguna prueba de permisos
+#: encuentra, porque desde afuera se ve idéntica a una lectura.
+#:
+#: Se comparan contra la PLANTILLA de la ruta, no contra la URL: `request.url.path`
+#: trae los ids ya resueltos y un `startswith` sobre eso se puede engañar.
+SIN_EFECTO = frozenset({
+    # El exportador genérico de cuadros: el Excel se arma con lo que viene en el
+    # cuerpo. Sin esto, un lector no podría bajar NINGÚN reporte a Excel.
+    "/api/export/cuadros/",
+    # El cotizador de grupos: desarma un grupo y devuelve pisos y semáforo.
+    "/api/costos-grupos/simular/",
+    "/api/costos-grupos/salida-ventas/",
+})
+
 
 async def solo_lectura(request: Request,
                        user: User = Depends(get_current_user)) -> None:
     """403 si un perfil de sólo lectura intenta modificar algo."""
     if request.method not in ESCRITURA:
         return
-    if user.role in PERFILES_SIN_ESCRITURA:
-        raise ErrorApi(403, "auth.solo_lectura", perfil=user.role)
+    if user.role not in PERFILES_SIN_ESCRITURA:
+        return
+
+    ruta = request.scope.get("route")
+    plantilla = getattr(ruta, "path", "") or request.url.path
+    if plantilla.rstrip("/") + "/" in SIN_EFECTO:
+        return
+
+    raise ErrorApi(403, "auth.solo_lectura", perfil=user.role)

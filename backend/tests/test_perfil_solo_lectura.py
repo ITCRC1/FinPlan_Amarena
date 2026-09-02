@@ -94,3 +94,71 @@ def test_el_admin_no_se_toco():
     from app.auth import get_current_admin
 
     assert '!= "admin"' in inspect.getsource(get_current_admin)
+
+
+# ── Las excepciones: POST que no escriben ────────────────────────────────────
+#
+# Un lector tiene que poder bajar un Excel y cotizar un grupo. Las tres rutas
+# son `POST` sólo porque el cuadro (o la cotización) no cabe en una URL.
+
+
+def test_las_rutas_exentas_EXISTEN():
+    """Una ruta exenta mal escrita no falla: simplemente no exime, y el lector
+    se queda sin poder bajar reportes sin que nadie entienda por qué.
+
+    Se arman desde los routers y no desde `app.routes` porque esta versión de
+    FastAPI monta los routers de forma perezosa (`_IncludedRouter`) y las rutas
+    concretas no existen hasta que entra una petición.
+    """
+    from app.api.costos_grupos_sim_api import router as sim
+    from app.api.export_api import router as exp
+
+    reales = {"/api" + r.path for r in list(exp.routes) + list(sim.routes)}
+    assert not (perfiles.SIN_EFECTO - reales), (
+        f"rutas exentas que no existen: "
+        f"{sorted(perfiles.SIN_EFECTO - reales)}")
+
+
+def test_toda_ruta_exenta_es_un_POST_que_no_escribe():
+    """⚠️ El criterio no admite matices: el endpoint NO puede tocar la base.
+
+    Se verifica leyendo el fuente: si alguna de estas funciones empieza a
+    `db.add`, `db.delete` o `db.commit`, deja de ser una lectura disfrazada y
+    la exención se vuelve un agujero que ninguna prueba de permisos encuentra
+    —desde afuera se ve idéntica a un `GET`—.
+    """
+    from app.api import costos_grupos_sim_api, export_api
+
+    for mod in (export_api, costos_grupos_sim_api):
+        for nombre, fn in vars(mod).items():
+            if not callable(fn) or nombre.startswith("_"):
+                continue
+            try:
+                fuente = inspect.getsource(fn)
+            except (TypeError, OSError):
+                continue
+            if "@router.post" not in fuente:
+                continue
+            for escribe in ("db.add(", "db.delete(", "db.commit(",
+                            "session.add(", "await db.merge("):
+                assert escribe not in fuente, (
+                    f"{mod.__name__}.{nombre} está exento de la guarda de "
+                    f"sólo lectura pero escribe ({escribe}): un `viewer` "
+                    f"podría modificar datos")
+
+
+def test_la_exencion_se_compara_contra_la_PLANTILLA_de_la_ruta():
+    """`request.url.path` trae los ids ya resueltos y se puede engañar con un
+    `startswith`. La plantilla es la del router — misma lección que el candado."""
+    fuente = inspect.getsource(perfiles.solo_lectura)
+    assert 'request.scope.get("route")' in fuente
+    assert "in SIN_EFECTO" in fuente
+
+
+def test_la_lista_de_exentas_es_CORTA():
+    """No es una prueba de estilo: cada excepción es un endpoint que un lector
+    puede llamar. Si la lista crece, es que se está usando para tapar un
+    problema de diseño y no para nombrar tres casos reales."""
+    assert len(perfiles.SIN_EFECTO) <= 5, (
+        "la lista de exentas creció: revisá si esos endpoints de verdad no "
+        "escriben, o si hace falta otro mecanismo")
