@@ -67,10 +67,13 @@ function primeroDe(escenarios: Scenario[], tipo: string): string {
   return escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
 }
 
-export default function DoceMeses({ escenarios, inicial }: {
+export default function DoceMeses({ escenarios, inicial, compacto = true }: {
   escenarios: Scenario[];
   /** El escenario que la pantalla ya tenía elegido, para no arrancar en blanco. */
   inicial?: string;
+  /** Esconder las líneas que están en cero los doce meses. Lo manda la pantalla,
+   *  así el interruptor es uno solo para todos los sub-tabs. */
+  compacto?: boolean;
 }) {
   /** Dos paneles, no dos pantallas: el de ACTUAL y el de BUDGET. Cada uno
    *  recuerda SU versión, así cambiar de panel no pierde lo que se eligió en el
@@ -250,7 +253,9 @@ export default function DoceMeses({ escenarios, inicial }: {
               </tr>
             </thead>
             <tbody>
-              {FILAS.map(f => {
+              {FILAS.filter(f => !compacto
+                  || (serie[f.code] ?? []).some(v => Math.abs(v) >= 0.005)
+                ).map(f => {
                 const s = serie[f.code] ?? [];
                 const tot = anual(f.code);
                 return (

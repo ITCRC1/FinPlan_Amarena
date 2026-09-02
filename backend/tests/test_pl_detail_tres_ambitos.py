@@ -269,3 +269,45 @@ def test_el_panel_editable_es_solo_del_budget():
     p = (RAIZ.parent / "frontend" / "app" / "month-end" / "pl" /
          "DoceMeses.tsx").read_text(encoding="utf-8")
     assert 'const editable = panel === "budget";' in p
+
+
+# ── El modo compacto de Cierre de Mes (owner, 2026-08-28) ───────────────────
+
+def _pantalla_cierre() -> str:
+    return (RAIZ.parent / "frontend" / "app" / "month-end" / "pl" /
+            "page.tsx").read_text(encoding="utf-8")
+
+
+def test_se_esconde_solo_lo_que_esta_vacio_en_TODAS_las_versiones():
+    """Owner: «si hay líneas en blanco —budget, actual, ni cualquier otra
+    versión tiene nada— que se esconda».
+
+    «Todas» es la condición, no «alguna»: una línea que el Budget tiene y el
+    Actual todavía no es exactamente la que hay que ver.
+    """
+    s = _pantalla_cierre()
+    bloque = s.split("const lineaVacia")[1].split("}, [usadas, cols]);")[0]
+    assert "usadas.every" in bloque, (
+        "se está escondiendo con `some`: bastaría que UNA versión esté en cero "
+        "para perder una línea que otra sí tiene")
+
+
+def test_esconder_no_es_borrar():
+    """«que se esconda, pero que no desaparezca»: tiene que haber interruptor."""
+    s = _pantalla_cierre()
+    assert "setCompacto" in s and "Compacto" in s
+
+
+def test_la_linea_vuelve_sola_cuando_haya_saldo():
+    """«ahora cuando suba algún saldo, el reporte debe tener esas opciones
+    disponibles».
+
+    Se decide mirando el dato en cada render. Guardar una lista de líneas
+    ocultas sería una segunda verdad que hay que acordarse de actualizar — y la
+    línea NO volvería sola.
+    """
+    s = _pantalla_cierre()
+    assert "useState(true)" in s.split("const [compacto")[1][:40]
+    # El filtro depende del dato, no de una lista guardada.
+    assert "lineaVacia(f.code)" in s
+    assert "localStorage" not in s.split("const visibles")[1][:400]

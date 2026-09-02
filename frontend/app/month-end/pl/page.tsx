@@ -368,6 +368,18 @@ export default function MonthEndPLPage() {
   const [ing, setIng] = useState<IngresoDetalle | null>(null);
   const [avisoIng, setAvisoIng] = useState<string | null>(null);
   const [vista, setVista] = useState<Vista>("pl");
+  /** Esconder las líneas que están en CERO en todas las versiones.
+   *
+   *  Owner, 2026-08-28: *«si hay líneas que están en blanco —budget, actual, ni
+   *  cualquier otra versión tiene nada— que se esconda, pero que no desaparezca;
+   *  es sólo para no ver saturados los reportes… ahora cuando suba algún saldo,
+   *  el reporte debe tener esas opciones disponibles»*.
+   *
+   *  Prendido por defecto, porque así se pidió. **No se guarda qué línea se
+   *  escondió**: se decide mirando el dato en cada render, así que el día que un
+   *  saldo aparezca la línea vuelve sola. Una lista de líneas ocultas sería una
+   *  segunda verdad que hay que acordarse de actualizar. */
+  const [compacto, setCompacto] = useState(true);
   // Consulta libre. Vive en su propio estado porque no comparte nada con el
   // cuadro: ahi se miran totales, aca se buscan filas.
   const [cat, setCat] = useState<ConsultaCatalogo | null>(null);
@@ -608,6 +620,24 @@ export default function MonthEndPLPage() {
     [ranuras, datos, horizonte]);
 
   const usadas = ranuras.map((id, i) => ({ id, i })).filter(x => x.id);
+
+  /** ¿Esta línea está en cero en TODAS las columnas en uso?
+   *
+   *  «Todas» es la condición, no «alguna»: una línea que el Budget tiene y el
+   *  Actual todavía no es exactamente la que hay que ver. */
+  const lineaVacia = useCallback((code: string) => {
+    if (!usadas.length) return false;
+    return usadas.every(u => {
+      const c = cols[u.i];
+      return !c || Math.abs(valor(c, code)) < 0.005;
+    });
+  }, [usadas, cols]);
+
+  /** El filtro que aplican los sub-tabs. Fuera del modo compacto no filtra. */
+  const visibles = useCallback(
+    <T extends { code: string }>(filas: T[]) =>
+      compacto ? filas.filter(f => !lineaVacia(f.code)) : filas,
+    [compacto, lineaVacia]);
 
   /** Dónde se insertan las dos columnas de variación.
    *
@@ -882,6 +912,21 @@ export default function MonthEndPLPage() {
             border: vista === v.key ? "none" : SEL.border,
           }}>{t(`tab_${v.key}`)}</button>
         ))}
+
+        {/* Esconder lo que está en cero en TODAS las versiones. No borra: el
+            interruptor las trae de vuelta, y una línea vuelve sola el día que
+            tenga saldo. */}
+        <button onClick={() => setCompacto(x => !x)}
+          title={compacto
+            ? "Mostrar también las líneas que están en cero en todas las versiones"
+            : "Esconder las líneas que están en cero en todas las versiones"}
+          style={{
+            ...SEL, cursor: "pointer", fontWeight: 600, marginLeft: "auto",
+            background: compacto ? "var(--bg-elevated)" : "var(--bg-surface)",
+            color: "var(--text-primary)",
+          }}>
+          {compacto ? "☑ Compacto" : "☐ Compacto"}
+        </button>
       </div>
 
       {vacias.length > 0 && (
@@ -1675,7 +1720,7 @@ export default function MonthEndPLPage() {
                 </tr>
               </thead>
               <tbody>
-                {SUMMARY.map(f => (
+                {visibles(SUMMARY).map(f => (
                   <Fragment key={f.code}>
                     {f.separaAntes && (
                       <tr><td colSpan={10} style={{ height: 10, borderBottom: "1px solid var(--border-medium)" }} /></tr>
@@ -1896,7 +1941,8 @@ export default function MonthEndPLPage() {
       })()}
 
       {vista === "doce" && (
-        <DoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined} />
+        <DoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined}
+                   compacto={compacto} />
       )}
 
       {vista === "consulta" && (
@@ -2050,6 +2096,9 @@ export default function MonthEndPLPage() {
         // mas saldria en verde en cuatro de los cinco cuadros.
         const esGasto = clase !== "revenue";
         const filasOrden = claves
+          // Mismo criterio que la cascada: se va la que está en cero en TODAS
+          // las columnas, no la que está en cero en la que se mira.
+          .filter(k => !compacto || usadas.some(u => Math.abs(valor(u.i, k)) >= 0.005))
           .map(k => ({ k, ref: Math.abs(valor(varA, k)) + Math.abs(valor(varB, k)) }))
           .sort((a, b) => b.ref - a.ref)
           .map(x => x.k);
@@ -2158,7 +2207,7 @@ export default function MonthEndPLPage() {
               </tr>
             </thead>
             <tbody>
-              {CASCADA.map(l => {
+              {visibles(CASCADA).map(l => {
                 const v = variacion(l.code, l.gasto);
                 const color = v.sinDato || v.d === 0 ? "var(--text-secondary)"
                   : v.bueno ? "var(--positive)" : "var(--negative)";
