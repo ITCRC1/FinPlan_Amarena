@@ -37,6 +37,7 @@ import Formato from "./Formato";
 import Auditoria from "./Auditoria";
 import Estadisticas from "./Estadisticas";
 import VistasVisibles from "./VistasVisibles";
+import ResumenDoceMeses from "./ResumenDoceMeses";
 import { getTabsApagados } from "@/lib/tabsVisibles";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
@@ -72,6 +73,10 @@ const VISTAS = [
   // que arma cada cierre, el segundo el que se abre cuando ese cuadro no cuadra.
   { key: "formato" },
   { key: "auditoria" },
+  // Owner, 2026-09-02: «un sub tab solamente de 4 lineas por mes... esto que
+  // sea 12 meses». El gasto va por NATURALEZA (planilla, costo, opex,
+  // propiedad), no por departamento: es la diferencia con el resto.
+  { key: "resumen12" },
 ] as const;
 type Vista = typeof VISTAS[number]["key"];
 
@@ -2183,6 +2188,10 @@ export default function MonthEndPLPage() {
       {vista === "doce" && (
         <DoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined}
                    compacto={compacto} />
+      )}
+
+      {vista === "resumen12" && (
+        <ResumenDoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined} />
       )}
 
       {vista === "formato" && (

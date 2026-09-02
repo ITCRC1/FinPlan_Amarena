@@ -2805,7 +2805,8 @@
     "ytdA": "YTD to {mes} {year}",
     "tab_doce": "12 months",
     "tab_formato": "Format",
-    "tab_auditoria": "Audit"
+    "tab_auditoria": "Audit",
+    "tab_resumen12": "12m Summary"
   },
   "otb": {
     "a851Nota1": "{metrica} by {unidad}:",

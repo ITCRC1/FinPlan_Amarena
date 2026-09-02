@@ -134,3 +134,47 @@ def test_esconder_NO_es_un_permiso_y_la_pantalla_lo_dice():
     panel = (CIERRE / "VistasVisibles.tsx").read_text(encoding="utf-8")
     assert "no es un permiso" in panel.lower()
     assert "Sólo lectura" in panel
+
+
+# ── El resumen de una página (owner, 2026-09-02) ─────────────────────────────
+
+def test_el_resumen_muestra_los_DOS_cuadros_a_la_vez():
+    """Owner: «y abajo haces lo mismo pero para budget para que se pueda ver» ·
+    «los 2 cuadros a la vez».
+
+    No son dos paneles que se alternan como en el sub-tab de 12 meses: ahí la
+    gracia era una versión a lo largo del año, y acá es poder mirar el Actual y
+    el Budget sin cambiar de pestaña.
+    """
+    fuente = (CIERRE / "ResumenDoceMeses.tsx").read_text(encoding="utf-8")
+    assert 'bloque("ACTUAL"' in fuente and 'bloque("BUDGET"' in fuente
+    # Los dos se dibujan, no se elige uno.
+    i = fuente.index("return (\n    <div>")
+    cuerpo = fuente[i:i + 400]
+    assert "ACTUAL" in cuerpo and "BUDGET" in cuerpo
+
+
+def test_los_dos_cuadros_comparten_las_COLUMNAS():
+    """⚠️ Con columnas propias, la primera de arriba sería marzo y la de abajo
+    junio —el Actual se movió de marzo a julio y el Budget de junio a
+    diciembre—, una sobre otra invitando a compararlas.
+
+    Se pierde algo de ancho y se gana que mirar hacia abajo signifique algo.
+    """
+    fuente = (CIERRE / "ResumenDoceMeses.tsx").read_text(encoding="utf-8")
+    assert "vivo(arriba.datos, i) || vivo(abajo.datos, i)" in fuente, (
+        "cada cuadro volvió a elegir sus propios meses: las columnas dejarían "
+        "de alinearse entre el Actual y el Budget")
+    # Y la tabla recibe las columnas de afuera, no las calcula.
+    assert "function Tabla({ datos, columnas }" in fuente
+
+
+def test_el_NET_no_se_confunde_con_el_GOP():
+    """`Total Expenses` incluye el gasto de propiedad, así que `Net` es el
+    resultado DESPUÉS de propiedad. En el P&L Statement el gasto de propiedad
+    va debajo del GOP: leer uno donde dice el otro cambia el número por miles."""
+    fuente = (CIERRE / "ResumenDoceMeses.tsx").read_text(encoding="utf-8")
+    assert "no es el GOP" in fuente, (
+        "se fue el aviso de que Net no es GOP: son dos totales distintos con "
+        "aspecto de ser el mismo")
+    assert "d.payroll[i] + d.cost[i] + d.opex[i] + d.property[i]" in fuente
