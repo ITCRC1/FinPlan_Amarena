@@ -677,3 +677,57 @@ def test_el_EXCEL_baja_lo_que_se_esta_viendo():
     assert "deptEstado ? desglose(f.code) : []" in bloque, (
         "el Excel del P&L Statement dejó de incluir el desglose departamental "
         "que se ve en pantalla")
+
+
+def test_el_sub_departamento_del_checkbook_sube_a_su_PADRE():
+    """⚠️ Dos vocabularios para la MISMA dimensión, otra vez.
+
+    Owner, 2026-09-02, mirando el desglose del P&L Statement: el ACTUAL
+    consolida en departamentos padre y el checkbook usa sub-departamentos, así
+    que el cuadro salía con dos juegos de filas que no se cruzaban —
+    `0110 · Rooms` con 38.054,38 y cero presupuesto, y `0111 · Front Desk`,
+    `0113 · Housekeeping`, `0114 · Concierge` con presupuesto y cero actual.
+    Comparar planilla por departamento no decía nada.
+
+    Es el mismo defecto del ingreso, resuelto el mismo día. El mapa ya existía
+    en el motor (`CHECKBOOK_DEPT_CONSOLIDATION`): sólo no se estaba aplicando
+    en este cuadro.
+    """
+    import inspect
+
+    from app.api import gasto_por_clase_api
+
+    fuente = inspect.getsource(gasto_por_clase_api)
+    assert "_suma(detalle, clase, _padre(d), m, v)" in fuente, (
+        "el checkbook volvió a abrir el gasto por sub-departamento: no se "
+        "cruzaría con el actual y la comparación quedaría vacía")
+
+
+def test_la_consolidacion_sube_en_CADENA():
+    """`consolidate_dept` resuelve UN escalón y hay cadenas de dos: el 0132
+    cuelga del 0130 y el 0130 del 0140. Con una sola vuelta la planilla del Spa
+    quedaba en un departamento intermedio que el cuadro no dibuja."""
+    from app.api.gasto_por_clase_api import _padre
+
+    assert _padre("0132") == "0140", "la cadena del Spa no sube hasta el padre"
+    assert _padre("0111") == "0110"
+    assert _padre("0186") == "0180"
+    # Un departamento que YA es padre no se mueve.
+    assert _padre("0110") == "0110"
+    assert _padre("260") == "260"
+
+
+def test_la_consolidacion_NO_cambia_ningun_total():
+    """Sólo junta claves: la suma tiene que ser la misma.
+
+    Si consolidar moviera un total, estaría perdiendo o duplicando plata — y el
+    cuadro cerraría igual porque el total sale de otra cuenta.
+    """
+    from app.api.gasto_por_clase_api import _padre
+
+    datos = {"0111": 100.0, "0113": 50.0, "0110": 25.0, "260": 10.0}
+    juntado: dict[str, float] = {}
+    for d, v in datos.items():
+        juntado[_padre(d)] = juntado.get(_padre(d), 0.0) + v
+    assert sum(juntado.values()) == sum(datos.values())
+    assert juntado["0110"] == 175.0

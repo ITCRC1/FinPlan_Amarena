@@ -109,6 +109,27 @@ def _nombra(destino: dict, clave: str, nombre: str):
         destino.setdefault("__nombres__", {}).setdefault(clave, nombre)
 
 
+def _padre(dept: str) -> str:
+    """El departamento del P&L al que pertenece un sub-departamento.
+
+    ⚠️ **Sube en CADENA.** `pl_engine.consolidate_dept` resuelve un escalon, y
+    hay cadenas de dos: el 0132 cuelga del 0130 y el 0130 del 0140. Con una
+    sola vuelta la planilla del Spa quedaba en un departamento intermedio que
+    el cuadro no dibuja.
+
+    El tope de vueltas evita un ciclo si alguien deja mal el catalogo: mejor
+    quedarse en el ultimo codigo bueno que colgar el reporte.
+    """
+    visto = set()
+    for _ in range(5):
+        padre = pl_engine.consolidate_dept(dept)
+        if padre == dept or padre in visto:
+            return dept
+        visto.add(dept)
+        dept = padre
+    return dept
+
+
 def _suma(destino: dict, clase: str, clave: str, mes: int, monto):
     """Acumula en {clase: {clave: [12 meses]}}. `clave` es el departamento, o la
     cuenta cuando se trata de la clase 8 —el gasto de propiedad se mira por
@@ -243,7 +264,25 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
             if detalle is not None:
                 def _abrir(clase, datos):
                     for d, v in datos.items():
-                        _suma(detalle, clase, d, m, v)
+                        # ⚠️ **El sub-departamento se sube a su padre.**
+                        #
+                        # Owner, 2026-09-02, mirando el desglose: el ACTUAL
+                        # consolida en departamentos padre y el checkbook usa
+                        # sub-departamentos, asi que el cuadro salia con dos
+                        # juegos de filas que no se cruzaban — `0110 · Rooms`
+                        # con 38.054,38 y cero presupuesto, y `0111 · Front
+                        # Desk`, `0113 · Housekeeping`, `0114 · Concierge` con
+                        # presupuesto y cero actual. Comparar planilla por
+                        # departamento no decia nada.
+                        #
+                        # Es el mismo defecto que el del ingreso, resuelto el
+                        # mismo dia: dos vocabularios para la misma dimension.
+                        # `consolidate_dept` es el mapa que el motor YA usa en
+                        # el camino de checkbook (`CHECKBOOK_DEPT_CONSOLIDATION`),
+                        # asi que el cuadro pasa a agrupar como el P&L.
+                        #
+                        # No cambia ningun total: solo junta claves.
+                        _suma(detalle, clase, _padre(d), m, v)
                 _abrir("payroll", pbd)
                 _abrir("cost", cbd)
                 _abrir("opex", obd)
