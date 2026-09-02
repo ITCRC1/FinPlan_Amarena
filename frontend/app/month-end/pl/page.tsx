@@ -30,7 +30,8 @@ import {
 } from "@/lib/api";
 import { HOTEL_ID } from "@/lib/hotel";
 import { elegir } from "@/lib/escenarioPreferido";
-import { bajarCuadros, type Cuadro, type FilaCuadro, type ColumnaCuadro } from "@/lib/exportCuadro";
+import { bajarCuadros, bajarCierreWord, type Cuadro, type FilaCuadro,
+         type ColumnaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
@@ -746,7 +747,7 @@ export default function MonthEndPLPage() {
   const periodo = horizonte === "month" ? MESES[mes - 1]
     : t("periodoRango", { ini: MESES[0], fin: MESES[horizonte === "ytd" ? mes - 1 : 11] });
 
-  function bajarExcel() {
+  function cuadroPL(): Cuadro {
     const columnas: ColumnaCuadro[] = [
       { label: "ACCOUNT DESCRIPTION", ancho: 38, formato: "texto" },
       ...usadas.slice(0, trasVariacion).map(u => ({ label: etiqueta(u.id), ancho: 17, formato: "usd2" as const })),
@@ -804,14 +805,98 @@ export default function MonthEndPLPage() {
         valores: enOrden(j => CLASES.reduce((s2, c) => s2 + gastoClase(j, c.key), 0), null, null),
       },
     ];
-    const cuadro: Cuadro = {
+    return {
       titulo: t("xlTitulo", { periodo, year: String(year) }),
       subtitulo: sinDatoVar ? t("xlSinVariacion")
         : t("xlVariacionEntre", { escA: etiqueta(ranuras[varA]), escB: etiqueta(ranuras[varB]) }),
       hoja: t("xlHoja"),
       columnas, filas,
     };
-    bajarCuadros(`Cierre_${year}_${horizonte}_${String(mes).padStart(2, "0")}`, [cuadro]);
+  }
+
+  function bajarExcel() {
+    bajarCuadros(`Cierre_${year}_${horizonte}_${String(mes).padStart(2, "0")}`,
+                 [cuadroPL()]);
+  }
+
+  /** El cuadro de un tab «x Depto», con las mismas columnas del de arriba.
+   *
+   *  ⚠️ Sale de `apertura`, que es lo MISMO que dibuja la pantalla. Rearmarlo
+   *  con otra consulta daria un documento que no es lo que el owner estaba
+   *  viendo cuando decidio exportarlo. */
+  function cuadroClase(clase: string): Cuadro {
+    const { claves, valor: v } = apertura(clase);
+    const esGasto = clase !== "revenue";
+    const columnas: ColumnaCuadro[] = [
+      { label: "DEPARTAMENTO", ancho: 38, formato: "texto" },
+      ...usadas.map(u => ({ label: etiqueta(u.id), ancho: 17,
+                            formato: "usd2" as const })),
+      { label: t("variacionD"), ancho: 16, formato: "usd2" as const },
+      { label: t("variacionP"), ancho: 12, formato: "pct" as const },
+    ];
+    const orden = claves
+      .filter(k => usadas.some(u => Math.abs(v(u.i, k)) >= 0.005))
+      .sort((a, b) => Math.abs(v(varA, b)) - Math.abs(v(varA, a)));
+    const linea = (k: string | null) => {
+      const val = (i: number) => k === null
+        ? claves.reduce((s2, c) => s2 + v(i, c), 0) : v(i, k);
+      const a = val(varA), b = val(varB);
+      const d = sinDatoVar ? null : a - b;
+      return {
+        label: k === null ? "TOTAL" : (deptos[k] ? `${k} · ${deptos[k]}` : k),
+        es_total: k === null,
+        valores: [...usadas.map(u => val(u.i)), d,
+                  d === null || b === 0 ? null : d / Math.abs(b)],
+      };
+    };
+    return {
+      titulo: t(`tab_${clase}`),
+      subtitulo: `${periodo} ${year} · ${esGasto ? "gasto" : "ingreso"} por departamento`,
+      columnas, filas: [...orden.map(k => linea(k)), linea(null)],
+    };
+  }
+
+  /**
+   * El documento de cierre: un capitulo por sub-tab ACTIVO.
+   *
+   * Owner, 2026-09-02: «un documento Word con todos los tabs activos… dejá
+   * espacio entre los tabs para poder comentar… y siempre deben salir los tabs
+   * que estén activos en la vista».
+   *
+   * ⚠️ Lo de «los activos» NO se resuelve leyendo `tab_enablement` otra vez: se
+   * recorre `VISTAS` filtrando por `subOcultos`, que es EXACTAMENTE lo que la
+   * pantalla dibuja. Una segunda lectura de la misma decision es una segunda
+   * oportunidad de que difieran.
+   */
+  async function bajarWord() {
+    const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
+    const cuadros: Cuadro[] = [];
+    if (activos.includes("pl")) cuadros.push(cuadroPL());
+    const CLASES_DEPTO = ["revenue", "payroll", "cost", "opex", "property"] as const;
+    for (const clase of CLASES_DEPTO) {
+      if (activos.includes(clase)) cuadros.push(cuadroClase(clase));
+    }
+    if (!cuadros.length) {
+      alert("No hay ningun sub-tab activo que se pueda incluir todavia.");
+      return;
+    }
+    try {
+      const blob = await bajarCierreWord({
+        archivo: `Cierre_${year}_${String(mes).padStart(2, "0")}`,
+        titulo: "Reporte de Cierre de Mes",
+        periodo: `${periodo} ${year}`,
+        versiones: usadas.map(u => etiqueta(u.id)).join("  ·  "),
+        cuadros,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Cierre_${year}_${String(mes).padStart(2, "0")}.docx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo generar el Word");
+    }
   }
 
   // `position: static` pisa el sticky global de `thead th`. Estas dos tablas
@@ -908,6 +993,11 @@ export default function MonthEndPLPage() {
           }}>{t(`horizonte_${k}`)}</button>
         ))}
         <button onClick={bajarExcel} style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Excel</button>
+        {/* Owner, 2026-09-02: «un documento Word con todos los tabs activos,
+            con espacio para comentar». Los activos salen de `subOcultos`, que
+            es lo mismo que dibuja la fila de sub-tabs. */}
+        <button onClick={bajarWord} title="Reporte de cierre en Word, con espacio para comentar cada cuadro"
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Word</button>
       </div>
 
       {/* Cuatro ranuras libres. Cada una acepta CUALQUIER escenario de cualquier
