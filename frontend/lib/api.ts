@@ -2584,8 +2584,19 @@ export interface EstadisticasCierre {
   revpar: number;
   /** El mismo, pero sobre el ingreso completo de habitaciones. */
   revpar_bruto: number;
-  /** `null` cuando la propiedad NO tiene Club — distinto de cero socios. */
+  /** El PROMEDIO de socios de los meses CON socios del período.
+   *
+   *  Owner, 2026-09-02: «cuando presentes un YTD socios pagando, quiero que me
+   *  des un promedio de los meses y no que sume». Los meses en cero quedan
+   *  fuera: Amarena abrió el Club en marzo, e incluir enero y febrero bajaría
+   *  el promedio de 103 a 74.
+   *
+   *  `null` cuando la propiedad NO tiene Club — distinto de cero socios. */
   club_pagando: number | null;
+  /** El saldo del ÚLTIMO mes: «cuántos socios hay hoy». En un mes suelto
+   *  coincide con el promedio; la diferencia sólo se ve en YTD. */
+  club_pagando_cierre: number | null;
+  club_meses_con_socios: number | null;
   club_total: number | null;
   club_socios_mes: number | null;
   club_revenue: number | null;
@@ -2722,7 +2733,11 @@ export interface PLKpis {
   club_total?: number;
   /** Socios-mes del período — el denominador de la cuota, como las noches del ADR. */
   club_socios_mes?: number;
-  /** Ingreso del Club ÷ socios-mes: la cuota mensual promedio. */
+  /** Ingreso del Club ÷ socios-mes: la cuota mensual promedio.
+   *
+   *  En un MES suelto el denominador son los socios de ese mes, así que es
+   *  simplemente ingreso ÷ socios. En un período agregado se pondera por
+   *  socios-mes, igual que el ADR por noches. */
   club_cuota_promedio?: number;
 }
 

@@ -215,6 +215,17 @@ async def _monthly_results(session, scenario) -> list[dict]:
             # los dos — con uno solo, la junta multiplica socios por cuota y no
             # le da el ingreso.
             m["kpis"]["club_total"] = total
+            # La cuota del MES. Es la misma cuenta que el ADR —ingreso sobre
+            # unidades vendidas— con el socio como unidad, y en un solo mes no
+            # hay nada que ponderar.
+            #
+            # Faltaba, y el cuadro de Formato mostraba «—» en todas las
+            # columnas mensuales con el dato sólo en el acumulado: se leía como
+            # que no había cuota, no como que no viajaba.
+            rev_club = sum(float(ln.amount_usd) for ln in m["lines"]
+                           if ln.line_code in ("REV_CLUB", "REV_MADRESAL_CLUB"))
+            m["kpis"]["club_cuota_promedio"] = (
+                rev_club / pagando) if pagando else 0.0
     return out
 
 
@@ -645,6 +656,23 @@ async def get_estadisticas(scenario_id: str, desde: int = 1, hasta: int = 12):
         club_rev = linea("REV_CLUB")
         hay_club = any("club_pagando" in m["kpis"] for m in sel)
 
+        # ── Los socios de un PERÍODO son un promedio ──────────────────────────
+        #
+        # Owner, 2026-09-02: *«cuando presentes un YTD socios pagando, quiero
+        # que me des un promedio de los meses y no que sume, desde marzo al mes
+        # que se pide»*.
+        #
+        # ⚠️ **El promedio corre sólo sobre los meses CON socios.** Amarena abrió
+        # el Club en marzo: incluir enero y febrero en cero bajaría el promedio
+        # de 103 a 74 y diría que el Club tiene un tercio menos de gente de la
+        # que tiene. «Desde marzo» no es una fecha fija — es «desde que hay
+        # dato», y así sigue valiendo el año que viene.
+        #
+        # Sumar sería peor todavía: daría 516 socios donde hay 72.
+        con_socios = [m["kpis"].get("club_pagando", 0) for m in sel
+                      if m["kpis"].get("club_pagando", 0)]
+        promedio = (sum(con_socios) / len(con_socios)) if con_socios else 0.0
+
         return {
             "scenario_id": scenario_id,
             "escenario": f"{scenario.type} {scenario.version} {scenario.year}",
@@ -667,8 +695,14 @@ async def get_estadisticas(scenario_id: str, desde: int = 1, hasta: int = 12):
             "revpar_bruto": (rooms_rev / avail) if avail else 0.0,
             # `None` —no cero— cuando la propiedad no tiene Club: un cero se lee
             # como «no hay socios» donde en realidad no hay Club.
-            "club_pagando": (sel[-1]["kpis"].get("club_pagando", 0)
-                             if hay_club and sel else None),
+            # El PROMEDIO de los meses con socios — lo que el owner presenta.
+            "club_pagando": promedio if hay_club else None,
+            # El saldo del último mes del período. Viaja aparte porque contesta
+            # otra pregunta —«cuántos socios hay hoy»— y en un mes suelto los
+            # dos valores coinciden, así que la diferencia sólo se ve en YTD.
+            "club_pagando_cierre": (sel[-1]["kpis"].get("club_pagando", 0)
+                                    if hay_club and sel else None),
+            "club_meses_con_socios": len(con_socios) if hay_club else None,
             "club_total": (sel[-1]["kpis"].get("club_total", 0)
                            if hay_club and sel else None),
             "club_socios_mes": socios_mes if hay_club else None,

@@ -545,3 +545,46 @@ def test_el_panel_de_BUDGET_arranca_en_un_BUDGET():
     assert 'primeroDe(escenarios, "BUDGET") || inicial' in fuente, (
         "el panel de Budget volvió a arrancar en `inicial`, que trae el ACTUAL")
     assert 'setVActual(x => x || primeroDe(escenarios, "ACTUAL"))' in fuente
+
+
+def test_los_socios_de_un_PERIODO_son_un_promedio_y_no_una_suma():
+    """Owner, 2026-09-02: «cuando presentes un YTD socios pagando, quiero que me
+    des un promedio de los meses y no que sume, desde marzo al mes que se pide».
+
+    Sumar daría **516 socios donde hay 72**. Y el promedio corre sólo sobre los
+    meses CON socios: Amarena abrió el Club en marzo, e incluir enero y febrero
+    en cero bajaría el promedio de 103 a 74 — diría que el Club tiene un tercio
+    menos de gente de la que tiene.
+
+    ⚠️ «Desde marzo» se implementa como «desde que hay dato», no como un mes
+    fijo: así sigue valiendo el año que viene.
+    """
+    import inspect
+
+    from app.api import pl_api
+
+    fuente = inspect.getsource(pl_api.get_estadisticas)
+    assert 'if m["kpis"].get("club_pagando", 0)]' in fuente, (
+        "el promedio dejó de filtrar los meses sin socios: los ceros de enero y "
+        "febrero lo hundirían")
+    assert "sum(con_socios) / len(con_socios)" in fuente
+    assert '"club_pagando": promedio' in fuente, (
+        "`club_pagando` volvió a ser el saldo del último mes en vez del promedio")
+    # El saldo sigue viajando, porque contesta otra pregunta.
+    assert '"club_pagando_cierre"' in fuente
+
+
+def test_la_cuota_NO_usa_el_promedio_como_denominador():
+    """La cuota se pondera por SOCIOS-MES, que es la suma — no por el promedio.
+
+    Son dos preguntas distintas sobre el mismo dato: «cuántos socios hubo en
+    promedio» y «cuánto pagó cada socio por mes». Usar el promedio en el
+    denominador de la cuota la multiplicaría por la cantidad de meses.
+    """
+    import inspect
+
+    from app.api import pl_api
+
+    fuente = inspect.getsource(pl_api.get_estadisticas)
+    assert "club_rev / socios_mes" in fuente
+    assert "club_rev / promedio" not in fuente

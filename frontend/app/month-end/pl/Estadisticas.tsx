@@ -73,7 +73,14 @@ const FILAS: {
   { rotulo: "% Occupancy", valor: d => pct(d.occupancy_pct), fuerte: true },
   { rotulo: "Average Daily Room Only", valor: d => usd(d.adr), fuerte: true },
   { rotulo: "Total RevPAR", valor: d => usd(d.revpar), fuerte: true },
-  { rotulo: "Socios pagando (Club)", valor: d => num(d.club_pagando), club: true },
+  // El promedio de los meses con socios (owner, 2026-09-02). En un mes suelto
+  // es el mes; en un YTD, el promedio — nunca la suma, que daría 516 donde hay
+  // 72.
+  { rotulo: "Socios pagando (Club)", club: true,
+    valor: d => (d.club_meses_con_socios ?? 0) > 1
+      ? `${num(d.club_pagando)} prom.` : num(d.club_pagando) },
+  { rotulo: "Socios al cierre del mes", club: true,
+    valor: d => num(d.club_pagando_cierre) },
   { rotulo: "Cuota promedio por socio", valor: d => usd(d.club_cuota_promedio),
     club: true, fuerte: true },
 ];

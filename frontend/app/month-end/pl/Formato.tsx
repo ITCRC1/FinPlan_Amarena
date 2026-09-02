@@ -176,11 +176,13 @@ export default function Formato({ escenarios, inicial, compacto = true }: {
       mes: k => usd(k.adr), acum: t => usd(t.adr) },
     { rotulo: "Total RevPAR", fuerte: true,
       mes: k => usd(k.revpar), acum: t => usd(t.revpar) },
+    // En la columna del mes es el mes; en el ACUMULADO es el promedio de los
+    // meses con socios, no la suma (owner, 2026-09-02).
     { rotulo: "Socios pagando (Club)", club: true,
       mes: k => numero(k.club_pagando ?? 0),
-      acum: t => numero(t.club_pagando ?? 0) },
+      acum: t => `${numero(t.club_pagando ?? 0)} prom.` },
     { rotulo: "Cuota promedio por socio", club: true, fuerte: true,
-      mes: () => "—",
+      mes: k => usd(k.club_cuota_promedio ?? 0),
       acum: t => usd(t.club_cuota_promedio ?? 0) },
   ];
 
