@@ -2546,6 +2546,17 @@ export interface PLLine {
   por?: number;   // Per Occupied Room (USALI)
 }
 
+// ── Los doce meses de una version, sin agregar (owner, 2026-08-28) ───────────
+export interface PLDoceMeses {
+  scenario_id: string;
+  escenario: string;
+  year: number;
+  meses: { month: number; kpis: PLKpis; lines: PLLine[] }[];
+}
+export async function getPLDoceMeses(scenarioId: string): Promise<PLDoceMeses> {
+  return api.get<PLDoceMeses>(`/pl/${encodeURIComponent(scenarioId)}/doce-meses/`);
+}
+
 // ── P&L Detail: Consolidado · Hotel · Club (owner, 2026-08-27) ───────────────
 export interface PLDetailFila {
   /** sec = encabezado · det = detalle · sub = subtotal · tot = total · esp = espacio */

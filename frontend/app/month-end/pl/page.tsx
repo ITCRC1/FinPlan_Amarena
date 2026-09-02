@@ -32,6 +32,7 @@ import { HOTEL_ID } from "@/lib/hotel";
 import { elegir } from "@/lib/escenarioPreferido";
 import { bajarCuadros, type Cuadro, type FilaCuadro, type ColumnaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
+import DoceMeses from "./DoceMeses";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
 const MESES_FALLBACK = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -57,6 +58,9 @@ const VISTAS = [
   { key: "estado" },
   { key: "revdet" },
   { key: "fb" },
+  // Una version a lo largo del año. Los demas sub-tabs comparan versiones
+  // en UN periodo; este hace lo contrario (owner, 2026-08-28).
+  { key: "doce" },
 ] as const;
 type Vista = typeof VISTAS[number]["key"];
 
@@ -1891,6 +1895,10 @@ export default function MonthEndPLPage() {
         );
       })()}
 
+      {vista === "doce" && (
+        <DoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined} />
+      )}
+
       {vista === "consulta" && (
         <div>
           <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12, maxWidth: 900 }}>
@@ -2019,7 +2027,8 @@ export default function MonthEndPLPage() {
         </div>
       )}
 
-      {!cargando && vista !== "pl" && vista !== "consulta" && vista !== "flow" && (() => {
+      {!cargando && vista !== "pl" && vista !== "consulta" && vista !== "flow"
+        && vista !== "doce" && (() => {
         const clase = vista as string;
         const { claves, valor } = apertura(clase);
         const esProp = clase === "property";

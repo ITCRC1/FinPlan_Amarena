@@ -554,6 +554,38 @@ async def get_pl_compare(scenarios: str, month: int = 12):
     return {"month": month, "versions": versions}
 
 
+@router.get("/pl/{scenario_id}/doce-meses/")
+async def get_pl_doce_meses(scenario_id: str):
+    """El P&L de una version, MES A MES, en un solo viaje.
+
+    Owner, 2026-08-28: *«necesito meter en el tab Cierre de mes un sub tab que
+    tenga 12 meses, y una version para escoger»*.
+
+    ⚠️ **No es `/pl/compare-range/` doce veces.** Ese endpoint AGREGA el rango en
+    una sola columna —y bien: el ADR se pondera por noches ocupadas y el
+    impuesto lleva una correccion anual, ninguno de los dos es aditivo—. Lo que
+    hace falta aca es lo contrario: los doce meses SIN agregar, cada uno con sus
+    lineas.
+
+    El motor ya los calcula todos (`_monthly_results` hace la pasada completa
+    para poder agregar). Lo unico que faltaba era exponerlos sin sumarlos: doce
+    llamadas a `/pl/{id}/month/{m}/` darian lo mismo con doce pasadas.
+    """
+    async with get_session() as session:
+        scenario = await _get_scenario_or_404(session, scenario_id)
+        monthly = await _monthly_results(session, scenario)
+        return {
+            "scenario_id": scenario_id,
+            "escenario": f"{scenario.type} {scenario.version} {scenario.year}",
+            "year": scenario.year,
+            "meses": [{
+                "month": m["month"],
+                "kpis": m["kpis"],
+                "lines": [_line_to_dict(ln, m["kpis"]) for ln in m["lines"]],
+            } for m in monthly],
+        }
+
+
 @router.get("/pl/compare-range/")
 async def get_pl_compare_range(scenarios: str, from_month: int = 1, to_month: int = 12):
     """Como `/pl/compare/`, pero para un RANGO arbitrario de meses (Q1..Q4,
