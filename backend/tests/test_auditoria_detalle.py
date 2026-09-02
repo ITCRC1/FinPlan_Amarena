@@ -355,3 +355,52 @@ def test_los_renglones_de_OVERHEAD_suman_su_TOTAL():
     assert abs(total - suma) < Decimal("0.005"), (
         f"los renglones de OVERHEAD suman {suma} y su total dice {total}: hay "
         f"{total - suma} dentro del total que no se ve en ningún renglón")
+
+
+def test_el_cuadre_es_por_RENGLON_y_no_por_codigo_suelto():
+    """⚠️ Comparar código por código dio 37 descuadres FALSOS en julio 2026.
+
+    Dos causas distintas, el mismo resultado inútil:
+
+    * los TOTALES y SUBTOTALES (`GOP`, `EBITDA_BEFORE`, `TOTAL_DEPRECIATIONS`)
+      son sumas de otros renglones: no tienen detalle propio y su «detalle»
+      siempre da cero;
+    * el vocabulario canónico parte el gasto de un departamento en varias
+      líneas —`OPEX_FB` + `COS_FB_FOOD` + `COS_FB_BEV`— y el detalle atribuye a
+      una sola, así que cada par se descuadraba por el mismo monto con signos
+      opuestos.
+
+    Una auditoría que grita cuando todo está bien es peor que no tenerla: nadie
+    la mira a la tercera vez. El renglón del reporte agrupa esos códigos y es
+    además el nivel al que el owner audita — él mira «Rooms», no `COS_FB_BEV`.
+    """
+    import inspect
+
+    from app.api import auditoria_api
+
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert "from app.api.pl_detail_api import CONSOLIDADO" in fuente, (
+        "la auditoría dejó de usar la plantilla del reporte: volvería a "
+        "comparar totales contra un detalle que no existe")
+    assert 'if tipo != "det"' in fuente, (
+        "el cuadre dejó de filtrar a los renglones de DETALLE: los totales no "
+        "tienen detalle propio y saldrían todos como descuadre")
+
+
+def test_la_plantilla_agrupa_el_costo_con_su_gasto():
+    """El desdoble `OPEX_*` / `COS_*` tiene que caer en el MISMO renglón.
+
+    Si se separaran, el cuadre volvería a mostrar dos descuadres por
+    departamento que se cancelan entre sí — el ruido que ya se sacó una vez.
+    """
+    from app.api.pl_detail_api import CONSOLIDADO
+
+    for tipo, rotulo, codigos in CONSOLIDADO:
+        if tipo != "det" or not codigos:
+            continue
+        cos = [c for c in codigos if c.startswith("COS_")]
+        if not cos:
+            continue
+        assert any(c.startswith("OPEX_") for c in codigos), (
+            f"el renglón «{rotulo}» tiene costo de ventas ({cos}) pero no su "
+            f"opex: el detalle atribuye al opex y este renglón lo perdería")

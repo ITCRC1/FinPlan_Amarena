@@ -156,7 +156,7 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
 
       {/* ── 1. Cuadre ─────────────────────────────────────────────────────── */}
       <h3 style={{ fontSize: 13, fontWeight: 800, margin: "16px 0 6px" }}>
-        Cuadre — motor contra detalle
+        Cuadre — cada renglón del P&L contra la suma de su detalle
       </h3>
       <div className="fin-scroll-x">
         <table style={{ borderCollapse: "collapse", minWidth: 560 }}>
@@ -170,12 +170,18 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
             {cuadre.map(f => {
               const mal = Math.abs(f.dif) >= 0.005;
               return (
-                <tr key={f.linea} style={mal ? { background: "var(--bg-surface)" } : undefined}>
+                <tr key={f.linea + f.nombre} style={mal ? { background: "var(--bg-surface)" } : undefined}>
                   <td style={TDL}>
                     {f.nombre}
-                    <span style={{ color: "var(--text-disabled)", marginLeft: 6, fontSize: 10.5 }}>
-                      {f.linea}
-                    </span>
+                    {/* Los códigos sólo cuando hay algo que investigar: en un
+                        renglón que cuadra son ruido, y ahora son varios por
+                        fila (`OPEX_FB · COS_FB_FOOD · COS_FB_BEV`). */}
+                    {(mal || f.seccion === "HUERFANO") && (
+                      <span style={{ color: "var(--text-disabled)", marginLeft: 6,
+                                     fontSize: 10.5 }}>
+                        {f.linea}
+                      </span>
+                    )}
                   </td>
                   <td style={TD}>{usd(f.motor)}</td>
                   <td style={TD}>{usd(f.detalle)}</td>

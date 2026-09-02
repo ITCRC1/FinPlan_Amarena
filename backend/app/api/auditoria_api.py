@@ -121,36 +121,64 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
 
         detalle.sort(key=lambda r: (r["dept_code"], r["tipo"], r["account_code"]))
 
-        # ── 2. El cuadre contra el motor ──────────────────────────────────────
+        # ── 2. El cuadre, POR RENGLÓN DEL REPORTE ─────────────────────────
         #
-        # ⚠️ Se compara contra `_monthly_results`, que es EL MISMO cálculo que
-        # dibuja el P&L en pantalla — no contra `pl_lines`, que es una foto que
-        # puede estar vieja si nadie apretó Recalcular.
+        # ⚠️ **No línea por línea, RENGLÓN por renglón**, y la diferencia no es
+        # cosmética. El primer intento comparó cada `line_code` suelto y
+        # reportó 37 descuadres en julio 2026, **todos falsos**, por dos
+        # razones distintas:
+        #
+        # * los TOTALES y SUBTOTALES (`GOP`, `EBITDA_BEFORE`,
+        #   `TOTAL_DEPRECIATIONS`) no tienen detalle propio: son sumas de otros
+        #   renglones, así que su «detalle» siempre da cero;
+        # * el vocabulario canónico parte el gasto de un departamento en varias
+        #   líneas —`OPEX_FB` + `COS_FB_FOOD` + `COS_FB_BEV`— y el detalle
+        #   atribuye a una sola. Cada par se descuadraba por el mismo monto con
+        #   signos opuestos.
+        #
+        # El renglón del reporte agrupa justamente esos códigos, así que las
+        # dos cosas se resuelven solas. Y es el nivel al que el owner audita:
+        # él mira «Rooms», no `COS_FB_BEV`.
+        #
+        # La plantilla se importa de `pl_detail_api`: si cambia el reporte,
+        # cambia la auditoría con él. Escribir una copia sería garantizar que
+        # un día auditen cosas distintas.
+        from app.api.pl_detail_api import CONSOLIDADO
+
         mensual = await _monthly_results(session, escenario)
         del_mes = next((m for m in mensual if m["month"] == mes), None)
         lineas_motor = {l.line_code: l for l in (del_mes or {}).get("lines", [])}
 
         cuadre = []
-        for code, l in lineas_motor.items():
-            if code not in por_linea and not l.amount_usd:
+        atribuidos: set[str] = set()
+        for tipo, rotulo, codigos in CONSOLIDADO:
+            if tipo != "det" or not codigos:
                 continue
-            det = por_linea.get(code, CERO)
+            motor = sum((Decimal(str(lineas_motor[c].amount_usd))
+                         for c in codigos if c in lineas_motor), CERO)
+            det = sum((por_linea.get(c, CERO) for c in codigos), CERO)
+            atribuidos.update(codigos)
+            if motor == CERO and det == CERO:
+                continue
             cuadre.append({
-                "linea": code,
-                "nombre": l.line_name,
-                "seccion": l.section,
-                "motor": _f(l.amount_usd),
+                "linea": " · ".join(codigos),
+                "nombre": rotulo,
+                "seccion": "",
+                "motor": _f(motor),
                 "detalle": _f(det),
-                "dif": _f(Decimal(str(l.amount_usd)) - det),
+                "dif": _f(motor - det),
             })
-        # Lo que el detalle atribuye a una línea que el motor no dibuja. No
-        # debería pasar nunca; si pasa, es exactamente lo que hay que ver.
-        for code, det in por_linea.items():
-            if code not in lineas_motor:
-                cuadre.append({"linea": code, "nombre": "(sin línea en el P&L)",
-                               "seccion": "HUERFANO", "motor": 0.0,
-                               "detalle": _f(det), "dif": _f(-det)})
-        cuadre.sort(key=lambda r: (r["seccion"], r["linea"]))
+
+        # Lo que el detalle atribuye a un código que NINGÚN renglón dibuja. No
+        # debería pasar; si pasa, es exactamente lo que hay que ver, porque esa
+        # plata está en los totales y en ninguna fila.
+        for code, det in sorted(por_linea.items()):
+            if code in atribuidos or det == CERO:
+                continue
+            cuadre.append({
+                "linea": code, "nombre": "(ningún renglón lo dibuja)",
+                "seccion": "HUERFANO", "motor": 0.0,
+                "detalle": _f(det), "dif": _f(-det)})
 
         # ── 3. La matriz por departamento ─────────────────────────────────────
         departamentos = []
