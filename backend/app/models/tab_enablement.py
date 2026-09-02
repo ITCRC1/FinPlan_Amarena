@@ -43,13 +43,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-#: Qué se está apagando. `TAB` es un tab de primer nivel de la barra; `ITEM` es
-#: una entrada de su menú (una pantalla o un reporte).
+#: Qué se está apagando.
 #:
-#: ⚠️ Son dos niveles y no uno porque apagar un tab entero es una decisión
-#: distinta de apagar un reporte suelto: «esta propiedad no hace Break-Even» no
-#: es lo mismo que «esta propiedad no usa el reporte a la Junta».
-SCOPE_KINDS = ["TAB", "ITEM"]
+#: * `TAB`    — un tab de primer nivel de la barra
+#: * `ITEM`   — una entrada de su menú (una pantalla o un reporte)
+#: * `SUBTAB` — una vista DENTRO de una pantalla, como los quince sub-tabs de
+#:   Cierre de Mes
+#:
+#: ⚠️ Son tres niveles y no uno porque son tres decisiones distintas. «Esta
+#: propiedad no hace Break-Even» no es lo mismo que «no usa el reporte a la
+#: Junta», y ninguna de las dos es «en el cierre no quiero que el dueño vea el
+#: Flow Through» (owner, 2026-09-02: *«esta vista la van a ver los dueños; me
+#: gustaría poder quitar y poner tabs sin borrarlas, sólo para dejar lo
+#: importante»*).
+SCOPE_KINDS = ["TAB", "ITEM", "SUBTAB"]
 
 
 class TabEnablement(Base):

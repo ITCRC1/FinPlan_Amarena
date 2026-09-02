@@ -12,9 +12,13 @@
 // hace seguro poder apagarlo todo, incluida la pantalla que lo administra.
 import { api } from "@/lib/api";
 
-export type TabsApagados = { TAB: string[]; ITEM: string[] };
+// `SUBTAB` son las vistas DENTRO de una pantalla —los quince sub-tabs de Cierre
+// de Mes—. Es un tercer nivel y no un `ITEM` porque son tres decisiones
+// distintas: «esta propiedad no hace Break-Even», «no usa el reporte a la
+// Junta» y «en el cierre no quiero que el dueño vea el Flow Through».
+export type TabsApagados = { TAB: string[]; ITEM: string[]; SUBTAB: string[] };
 
-export const NADA_APAGADO: TabsApagados = { TAB: [], ITEM: [] };
+export const NADA_APAGADO: TabsApagados = { TAB: [], ITEM: [], SUBTAB: [] };
 
 // ⚠️ **Quién quiere enterarse de un cambio.** Sin esto, apagar un reporte no se
 // ve en la barra hasta recargar la página — y en este proyecto ya se aprendió
@@ -58,17 +62,19 @@ export async function getTabsApagados(
   const q = perfil === undefined ? "" : `?perfil=${encodeURIComponent(perfil)}`;
   const r = await api.get<{ apagados: TabsApagados }>(
     `/provisioning/${encodeURIComponent(hotelId)}/tabs/${q}`);
-  return { TAB: r.apagados?.TAB || [], ITEM: r.apagados?.ITEM || [] };
+  return { TAB: r.apagados?.TAB || [], ITEM: r.apagados?.ITEM || [],
+           SUBTAB: r.apagados?.SUBTAB || [] };
 }
 
 export async function saveTabsApagados(
   hotelId: string,
-  rows: { scope_kind: "TAB" | "ITEM"; clave: string; visible: boolean }[],
+  rows: { scope_kind: "TAB" | "ITEM" | "SUBTAB"; clave: string; visible: boolean }[],
   perfil: Perfil = "",
 ) {
   const r = await api.put<{ apagados: number; prendidos: number; estado: TabsApagados }>(
     `/provisioning/${encodeURIComponent(hotelId)}/tabs/`, { rows, perfil });
-  const estado = { TAB: r.estado?.TAB || [], ITEM: r.estado?.ITEM || [] };
+  const estado = { TAB: r.estado?.TAB || [], ITEM: r.estado?.ITEM || [],
+                   SUBTAB: r.estado?.SUBTAB || [] };
   // Guarda y avisa. La barra se actualiza sola.
   //
   // ⚠️ Sólo cuando se editó la matriz de la propiedad. Avisar siempre haría que

@@ -89,8 +89,12 @@ async def tabs_apagados(db: AsyncSession, hotel_id: str,
     """
     from app.models.tab_enablement import TabEnablement
 
+    from app.models.tab_enablement import SCOPE_KINDS
+
     quienes = {""} | ({perfil} if perfil else set())
-    fuera: dict[str, set[str]] = {"TAB": set(), "ITEM": set()}
+    # Todos los niveles arrancan presentes y vacíos: una pantalla que pregunta
+    # por `SUBTAB` no tiene que saber si alguien apagó alguno todavía.
+    fuera: dict[str, set[str]] = {k: set() for k in SCOPE_KINDS}
     for r in (await db.execute(select(TabEnablement).where(
             TabEnablement.hotel_id == hotel_id,
             TabEnablement.perfil.in_(quienes)))).scalars().all():

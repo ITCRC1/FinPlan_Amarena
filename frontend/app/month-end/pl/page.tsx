@@ -36,6 +36,8 @@ import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import Auditoria from "./Auditoria";
 import Estadisticas from "./Estadisticas";
+import VistasVisibles from "./VistasVisibles";
+import { getTabsApagados } from "@/lib/tabsVisibles";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
 const MESES_FALLBACK = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -387,6 +389,14 @@ export default function MonthEndPLPage() {
    *  donde están y con los mismos números; abajo de cada una aparece de qué
    *  está hecha. */
   const [deptEstado, setDeptEstado] = useState(false);
+  /** Los sub-tabs escondidos para quien esta mirando, y el panel que los
+   *  administra. Owner, 2026-09-02: «poder quitar y poner tabs sin borrarlas,
+   *  solo para dejar lo importante para el dueño».
+   *
+   *  ⚠️ Se pide SIN perfil: asi el backend contesta por el rol de quien llama y
+   *  cada quien ve su vista sin que esta pantalla tenga que saber de roles. */
+  const [subOcultos, setSubOcultos] = useState<string[]>([]);
+  const [panelVistas, setPanelVistas] = useState(false);
   /** Esconder las líneas que están en CERO en todas las versiones.
    *
    *  Owner, 2026-08-28: *«si hay líneas que están en blanco —budget, actual, ni
@@ -536,6 +546,12 @@ export default function MonthEndPLPage() {
   }, [ranuras, mes, t]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  useEffect(() => {
+    getTabsApagados(HOTEL_ID)
+      .then(a => setSubOcultos(a.SUBTAB))
+      .catch(() => setSubOcultos([]));
+  }, []);
 
   useEffect(() => {
     if (vista === "consulta" && !cat) getConsultaCatalogo().then(setCat).catch(() => setCat(null));
@@ -939,8 +955,22 @@ export default function MonthEndPLPage() {
         rotuloCorte={horizonte === "month" ? MESES[mes - 1]
           : horizonte === "ytd" ? `YTD ${MESES[mes - 1]}` : "Año completo"} />
 
+      {panelVistas && (
+        <VistasVisibles
+          vistas={VISTAS.map(v => v.key)}
+          rotulo={k => t(`tab_${k}`)}
+          apagados={subOcultos}
+          onCambio={setSubOcultos}
+          onCerrar={() => setPanelVistas(false)} />
+      )}
+
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-        {VISTAS.map(v => (
+        {/* ⚠️ Se filtra lo ESCONDIDO, pero la vista abierta NO se saca de la
+            fila: si alguien esconde el sub-tab en el que esta parado, quitarle
+            el boton lo dejaria mirando un cuadro sin saber cual es. Se apaga
+            al cambiarse de vista. */}
+        {VISTAS.filter(v => !subOcultos.includes(v.key) || v.key === vista)
+               .map(v => (
           <button key={v.key} onClick={() => setVista(v.key)} style={{
             ...SEL, cursor: "pointer", fontWeight: 600,
             background: vista === v.key ? "var(--brand)" : "var(--bg-surface)",
@@ -952,6 +982,18 @@ export default function MonthEndPLPage() {
         {/* Esconder lo que está en cero en TODAS las versiones. No borra: el
             interruptor las trae de vuelta, y una línea vuelve sola el día que
             tenga saldo. */}
+        {/* Owner, 2026-09-02: «poder quitar y poner tabs sin borrarlas».
+            ⚠️ NO es un sub-tab: por eso se puede esconder TODO sin quedarse
+            afuera — este boton sigue estando. */}
+        <button onClick={() => setPanelVistas(x => !x)}
+          title="Elegir que sub-tabs se ven. Esconde, no borra."
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600,
+            background: panelVistas ? "var(--brand)" : "var(--bg-surface)",
+            color: panelVistas ? "#fff" : "var(--text-secondary)",
+            border: panelVistas ? "none" : SEL.border }}>
+          ⚙ Vistas{subOcultos.length ? ` (${subOcultos.length})` : ""}
+        </button>
+
         <button onClick={() => setCompacto(x => !x)}
           title={compacto
             ? "Mostrar también las líneas que están en cero en todas las versiones"
