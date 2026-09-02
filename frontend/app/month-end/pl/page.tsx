@@ -377,6 +377,16 @@ export default function MonthEndPLPage() {
   const [ing, setIng] = useState<IngresoDetalle | null>(null);
   const [avisoIng, setAvisoIng] = useState<string | null>(null);
   const [vista, setVista] = useState<Vista>("pl");
+  /** El P&L Statement, abierto por departamento.
+   *
+   *  Owner, 2026-09-02: *«podés con un click llevarlo de totales a
+   *  departamental? Como está me gusta; me gustaría que con un click se vea
+   *  cada concepto con departamento, sin cambiar nada»*.
+   *
+   *  Es un interruptor de VISTA y no otro reporte: las filas de siempre quedan
+   *  donde están y con los mismos números; abajo de cada una aparece de qué
+   *  está hecha. */
+  const [deptEstado, setDeptEstado] = useState(false);
   /** Esconder las líneas que están en CERO en todas las versiones.
    *
    *  Owner, 2026-08-28: *«si hay líneas que están en blanco —budget, actual, ni
@@ -1421,6 +1431,82 @@ export default function MonthEndPLPage() {
           }
         };
 
+        /** De qué clase de gasto —o de ingreso— se abre cada concepto. */
+        const CLASE_DE: Record<string, string> = {
+          C_PAYROLL: "payroll", C_COST: "cost", C_OPEX: "opex",
+          C_PROPERTY: "property",
+          X_ROOMS: "revenue", X_FB: "revenue", X_OTHER: "revenue",
+        };
+
+        /** Qué claves de ingreso le corresponden a cada renglón de arriba. El
+         *  «Other» es el resto, igual que en el total: se calcula por descarte
+         *  para que no se pierda una línea nueva. */
+        const clavesIngreso = (code: string, todas: string[]) =>
+          code === "X_ROOMS" ? todas.filter(k => LINEAS_ROOMS.includes(k))
+            : code === "X_FB" ? todas.filter(k => LINEAS_FB.includes(k))
+              : todas.filter(k => !LINEAS_ROOMS.includes(k)
+                                  && !LINEAS_FB.includes(k));
+
+        /** El valor de UNA clave (departamento o línea) para un escenario. */
+        const detalleDe = (g: GastoEscenario | null | undefined, cl: string,
+                           k: string, h: "month" | "ytd") => {
+          const serie = g?.detalle?.[cl]?.[k];
+          if (!serie) return 0;
+          return mesesDe(h).reduce((s2, m) => s2 + Number(serie[m - 1] ?? 0), 0);
+        };
+
+        /**
+         * Las sub-filas de un concepto.
+         *
+         * ⚠️ **Siempre suman su total**, y esa es la única razón por la que
+         * este desglose se puede mostrar. Cuando el detalle no llega al valor
+         * del renglón —el ingreso sale del P&L y el detalle de otra consulta—
+         * se agrega una fila «(sin asignar)» con la diferencia. Sub-filas que
+         * no cierran contra su total es el defecto más caro de un cuadro
+         * contable: se ve bien y no dice la verdad.
+         */
+        const desglose = (code: string) => {
+          const cl = CLASE_DE[code];
+          if (!cl) return [];
+          const todas = new Set<string>();
+          for (const g of [gA, gB]) {
+            Object.keys(g?.detalle?.[cl] ?? {}).forEach(k => todas.add(k));
+          }
+          let claves = Array.from(todas);
+          if (cl === "revenue") claves = clavesIngreso(code, claves);
+          claves.sort((x, y) =>
+            Math.abs(detalleDe(gA, cl, y, "ytd")) - Math.abs(detalleDe(gA, cl, x, "ytd")));
+
+          const filas = claves
+            .filter(k => ["month", "ytd"].some(h =>
+              Math.abs(detalleDe(gA, cl, k, h as "month" | "ytd")) >= 0.005
+              || Math.abs(detalleDe(gB, cl, k, h as "month" | "ytd")) >= 0.005))
+            .map(k => ({
+              clave: k,
+              label: deptos[k] ? `${k} · ${deptos[k]}` : k,
+              valor: (g: GastoEscenario | null | undefined, h: "month" | "ytd") =>
+                detalleDe(g, cl, k, h),
+            }));
+
+          // El residuo, si lo hay, para que las sub-filas cierren.
+          const resto = (g: GastoEscenario | null | undefined,
+                         v: PLCompareVersion | null | undefined,
+                         h: "month" | "ytd") => {
+            const tot = dato(v, g, code, h);
+            if (tot === null) return 0;
+            return tot - filas.reduce((s2, f) => s2 + f.valor(g, h), 0);
+          };
+          const hayResto = (["month", "ytd"] as const).some(h =>
+            Math.abs(resto(gA, vA, h)) >= 0.005 || Math.abs(resto(gB, vB, h)) >= 0.005);
+          if (hayResto) {
+            filas.push({
+              clave: "__resto__", label: "(sin asignar)",
+              valor: (g, h) => resto(g, g === gA ? vA : vB, h),
+            });
+          }
+          return filas;
+        };
+
         const pctRev = (v: PLCompareVersion | null | undefined,
                         g: GastoEscenario | null | undefined,
                         code: string, h: "month" | "ytd"): number | null => {
@@ -1466,20 +1552,42 @@ export default function MonthEndPLPage() {
             { label: prevScn ? `% Rev ${prevScn.year}` : `% Rev ${t("anioAnt")}`, ancho: 12, formato: "pct" as const },
             { label: "Commentary", ancho: 34, formato: "texto" as const },
           ];
-          const filas: FilaCuadro[] = ESTADO.map(f => ({
-            label: f.label, es_total: !!f.fuerte,
-            valores: [
-              ...bloques.flatMap(bl => {
-                const a = dato(vA, gA, f.code, bl.h);
-                const b = dato(vB, gB, f.code, bl.h);
-                const d = a === null || b === null ? null : a - b;
-                const p = d === null || !b ? null : d / Math.abs(b);
-                return [a, b, d, p, pctRev(vA, gA, f.code, bl.h), pctRev(vB, gB, f.code, bl.h)];
-              }),
-              pctRev(prevPL, prevGasto, f.code, "ytd"),
-              null,
-            ],
-          }));
+          // ⚠️ El Excel baja lo que se ESTA VIENDO, sub-filas incluidas. Este
+          // proyecto ya pago una vez por un Excel que no era la pantalla
+          // (owner, 2026-08-27: «el excel no baja lo que esta viendo»).
+          const filas: FilaCuadro[] = ESTADO.flatMap(f => [
+            {
+              label: f.label, es_total: !!f.fuerte,
+              valores: [
+                ...bloques.flatMap(bl => {
+                  const a = dato(vA, gA, f.code, bl.h);
+                  const b = dato(vB, gB, f.code, bl.h);
+                  const d = a === null || b === null ? null : a - b;
+                  const p = d === null || !b ? null : d / Math.abs(b);
+                  return [a, b, d, p, pctRev(vA, gA, f.code, bl.h),
+                          pctRev(vB, gB, f.code, bl.h)];
+                }),
+                pctRev(prevPL, prevGasto, f.code, "ytd"),
+                null,
+              ],
+            },
+            ...(deptEstado ? desglose(f.code) : []).map(sub => ({
+              label: "    " + sub.label, es_total: false,
+              valores: [
+                ...bloques.flatMap(bl => {
+                  const a = sub.valor(gA, bl.h);
+                  const b = sub.valor(gB, bl.h);
+                  const d = a - b;
+                  const p = !b ? null : d / Math.abs(b);
+                  const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
+                  const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
+                  return [a, b, d, p, rA ? a / rA : null, rB ? b / rB : null];
+                }),
+                null,
+                null,
+              ],
+            })),
+          ]);
           bajarCuadros(`PL_Statement_${MESES[mes - 1]}_${year}`, [{
             titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`,
             subtitulo: `${etiqueta(idA)} vs ${etiqueta(idB)} · USD`,
@@ -1495,11 +1603,23 @@ export default function MonthEndPLPage() {
               <p style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 820 }}>
                 {t.rich("estadoIntro", bold)}
               </p>
-              <button onClick={bajarEstado} style={{
-                padding: "6px 13px", borderRadius: 6, cursor: "pointer", flexShrink: 0,
-                background: "var(--accent-excel)", color: "#fff", border: "none",
-                fontSize: 12.5, fontWeight: 600,
-              }}>⬇ Excel</button>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                {/* Owner, 2026-09-02: «con un click que diga departamental».
+                    No cambia ninguna fila ni ningun numero: agrega abajo de
+                    cada concepto de que esta hecho. */}
+                <button onClick={() => setDeptEstado(x => !x)} style={{
+                  padding: "6px 13px", borderRadius: 6, cursor: "pointer",
+                  border: "1px solid var(--border-medium)", fontSize: 12.5,
+                  fontWeight: 600,
+                  background: deptEstado ? "var(--brand)" : "var(--bg-surface)",
+                  color: deptEstado ? "#fff" : "var(--text-primary)",
+                }}>{deptEstado ? "Totales" : "Departamental"}</button>
+                <button onClick={bajarEstado} style={{
+                  padding: "6px 13px", borderRadius: 6, cursor: "pointer",
+                  background: "var(--accent-excel)", color: "#fff", border: "none",
+                  fontSize: 12.5, fontWeight: 600,
+                }}>⬇ Excel</button>
+              </div>
             </div>
 
             {hayBrecha && (
@@ -1541,7 +1661,7 @@ export default function MonthEndPLPage() {
                 </tr>
               </thead>
               <tbody>
-                {ESTADO.map(f => (
+                {ESTADO.flatMap(f => [(
                   <tr key={f.code} style={{
                     background: f.fuerte ? "var(--bg-elevated)" : undefined,
                     borderTop: f.borde ? BL : undefined,
@@ -1588,7 +1708,60 @@ export default function MonthEndPLPage() {
                     </td>
                     <td style={{ ...TDL, borderLeft: BL }}></td>
                   </tr>
-                ))}
+                ),
+                // ── Las sub-filas por departamento ────────────────────────
+                //
+                // Owner, 2026-09-02: «con un click que diga departamental, que
+                // se vea cada concepto con departamento, sin cambiar nada».
+                //
+                // ⚠️ Van DEBAJO de su concepto y suman exactamente su total —
+                // `desglose` agrega «(sin asignar)» cuando el detalle no llega,
+                // en vez de dejar sub-filas que no cierran. La variacion, el
+                // color y el % sobre ingreso se calculan igual que arriba: es
+                // la misma fila, con otra clave.
+                ...(deptEstado ? desglose(f.code) : []).map(sub => (
+                  <tr key={f.code + ":" + sub.clave}
+                      style={{ background: "var(--bg-surface)" }}>
+                    <td style={{ ...TDL, paddingLeft: 26, fontSize: 11.5,
+                                 color: "var(--text-secondary)" }}>
+                      {sub.label}
+                    </td>
+                    {bloques.map(bl => {
+                      const a = sub.valor(gA, bl.h);
+                      const b = sub.valor(gB, bl.h);
+                      const d = a - b;
+                      const p = !b ? null : d / Math.abs(b);
+                      const cv = d === 0 ? "var(--text-secondary)"
+                        : (f.gasto ? d < 0 : d > 0) ? "var(--positive)" : "var(--negative)";
+                      const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
+                      const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
+                      const pcOr = (x: number, r: number | null) =>
+                        r ? pct(x / r) : "—";
+                      return (
+                        <Fragment key={bl.h}>
+                          <td className="mono" style={{ ...TD, borderLeft: BL, fontSize: 12,
+                            color: a < 0 ? "var(--negative)" : undefined }}>{usd(a)}</td>
+                          <td className="mono" style={{ ...TD, fontSize: 12,
+                            color: b < 0 ? "var(--negative)" : undefined }}>{usd(b)}</td>
+                          <td className="mono" style={{ ...TD, color: cv, fontSize: 12 }}>{usd(d)}</td>
+                          <td className="mono" style={{ ...TD, color: cv, fontSize: 11.5 }}>
+                            {p === null ? "—" : `${(p * 100).toFixed(1)}%`}
+                          </td>
+                          <td className="mono" style={{ ...TD, fontSize: 11.5,
+                                                        color: "var(--text-disabled)" }}>
+                            {pcOr(a, rA)}
+                          </td>
+                          <td className="mono" style={{ ...TD, fontSize: 11.5,
+                                                        color: "var(--text-disabled)" }}>
+                            {pcOr(b, rB)}
+                          </td>
+                        </Fragment>
+                      );
+                    })}
+                    <td style={{ ...TD, borderLeft: BL }}>—</td>
+                    <td style={{ ...TDL, borderLeft: BL }}></td>
+                  </tr>
+                ))])}
               </tbody>
             </table>
             </div>

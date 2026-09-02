@@ -629,3 +629,51 @@ def test_una_fila_sin_linea_NO_desaparece():
 
     fuente = inspect.getsource(gasto_por_clase_api)
     assert "ln_rev or FUSION_INGRESO.get(dept, dept)" in fuente
+
+
+# ── P&L Statement: totales ⇄ departamental (owner, 2026-09-02) ───────────────
+
+def test_el_desglose_departamental_SIEMPRE_suma_su_total():
+    """⚠️ La única razón por la que este desglose se puede mostrar.
+
+    Owner, 2026-09-02: «podés con un click llevarlo de totales a departamental;
+    como está me gusta, sin cambiar nada».
+
+    Los renglones del cuadro y su detalle salen de consultas distintas —el
+    ingreso del P&L, el gasto de `/gasto-por-clase/`—, así que las sub-filas
+    pueden no llegar al total. Cuando eso pasa se agrega «(sin asignar)» con la
+    diferencia, en vez de dejar un desglose que no cierra.
+
+    Sub-filas que no suman su total es el defecto más caro de un cuadro
+    contable: se ve bien y no dice la verdad.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "const hayResto" in pagina and '"(sin asignar)"' in pagina, (
+        "el desglose dejó de cerrar contra su total: las sub-filas podrían "
+        "sumar menos que el renglón que tienen encima")
+
+
+def test_el_interruptor_NO_cambia_ninguna_fila_ni_ningun_numero():
+    """«Como está me gusta, sin cambiar nada.»
+
+    El desglose se AGREGA debajo de cada concepto; la plantilla `ESTADO` —los
+    renglones y sus fórmulas— no se toca. Si el interruptor entrara en `dato()`
+    o en `ESTADO`, cambiaría los números del cuadro que el owner aprobó.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "deptEstado ? desglose(f.code) : []" in pagina
+    i = pagina.index("const ESTADO")
+    assert "deptEstado" not in pagina[i:pagina.index("]", pagina.index("NET_PROFIT"))], (
+        "el interruptor se metió en la plantilla del cuadro: cambiaría filas "
+        "que el owner ya aprobó")
+
+
+def test_el_EXCEL_baja_lo_que_se_esta_viendo():
+    """Este proyecto ya pagó una vez por un Excel que no era la pantalla —owner,
+    2026-08-27: «el excel no baja lo que está viendo, abre cualquier cosa»."""
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    i = pagina.index("function bajarEstado")
+    bloque = pagina[i:i + 3000]
+    assert "deptEstado ? desglose(f.code) : []" in bloque, (
+        "el Excel del P&L Statement dejó de incluir el desglose departamental "
+        "que se ve en pantalla")
