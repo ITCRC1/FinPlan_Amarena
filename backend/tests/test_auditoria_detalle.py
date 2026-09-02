@@ -588,3 +588,44 @@ def test_la_cuota_NO_usa_el_promedio_como_denominador():
     fuente = inspect.getsource(pl_api.get_estadisticas)
     assert "club_rev / socios_mes" in fuente
     assert "club_rev / promedio" not in fuente
+
+
+def test_el_ingreso_se_indexa_por_LINEA_en_las_DOS_ramas():
+    """⚠️ Dos vocabularios hacían que cada concepto saliera DOS VECES.
+
+    Owner, 2026-09-02: «necesito que los ingresos aparezcan en una sola línea».
+
+    `/reports/gasto-por-clase/` arma el ingreso de dos fuentes que se indexan
+    distinto: el mayor por DEPARTAMENTO (`0110`, `260`) y el checkbook por
+    LÍNEA (`REV_ROOMS`, `REV_CLUB`), porque un presupuesto de ingresos no tiene
+    departamento. El cuadro mostraba «REV_ROOMS · Rooms Revenue» con el
+    presupuesto y el actual en cero, y «0110 · Rooms / Habitaciones» al revés —
+    cada una con una variación de −100% que no significaba nada.
+
+    La línea es el único vocabulario que ambos lados pueden hablar: el
+    departamento no existe del lado del presupuesto.
+    """
+    import inspect
+
+    from app.api import gasto_por_clase_api
+
+    fuente = inspect.getsource(gasto_por_clase_api)
+    assert "pl_engine.linea_de_fila(cuenta, dept)" in fuente, (
+        "la rama del mayor volvió a indexar el ingreso por departamento: cada "
+        "concepto saldría duplicado contra el presupuesto")
+    # Y la del checkbook sigue con el mismo vocabulario.
+    assert '_suma(detalle, "revenue", ln.line_code, m,' in fuente
+
+
+def test_una_fila_sin_linea_NO_desaparece():
+    """Perder plata en silencio es peor que una fila con nombre feo.
+
+    Si `linea_de_fila` no resuelve —una cuenta 4xxx en un departamento sin
+    grupo— la fila cae al departamento en vez de descartarse.
+    """
+    import inspect
+
+    from app.api import gasto_por_clase_api
+
+    fuente = inspect.getsource(gasto_por_clase_api)
+    assert "ln_rev or FUSION_INGRESO.get(dept, dept)" in fuente

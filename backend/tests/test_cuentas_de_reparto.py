@@ -128,6 +128,13 @@ def test_la_fusion_solo_se_aplica_al_ingreso():
     """En gasto los tres estan excluidos, asi que no hay nada que fusionar: si
     la fusion apareciera ahi, seria señal de que alguien los volvio a mostrar."""
     src = io.open(RAIZ / "app" / "api" / "gasto_por_clase_api.py", encoding="utf-8").read()
-    usos = [l for l in src.splitlines() if "FUSION_INGRESO.get" in l]
-    assert len(usos) == 1, f"la fusion se aplica en {len(usos)} lugares"
-    assert '"revenue"' in usos[0]
+    lineas = src.splitlines()
+    idx = [i for i, l in enumerate(lineas) if "FUSION_INGRESO.get" in l]
+    assert len(idx) == 1, f"la fusion se aplica en {len(idx)} lugares"
+    # Se mira el BLOQUE, no la linea: la fusion dejo de caber en un renglon
+    # cuando el ingreso paso a indexarse por linea (2026-09-02), y fijar el
+    # texto exacto habria hecho fallar esto sin que la regla se moviera.
+    bloque = chr(10).join(lineas[max(0, idx[0] - 6): idx[0] + 3])
+    assert '"revenue"' in bloque, (
+        "la fusion 0161->0162 salio del bloque de INGRESO: si se aplicara al "
+        "gasto, estaria mostrando departamentos que son pozos de reparto")

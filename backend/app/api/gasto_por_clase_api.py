@@ -35,6 +35,7 @@ from sqlalchemy import select
 from app.errores import ErrorApi
 from app.auth import get_current_user
 from app.db import get_session
+from app.engine import pl_engine
 from app.engine import recalculate as recalc
 from app.models.actual_entry import ActualEntry
 from app.models.belowgop_account_entry import BelowGopAccountEntry
@@ -202,7 +203,32 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
                         _suma(detalle, "property", cuenta, m, monto)
                 elif (cuenta.startswith("4") and detalle is not None
                         and cuenta not in CUENTAS_DE_REPARTO):
-                    _suma(detalle, "revenue", FUSION_INGRESO.get(dept, dept), m, monto)
+                    # ⚠️ **El ingreso se indexa por LINEA, no por departamento**,
+                    # y es lo que hace que el cuadro tenga una fila por concepto.
+                    #
+                    # Owner, 2026-09-02: *«necesito que los ingresos aparezcan en
+                    # una sola linea; podes consolidar las lineas para no verlas
+                    # separadas por tipo de ingreso»*.
+                    #
+                    # Las dos ramas de este endpoint traen el ingreso de fuentes
+                    # que se indexan distinto: el mayor por DEPARTAMENTO (0110,
+                    # 260…) y el checkbook por LINEA (`REV_ROOMS`, `REV_CLUB`…),
+                    # porque un presupuesto de ingresos no tiene departamento.
+                    # Con dos vocabularios el mismo concepto salia DOS VECES —
+                    # «REV_ROOMS · Rooms Revenue» con el presupuesto y el actual
+                    # en cero, y «0110 · Rooms / Habitaciones» al reves— y cada
+                    # una mostraba una variacion de -100%.
+                    #
+                    # La linea es el unico vocabulario que ambos lados pueden
+                    # hablar: el departamento no existe del lado del presupuesto.
+                    # `linea_de_fila` la resuelve con las mismas funciones del
+                    # motor y devuelve el codigo CANONICO, que es el que trae
+                    # `pl_lines` en la otra rama.
+                    ln_rev, _tipo = pl_engine.linea_de_fila(cuenta, dept)
+                    # Sin linea no se descarta: se cae al departamento. Perder
+                    # plata en silencio seria peor que una fila con nombre feo.
+                    clave_rev = ln_rev or FUSION_INGRESO.get(dept, dept)
+                    _suma(detalle, "revenue", clave_rev, m, monto)
         else:
             pbd = await recalc.payroll_by_dept(session, scenario_id, m)
             cbd = await recalc.cos_by_dept(session, scenario_id, m)
