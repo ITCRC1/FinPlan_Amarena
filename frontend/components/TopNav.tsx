@@ -144,7 +144,6 @@ export const NAV: NavGroup[] = [
       { key: "plByDept", href: "/reports/pl-by-dept" },
       { key: "plByDeptCompare", href: "/reports/pl-by-dept-compare" },
       { key: "plYtd", href: "/reports/pl-ytd" },
-      { key: "plFullExec", href: "/reports/pl-full" },
       { key: "execSummary", href: "/reports/summary" },
       { key: "ytdSummary", href: "/reports/ytd" },
       { key: "operations", header: true },
@@ -166,6 +165,12 @@ export const NAV: NavGroup[] = [
     key: "monthEnd",
     items: [
       { key: "monthEndPL", href: "/month-end/pl" },
+      // Movido desde Reportes (owner, 2026-08-28). La pantalla NO se mueve de
+      // carpeta: sigue en `/reports/pl-full`. Cambiar la ruta romperia los
+      // enlaces que alguien ya tenga guardados —y el `?esc=` que viaja en
+      // ellos— a cambio de nada: el menu es donde se busca, la ruta es donde
+      // vive.
+      { key: "plFullExec", href: "/reports/pl-full" },
     ],
   },
   {
