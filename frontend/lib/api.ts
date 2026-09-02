@@ -2557,6 +2557,44 @@ export async function getPLDoceMeses(scenarioId: string): Promise<PLDoceMeses> {
   return api.get<PLDoceMeses>(`/pl/${encodeURIComponent(scenarioId)}/doce-meses/`);
 }
 
+// ── Estadísticas del cierre (owner, 2026-09-02) ──────────────────────────────
+//
+// «Ponlo en todos los sub tabs, ya que es información básica» · «ocupo que me
+// derives el ADR y precio cobro promedio de membresías».
+//
+// ⚠️ **Vienen DOS tarifas y no es redundancia.** `adr` es el de las
+// estadísticas del escenario —el que usa el P&L, nunca pasó por las cuentas— y
+// `adr_derivado` es ingreso sobre noches, como lo arma el owner en su hoja. En
+// julio 2026 dan $255,44 y $274,38: la diferencia son $2.500 de «Otros ingresos
+// de operación» que están en `REV_ROOMS` y no son noches vendidas.
+export interface EstadisticasCierre {
+  scenario_id: string; escenario: string; year: number;
+  desde: number; hasta: number;
+  rooms_available: number;
+  rooms_occupied: number;
+  guests: number;
+  occupancy_pct: number;
+  rooms_revenue: number;
+  /** El de las estadísticas del escenario — el que usa el reporte. */
+  adr: number;
+  /** Ingreso de habitaciones ÷ noches ocupadas. */
+  adr_derivado: number;
+  revpar: number;
+  /** `null` cuando la propiedad NO tiene Club — distinto de cero socios. */
+  club_pagando: number | null;
+  club_total: number | null;
+  club_socios_mes: number | null;
+  club_revenue: number | null;
+  /** Ingreso del Club ÷ socios-mes. Ponderado, no promedio simple. */
+  club_cuota_promedio: number | null;
+}
+export async function getEstadisticasCierre(
+  scenarioId: string, desde: number, hasta: number,
+): Promise<EstadisticasCierre> {
+  return api.get<EstadisticasCierre>(
+    `/pl/${encodeURIComponent(scenarioId)}/estadisticas/?desde=${desde}&hasta=${hasta}`);
+}
+
 // ── Auditoría del detalle (owner, 2026-09-02) ────────────────────────────────
 //
 // «El otro para ver la auditoría de los detalles.» Cada monto del GL y en qué

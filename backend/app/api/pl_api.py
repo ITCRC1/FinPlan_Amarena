@@ -586,6 +586,92 @@ async def get_pl_doce_meses(scenario_id: str):
         }
 
 
+@router.get("/pl/{scenario_id}/estadisticas/")
+async def get_estadisticas(scenario_id: str, desde: int = 1, hasta: int = 12):
+    """El bloque de estadísticas del cierre, para CUALQUIER corte de meses.
+
+    Owner, 2026-09-02: *«ponlo en todos los sub tabs, ya que es información
+    básica»* y *«ocupo que me derives el ADR y precio cobro promedio de
+    membresías»*.
+
+    ## Las dos tarifas, y por qué son dos
+
+    ⚠️ **El ADR derivado NO es el que usa el P&L, y la diferencia no es un
+    redondeo.** `REV_ROOMS` consolida varias cuentas de la clase 4 del
+    departamento de habitaciones, y no todas son noches vendidas: en julio 2026
+    de Amarena, los $36.218,36 traen $2.500,00 de «Otros ingresos de operación»
+    y $0,02 de «Sobrantes de cajas». Dividir todo eso entre las noches
+    ocupadas infla la tarifa —$274,38 contra $255,44— y lo hace **en silencio**,
+    porque un ADR no tiene contra qué cuadrar.
+
+    Por eso viajan los dos: `adr` es el de las estadísticas del escenario, que
+    es el que el reporte usa y el que nunca pasó por las cuentas; `adr_derivado`
+    es ingreso sobre noches, que es como lo arma el owner en su hoja. Mostrar
+    sólo el derivado sería adoptar el número inflado; mostrar sólo el otro sería
+    no contestar lo que se pidió.
+
+    ## La cuota del Club sí se deriva, y se pondera por SOCIOS-MES
+
+    Es la misma cuenta que el ADR —ingreso sobre unidades vendidas— con el socio
+    como unidad. Dividir el ingreso del período entre los socios del último mes
+    daría la cuota del período disfrazada de mensual, y un socio que entra en
+    junio contaría como si hubiera pagado desde enero.
+    """
+    if not (1 <= desde <= hasta <= 12):
+        raise ErrorApi(422, "mes.rango_invalido")
+
+    async with get_session() as session:
+        scenario = await _get_scenario_or_404(session, scenario_id)
+        sel = [m for m in await _monthly_results(session, scenario)
+               if desde <= m["month"] <= hasta]
+
+        def linea(code: str) -> float:
+            return sum(float(ln.amount_usd) for m in sel for ln in m["lines"]
+                       if ln.line_code == code)
+
+        avail = sum(m["kpis"]["rooms_available"] for m in sel)
+        occ = sum(m["kpis"]["rooms_occupied"] for m in sel)
+        guests = sum(m["kpis"]["guests"] for m in sel)
+        rooms_rev = linea("REV_ROOMS")
+
+        # El ADR de las estadísticas se pondera por noches ocupadas. El promedio
+        # simple de los meses le daría el mismo peso a uno lleno que a uno
+        # cerrado — y Amarena tiene cinco meses sin operación.
+        pond = sum(m["kpis"].get("adr", 0.0) * m["kpis"]["rooms_occupied"]
+                   for m in sel)
+        adr = (pond / occ) if occ else 0.0
+
+        socios_mes = sum(m["kpis"].get("club_pagando", 0) for m in sel)
+        club_rev = linea("REV_CLUB")
+        hay_club = any("club_pagando" in m["kpis"] for m in sel)
+
+        return {
+            "scenario_id": scenario_id,
+            "escenario": f"{scenario.type} {scenario.version} {scenario.year}",
+            "year": scenario.year,
+            "desde": desde,
+            "hasta": hasta,
+            "rooms_available": avail,
+            "rooms_occupied": occ,
+            "guests": guests,
+            "occupancy_pct": (occ / avail) if avail else 0.0,
+            "rooms_revenue": rooms_rev,
+            "adr": adr,
+            "adr_derivado": (rooms_rev / occ) if occ else 0.0,
+            "revpar": (rooms_rev / avail) if avail else 0.0,
+            # `None` —no cero— cuando la propiedad no tiene Club: un cero se lee
+            # como «no hay socios» donde en realidad no hay Club.
+            "club_pagando": (sel[-1]["kpis"].get("club_pagando", 0)
+                             if hay_club and sel else None),
+            "club_total": (sel[-1]["kpis"].get("club_total", 0)
+                           if hay_club and sel else None),
+            "club_socios_mes": socios_mes if hay_club else None,
+            "club_revenue": club_rev if hay_club else None,
+            "club_cuota_promedio": ((club_rev / socios_mes)
+                                    if hay_club and socios_mes else None),
+        }
+
+
 @router.get("/pl/compare-range/")
 async def get_pl_compare_range(scenarios: str, from_month: int = 1, to_month: int = 12):
     """Como `/pl/compare/`, pero para un RANGO arbitrario de meses (Q1..Q4,

@@ -439,3 +439,109 @@ def test_el_cuadre_SALTA_los_renglones_que_no_puede_atribuir():
     fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
     assert "codigos_atribuibles()" in fuente
     assert "if not any(c in atribuibles for c in codigos)" in fuente
+
+
+# ── La franja de estadísticas (owner, 2026-09-02) ────────────────────────────
+
+def test_la_franja_se_dibuja_UNA_vez_para_todos_los_sub_tabs():
+    """Owner: «ponlo en todos los sub tabs, ya que es información básica».
+
+    ⚠️ **Una vez arriba, no copiada adentro de cada uno.** Quince copias serían
+    quince lugares donde arreglar el día que cambie un cálculo, y basta olvidar
+    una para que dos sub-tabs muestren ocupaciones distintas del mismo mes.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert pagina.count("<Estadisticas") == 1, (
+        "la franja aparece más de una vez: se copió adentro de los sub-tabs en "
+        "vez de dibujarse una sola vez arriba")
+    # Y arriba de la fila de sub-tabs, no debajo de uno.
+    assert pagina.index("<Estadisticas") < pagina.index("{VISTAS.map(v =>")
+
+
+def test_la_franja_NO_calcula_el_corte_en_la_pantalla():
+    """La ocupación, el ADR y la cuota NO son aditivos: se rederivan con el
+    numerador y el denominador del período. Sumarlos o promediarlos en el front
+    daría un número que no es de nadie — le daría el mismo peso a un mes lleno
+    que a uno cerrado, y Amarena tiene cinco meses sin operación."""
+    fuente = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
+    assert "getEstadisticasCierre" in fuente
+    for inventado in ("reduce(", "/ 12"):
+        assert inventado not in fuente, (
+            f"el cuadro empezó a agregar solo ({inventado}): las razones no son "
+            f"aditivas y el corte lo tiene que hacer el backend")
+
+
+def test_viajan_las_DOS_tarifas():
+    """⚠️ `REV_ROOMS` consolida cuentas que NO son noche vendida.
+
+    En julio 2026 de Amarena son $2.500 de «Otros ingresos de operación» y
+    $0,02 de sobrantes de caja dentro de $36.218,36. El ADR derivado da $274,38
+    y el de las estadísticas $255,44 — y un ADR no tiene contra qué cuadrar, así
+    que la diferencia no se nota sola.
+
+    Mostrar sólo el derivado sería adoptar el número inflado; mostrar sólo el
+    otro sería no contestar lo que el owner pidió.
+    """
+    import inspect
+
+    from app.api import pl_api
+
+    fuente = inspect.getsource(pl_api.get_estadisticas)
+    assert '"adr":' in fuente and '"adr_derivado":' in fuente
+    pantalla = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
+    assert "adr_derivado" in pantalla and "brechas" in pantalla, (
+        "la pantalla dejó de avisar cuando las dos tarifas difieren")
+
+
+def test_la_cuota_del_club_se_pondera_por_SOCIOS_MES():
+    """Dividir el ingreso del período entre los socios del último mes daría la
+    cuota del período disfrazada de mensual, y un socio que entra en junio
+    contaría como si hubiera pagado desde enero."""
+    import inspect
+
+    from app.api import pl_api
+
+    fuente = inspect.getsource(pl_api.get_estadisticas)
+    assert "club_socios_mes" in fuente
+    assert "club_rev / socios_mes" in fuente
+
+
+def test_sin_Club_la_cuota_es_None_y_no_CERO():
+    """Un cero se lee como «no hay socios» donde en realidad no hay Club."""
+    import inspect
+
+    from app.api import pl_api
+
+    fuente = inspect.getsource(pl_api.get_estadisticas)
+    assert "if hay_club" in fuente
+
+
+def test_los_rotulos_son_los_MISMOS_que_en_PL_Detail():
+    """Este cuadro lo ven los DUEÑOS, y lo ven junto al de P&L Detail.
+
+    Ver «Total Rooms Occupied» en un reporte y «Hab. ocupadas» en otro para el
+    mismo número obliga a comprobar que son lo mismo. Se copian los rótulos, no
+    se traducen.
+    """
+    cuadro = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
+    detalle = (RAIZ / "frontend/app/reports/pl-detail/page.tsx").read_text(
+        encoding="utf-8")
+    for rot in ("Total available Rooms", "Total Rooms Occupied", "Total Guests",
+                "% Occupancy", "Average Daily Room Only", "Total RevPAR"):
+        assert f'"{rot}"' in detalle, f"cambió el rótulo en P&L Detail: {rot}"
+        assert rot in cuadro, (
+            f"el cuadro de Cierre de Mes dejó de usar el rótulo de P&L Detail: "
+            f"{rot}")
+
+
+def test_el_panel_de_BUDGET_arranca_en_un_BUDGET():
+    """Owner, 2026-09-02: «12 meses actual y budget working 2026 como estándar».
+
+    `inicial` es la ranura 1 de la pantalla, que casi siempre trae el ACTUAL:
+    el panel de Budget abría mostrando el Actual y había que corregirlo a mano
+    cada vez.
+    """
+    fuente = (CIERRE / "DoceMeses.tsx").read_text(encoding="utf-8")
+    assert 'primeroDe(escenarios, "BUDGET") || inicial' in fuente, (
+        "el panel de Budget volvió a arrancar en `inicial`, que trae el ACTUAL")
+    assert 'setVActual(x => x || primeroDe(escenarios, "ACTUAL"))' in fuente

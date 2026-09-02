@@ -89,8 +89,14 @@ export default function DoceMeses({ escenarios, inicial, compacto = true }: {
 
   useEffect(() => {
     if (!escenarios.length) return;
+    // ⚠️ El panel de BUDGET arranca en un BUDGET, NO en `inicial`.
+    //
+    // Owner, 2026-09-02: «12 meses actual y budget working 2026 como estándar».
+    // `inicial` es la ranura 1 de la pantalla, que casi siempre trae el ACTUAL:
+    // el panel de Budget abria mostrando el Actual y habia que corregirlo a
+    // mano cada vez. Se deja como respaldo, detras del BUDGET.
     setVActual(x => x || primeroDe(escenarios, "ACTUAL"));
-    setVBudget(x => x || inicial || primeroDe(escenarios, "BUDGET"));
+    setVBudget(x => x || primeroDe(escenarios, "BUDGET") || inicial || "");
   }, [escenarios, inicial]);
 
   const cargar = useCallback(async () => {

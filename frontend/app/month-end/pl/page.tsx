@@ -35,6 +35,7 @@ import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import Auditoria from "./Auditoria";
+import Estadisticas from "./Estadisticas";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
 const MESES_FALLBACK = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -910,6 +911,23 @@ export default function MonthEndPLPage() {
           ))}
         </select>
       </div>
+
+      {/* ── La franja de estadisticas ────────────────────────────────────────
+          Owner, 2026-09-02: «ponlo en todos los sub tabs, ya que es informacion
+          basica».
+
+          Va ACA, una sola vez y arriba de los sub-tabs, no copiada adentro de
+          cada uno: quince copias serian quince lugares donde arreglar el dia
+          que cambie un calculo, y basta olvidar uno para que dos sub-tabs
+          muestren ocupaciones distintas del mismo mes. Ademas queda pegada al
+          selector de version y de periodo, que es de donde saca su corte. */}
+      <Estadisticas
+        scenarioIds={ranuras}
+        etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
+        desde={horizonte === "month" ? mes : 1}
+        hasta={horizonte === "full" ? 12 : mes}
+        rotuloCorte={horizonte === "month" ? MESES[mes - 1]
+          : horizonte === "ytd" ? `YTD ${MESES[mes - 1]}` : "Año completo"} />
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
         {VISTAS.map(v => (
