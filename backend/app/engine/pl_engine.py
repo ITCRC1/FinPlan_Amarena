@@ -428,12 +428,23 @@ def revenue_by_group(revenue_by_line: dict[str, Decimal]) -> dict[str, Decimal]:
 ALLOCATION_ACCOUNTS = {"4900", "4901", "4999"}
 ALLOCATION_ACCOUNT = "4999"  # canonical (allocation_calculator output)
 
-# Departments excluded from the ACTUALS P&L because their cost is already
-# captured elsewhere and would double-count. Cafetería (0220): its cost is
-# already inside each department's payroll via concept 6025 (Cafeteria), so the
-# standalone cafetería pool is dropped — matching the official CWL report
-# (Cafetería shows $0). Laundry (0161) is NOT excluded: it self-nets via 4900.
-ACTUAL_EXCLUDED_DEPTS = {"0220"}
+# ⚠️ **VACÍO DESDE EL 2026-08-28, POR DECISIÓN DEL OWNER.**
+#
+# *«si tiene saldo que lo vea como normal y que aparezca esa diferencia en
+# overhead — hasta que se deje en 0, no pasa nada»*.
+#
+# Acá vivía `{"0220"}`: la cafetería se sacaba del P&L de ACTUALES porque su
+# costo ya viaja dentro de la planilla de cada departamento por el concepto
+# 6025, y dejarla habría contado dos veces. El razonamiento vale **mientras el
+# reparto cubra el gasto**. Cuando no lo cubre, lo que se tiraba no era un
+# duplicado: era el SOBRANTE, y desaparecía sin dejar rastro.
+#
+# Ahora no se excluye a nadie. El neteo lo hace la aritmética, no una lista:
+# `calculate_full_pl` suma `planilla + costo + opex + reparto` por grupo, así que
+# un departamento que reparte todo su gasto da CERO solo —y su línea ni se
+# dibuja— y uno que deja saldo lo muestra en overhead. La diferencia entre las
+# dos situaciones se ve, en vez de que las dos se vean iguales.
+ACTUAL_EXCLUDED_DEPTS: set[str] = set()
 
 
 def revenue_line_for_account(code: str) -> str | None:

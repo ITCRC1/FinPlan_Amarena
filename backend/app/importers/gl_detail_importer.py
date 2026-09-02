@@ -77,18 +77,46 @@ CONCEPT_BY_ACCT = {
 STAT_BY_ACCT = {"9010": "rooms_available", "9020": "rooms_occupied", "9060": "guests"}
 
 
-# Departamentos de ALLOCATION (confirmado con el usuario 2026-06-27): su gasto se
-# reparte vía el crédito "Distribución" (4xxx negativo) y NO va a los totales operativos.
-# - 0220 (Employee Dining/comida): allocation TOTAL → su 5xxx+6xxx+7xxx netea a 0.
-# - 0161 (Laundry): SPLIT. La lavandería interna (planilla 6xxx + insumos 7xxx) es
-#   allocation (netea a 0). Pero el "Laundry Services" que vende afuera es OPERATIVO:
-#   su ingreso (4xxx) y su costo de venta (5xxx) SE QUEDAN. → excluir solo 6,7.
-# Mapeo {dept: clases a excluir}. Validado: el profit por categorías = Net del P&L exacto.
-ALLOCATION_EXCLUDE = {"0220": {"5", "6", "7"}, "0161": {"6", "7"}}
-# Sets derivados por clase (para los reportes).
-ALLOC_EXCL_COST = {d for d, cs in ALLOCATION_EXCLUDE.items() if "5" in cs}     # {0220}
-ALLOC_EXCL_PAYROLL = {d for d, cs in ALLOCATION_EXCLUDE.items() if "6" in cs}  # {0220, 0161}
-ALLOC_EXCL_OPEX = {d for d, cs in ALLOCATION_EXCLUDE.items() if "7" in cs}     # {0220, 0161}
+#: **Quienes reparten, y en que clases.** Cafeteria (0220) reparte su costo,
+#: planilla y opex; Lavanderia (0161) solo planilla y opex — su Laundry Services
+#: (ingreso 4xxx + costo de venta 5xxx) es venta real y no se reparte.
+#:
+#: Este mapa **NO descarta nada**: dice quien es origen de reparto, y con eso el
+#: P&L por Departamento le RESTA a cada uno lo que efectivamente repartio, por
+#: clase y por mes (ver `scenarios_api`, correccion del 2026-08-27). Lo que sobra
+#: queda en su propia fila, que para el 0161 y el 0220 cae en overhead.
+DEPTOS_DE_REPARTO = {"0220": {"5", "6", "7"}, "0161": {"6", "7"}}
+
+# VACIO DESDE EL 2026-08-28, POR DECISION DEL OWNER.
+#
+# «cafeteria y laundry tienen saldo — que salga ese saldo en overhead» · «si
+# tiene saldo que lo vea como normal y que aparezca esa diferencia en overhead;
+# hasta que se deje en 0, no pasa nada».
+#
+# Esto es OTRA COSA que `DEPTOS_DE_REPARTO`, y confundirlas fue el bug: aca se
+# declara que filas **no llegan a la base**. Antes tenia el mismo contenido, asi
+# que las clases 5/6/7 de cafeteria y lavanderia se descartaban en el parser y
+# el sobrante no existia en ningun lado — ni para restarlo ni para verlo.
+#
+# Se vio subiendo los actuales de 2026: marzo y abril entraron (no traian estos
+# departamentos) y mayo, junio y julio rebotaron con 409, porque el bloque de
+# verificacion del archivo incluia el gasto de cafeteria y el detalle lo habia
+# tirado. El archivo tenia razon y el importador no.
+#
+# Ahora se importa TODO. El neteo lo hace la aritmetica: el motor suma
+# `planilla + costo + opex + reparto` por grupo, y `CAFETERIA` y `LAUNDRY_OPS`
+# son grupos de OVERHEAD — si el reparto cubre el gasto la linea da cero y ni se
+# dibuja; si sobra, el sobrante se ve.
+#
+# Queda declarado y vacio, no borrado: el dia que haya que volver a descartar
+# algo, el lugar existe y esta explicado.
+ALLOCATION_EXCLUDE: dict[str, set[str]] = {}
+
+# Sets derivados de QUIEN REPARTE —no de que se descarta—. Los leen el P&L por
+# Departamento (para restar lo repartido) y los auxiliares.
+ALLOC_EXCL_COST = {d for d, cs in DEPTOS_DE_REPARTO.items() if "5" in cs}
+ALLOC_EXCL_PAYROLL = {d for d, cs in DEPTOS_DE_REPARTO.items() if "6" in cs}
+ALLOC_EXCL_OPEX = {d for d, cs in DEPTOS_DE_REPARTO.items() if "7" in cs}
 
 
 def _acct_code(v) -> str | None:
