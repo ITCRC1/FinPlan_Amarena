@@ -2557,6 +2557,53 @@ export async function getPLDoceMeses(scenarioId: string): Promise<PLDoceMeses> {
   return api.get<PLDoceMeses>(`/pl/${encodeURIComponent(scenarioId)}/doce-meses/`);
 }
 
+// ── Auditoría del detalle (owner, 2026-09-02) ────────────────────────────────
+//
+// «El otro para ver la auditoría de los detalles.» Cada monto del GL y en qué
+// renglón del P&L terminó, más el cuadre línea a línea contra el motor.
+//
+// ⚠️ La atribución la hace el BACKEND con `pl_engine.linea_de_fila`, que reusa
+// las mismas funciones que arman el P&L. Recalcularla acá sería una segunda
+// verdad — y una auditoría que clasifica distinto que el motor cuadra consigo
+// misma y aprueba justo cuando algo está mal.
+export interface AuditoriaFila {
+  dept_code: string; dept_name: string;
+  account_code: string; account_name: string; outlet: string;
+  /** Ingresos · Costo de ventas · Payroll · Opex · Reparto · Bajo GOP */
+  tipo: string;
+  /** La línea del P&L a la que cae. `null` = huérfana: NO suma en ningún lado. */
+  linea: string | null;
+  monto: number;
+}
+export interface AuditoriaCuadre {
+  linea: string; nombre: string; seccion: string;
+  /** Lo que dice el motor. */
+  motor: number;
+  /** Lo que suma el detalle atribuido a esa línea. */
+  detalle: number;
+  dif: number;
+}
+export interface AuditoriaDepto {
+  dept_code: string; dept_name: string; total_gasto: number;
+  [columna: string]: string | number;
+}
+export interface Auditoria {
+  scenario_id: string; escenario: string; year: number; mes: number;
+  detalle: AuditoriaFila[];
+  cuadre: AuditoriaCuadre[];
+  departamentos: AuditoriaDepto[];
+  totales: Record<string, number>;
+  columnas: string[];
+  avisos: string[];
+  nota_cuenta_local: string;
+}
+export async function getAuditoria(
+  scenarioId: string, mes: number,
+): Promise<Auditoria> {
+  return api.get<Auditoria>(
+    `/pl/${encodeURIComponent(scenarioId)}/auditoria/?mes=${mes}`);
+}
+
 // ── P&L Detail: Consolidado · Hotel · Club (owner, 2026-08-27) ───────────────
 export interface PLDetailFila {
   /** sec = encabezado · det = detalle · sub = subtotal · tot = total · esp = espacio */

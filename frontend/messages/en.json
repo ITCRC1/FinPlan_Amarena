@@ -2803,7 +2803,9 @@
     "xlTitulo": "Month-End Close — {periodo} {year}",
     "xlVariacionEntre": "Variance: {escA} vs {escB}",
     "ytdA": "YTD to {mes} {year}",
-    "tab_doce": "12 months"
+    "tab_doce": "12 months",
+    "tab_formato": "Format",
+    "tab_auditoria": "Audit"
   },
   "otb": {
     "a851Nota1": "{metrica} by {unidad}:",

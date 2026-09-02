@@ -33,6 +33,8 @@ import { elegir } from "@/lib/escenarioPreferido";
 import { bajarCuadros, type Cuadro, type FilaCuadro, type ColumnaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
+import Formato from "./Formato";
+import Auditoria from "./Auditoria";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
 const MESES_FALLBACK = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -61,6 +63,12 @@ const VISTAS = [
   // Una version a lo largo del año. Los demas sub-tabs comparan versiones
   // en UN periodo; este hace lo contrario (owner, 2026-08-28).
   { key: "doce" },
+  // Owner, 2026-09-02, con `julio FORMAT 2026.xlsx` y `p&L auditoria 2026.xlsx`:
+  // «uno para ver el detalle tal cual el formato y el otro para ver la
+  // auditoria de los detalles». Van juntos y al final: el primero es el cuadro
+  // que arma cada cierre, el segundo el que se abre cuando ese cuadro no cuadra.
+  { key: "formato" },
+  { key: "auditoria" },
 ] as const;
 type Vista = typeof VISTAS[number]["key"];
 
@@ -1943,6 +1951,16 @@ export default function MonthEndPLPage() {
       {vista === "doce" && (
         <DoceMeses escenarios={escenarios} inicial={ranuras[0] || undefined}
                    compacto={compacto} />
+      )}
+
+      {vista === "formato" && (
+        <Formato escenarios={escenarios} inicial={ranuras[0] || undefined}
+                 compacto={compacto} />
+      )}
+
+      {vista === "auditoria" && (
+        <Auditoria escenarios={escenarios} inicial={ranuras[0] || undefined}
+                   mesInicial={mes} compacto={compacto} />
       )}
 
       {vista === "consulta" && (
