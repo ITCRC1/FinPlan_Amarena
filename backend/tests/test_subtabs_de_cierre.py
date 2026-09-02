@@ -85,6 +85,48 @@ def test_el_panel_SI_manda_el_perfil_aunque_este_vacio():
     assert "saveTabsApagados(HOTEL_ID," in panel
 
 
+def test_el_panel_cura_los_TRES_niveles():
+    """Owner, 2026-09-02: «del menú y sub menú, y todo lo de adentro».
+
+    La pantalla `/admin/tabs` ya hacía los reportes, pero está en otro lado y
+    con otro criterio de entrada. Curar lo que ve un dueño es UNA tarea, y
+    partirla en dos pantallas obliga a acordarse de que la otra existe.
+
+    ⚠️ **No es una copia**: los dos caminos escriben en la misma tabla por el
+    mismo endpoint, así que no pueden divergir.
+    """
+    panel = (CIERRE / "VistasVisibles.tsx").read_text(encoding="utf-8")
+    for kind in ('"TAB"', '"ITEM"', '"SUBTAB"'):
+        assert f'scope_kind: {kind}' in panel, f"el panel no cura {kind}"
+    assert "import { NAV }" in panel, (
+        "el panel dejó de leer el catálogo de la barra: una lista propia sería "
+        "una segunda lista que hay que acordarse de actualizar")
+
+
+def test_el_catalogo_del_menu_NO_se_copia_en_el_panel():
+    """Este proyecto ya pagó DOS veces por una lista escrita a mano —el Club
+    desaparecía del P&L, y siete de quince líneas de ingreso faltaban en Master
+    Data—. `NAV` es la única lista de lo que existe."""
+    panel = (CIERRE / "VistasVisibles.tsx").read_text(encoding="utf-8")
+    assert "NAV.map(g =>" in panel
+    # Nada de claves de menú escritas a mano.
+    for inventado in ('"reports"', '"ownerReport"', '"breakEven"'):
+        assert inventado not in panel, (
+            f"apareció una clave del menú escrita a mano ({inventado}): un "
+            f"reporte nuevo no saldría en este panel")
+
+
+def test_elegir_un_tab_NO_lo_esconde():
+    """La casilla esconde el tab entero; el nombre sólo elige cuál se mira.
+
+    Con un solo botón, entrar a un tab para ver sus reportes lo escondería — y
+    el usuario no tendría forma de entender por qué desapareció del menú.
+    """
+    panel = (CIERRE / "VistasVisibles.tsx").read_text(encoding="utf-8")
+    assert "setGrupo(g.key)" in panel
+    assert 'scope_kind: "TAB", clave: g.key' in panel
+
+
 def test_esconder_NO_es_un_permiso_y_la_pantalla_lo_dice():
     """La ruta sigue respondiendo: quien conozca la URL entra igual. Para
     impedir el cambio está el perfil `viewer`. Decirlo evita que alguien crea

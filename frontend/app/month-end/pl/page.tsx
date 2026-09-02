@@ -959,7 +959,6 @@ export default function MonthEndPLPage() {
         <VistasVisibles
           vistas={VISTAS.map(v => v.key)}
           rotulo={k => t(`tab_${k}`)}
-          apagados={subOcultos}
           onCambio={setSubOcultos}
           onCerrar={() => setPanelVistas(false)} />
       )}
