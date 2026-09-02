@@ -554,6 +554,22 @@ _GRUPO_DE_LINEA_INGRESO: dict[str, str] = {
     linea: grupo for grupo, linea in GROUP_TO_REVENUE_LINE.items()
 }
 
+#: Qué línea del P&L alimenta cada cajón de `NonOpActuals`. Es la vuelta que da
+#: `calculate_full_pl` al armar el bloque bajo GOP, escrita una vez para que la
+#: auditoría pueda seguir el mismo camino en lugar de adivinarlo.
+_LINEA_DE_CAJON: dict[str, str] = {
+    "rent": "RENT",
+    "mgmt_fee": "MGMT_FEE",
+    "royalties": "ROYALTIES",
+    "properties_insurance": "PROPERTIES_INSURANCE",
+    "other_expenses": "OTHER_EXPENSES",
+    "capital_reserve": "CAPITAL_RESERVE",
+    "large_capex": "LARGE_CAPEX",
+    "bank_interest": "BANK_INTEREST",
+    "depreciation": "DEPRECIATION",
+    "income_tax": "INCOME_TAXES",
+}
+
 #: Cómo se llama cada naturaleza en la auditoría. Son los mismos nombres que usa
 #: el estado de resultados del owner, para que el cotejo se pueda hacer a ojo.
 TIPO_INGRESO = "Ingresos"
@@ -612,7 +628,16 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
         grp = _GRUPO_DE_LINEA_INGRESO.get(linea or "")
         return (f"REV_{grp}" if grp else None), TIPO_INGRESO
     if primero == "8":
-        return nonop_line_for_account(code), TIPO_BAJO_GOP
+        #: ⚠️ **`nonop_line_for_account` NO sirve acá.** Devuelve el vocabulario
+        #: del REPORTE de dueños (`MGMT_FEE_5_ROYALTIES`, `PROPERTY_INSURANCE`,
+        #: `LEASINGS_RENTS`…), que no es el que emite `calculate_full_pl`
+        #: (`ROYALTIES`, `PROPERTIES_INSURANCE`, `BANK_INTEREST`). Usarlo hacía
+        #: que casi todo el bloque bajo GOP saliera como huérfano en la
+        #: auditoría: plata atribuida a renglones que el P&L no dibuja.
+        #:
+        #: El camino correcto es el mismo que recorre el motor: cuenta → cajón
+        #: de `NonOpActuals` → línea que ese cajón alimenta.
+        return _LINEA_DE_CAJON.get(nonop_bucket_for_account(code)), TIPO_BAJO_GOP
     if primero == "9":
         return None, ""
     if primero not in ("5", "6", "7"):

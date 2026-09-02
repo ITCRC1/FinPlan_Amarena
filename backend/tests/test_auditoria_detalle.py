@@ -80,6 +80,45 @@ def test_el_detalle_SUMA_exactamente_lo_que_dice_el_motor():
             f"La auditoría dejó de clasificar como el P&L")
 
 
+def test_TODA_cuenta_conocida_cae_en_una_linea_que_el_motor_DIBUJA():
+    """⚠️ La prueba que faltaba, y que dejó pasar un bug real.
+
+    El cotejo de arriba usa trece filas elegidas a mano: pasaba en verde
+    mientras **casi todo el bloque bajo GOP** se atribuía a renglones que el
+    P&L no dibuja (`MGMT_FEE_5_ROYALTIES` en vez de `ROYALTIES`,
+    `PROPERTY_INSURANCE` en vez de `PROPERTIES_INSURANCE`, `LEASINGS_RENTS` y
+    `FINANCIAL_LOSSES` que ni existen). Esa plata habría salido como huérfana.
+
+    La causa fue mezclar dos vocabularios: el del REPORTE de dueños y el que
+    emite `calculate_full_pl`. Esto recorre **todas** las cuentas conocidas
+    contra **todas** las líneas que el motor puede emitir.
+    """
+    lineas = pl_engine.calculate_full_pl(
+        revenue_by_line={l: D(1) for l in pl_engine.GROUP_TO_REVENUE_LINE.values()},
+        payroll_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        cos_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        opex_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        nonop=pl_engine.NonOpActuals(
+            **{c: D(1) for c in pl_engine._LINEA_DE_CAJON}),
+    )
+    emitidas = {l.line_code for l in lineas}
+
+    casos = [(c, "0250") for c in pl_engine.NONOP_ACCOUNT_LINE]
+    for dept in pl_engine._DEPT_TO_GROUP:
+        casos += [("4000", dept), ("5700", dept), ("6000", dept),
+                  ("7065", dept), ("4900", dept)]
+
+    huerfanas = []
+    for cuenta, dept in casos:
+        code, _tipo = linea_de_fila(cuenta, dept)
+        if code is not None and code not in emitidas:
+            huerfanas.append((cuenta, dept, code))
+
+    assert not huerfanas, (
+        "estas cuentas se atribuyen a renglones que el motor NO dibuja — su "
+        f"plata saldría como huérfana en la auditoría: {huerfanas[:12]}")
+
+
 def test_las_estadisticas_NO_entran():
     """Las 9xxx son unidades, no plata. Sumarlas al P&L lo rompe en silencio."""
     code, tipo = linea_de_fila("9010", "0110")
@@ -174,15 +213,38 @@ def test_esconder_es_EVERY_y_no_SOME():
     assert "columnas.some(" not in fuente
 
 
-def test_el_formato_usa_los_codigos_del_MOTOR():
-    """`/doce-meses/` devuelve `REV_*`, `OPEXP_*`, `OVH_*` — no los de
-    `report_line_config`. Mezclarlos daría renglones vacíos SIN ningún error."""
+def test_el_formato_dibuja_EXACTAMENTE_las_lineas_del_motor():
+    """⚠️ Ni una de más ni una de menos, y las dos mitades importan.
+
+    * Un código que el motor **no emite** deja un renglón en «—» para siempre,
+      sin ningún error. Así entraron dieciséis: `MGMT_FEE_3` por `MGMT_FEE`,
+      `OVH_SALES_MARKETING` por `OVH_SALES`, `LEASINGS_RENTS` que ni existe…
+      Todos venían del vocabulario del REPORTE de dueños, que no es el que
+      devuelve `/doce-meses/`.
+    * Una línea que el motor emite y el cuadro **no dibuja** es plata que no se
+      ve: el total no cerraría contra sus renglones y nadie sabría por qué.
+    """
+    import re
+
+    lineas = pl_engine.calculate_full_pl(
+        revenue_by_line={l: D(1) for l in pl_engine.GROUP_TO_REVENUE_LINE.values()},
+        payroll_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        cos_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        opex_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
+        nonop=pl_engine.NonOpActuals(
+            **{c: D(1) for c in pl_engine._LINEA_DE_CAJON}),
+    )
+    emitidas = {l.line_code for l in lineas}
     fuente = (CIERRE / "Formato.tsx").read_text(encoding="utf-8")
-    for code in ("TOTAL_REVENUES", "TOTAL_OPEXP", "TOTAL_OVERHEAD", "GOP",
-                 "OPEXP_ROOMS", "OVH_ADMIN", "OPPROFIT_ROOMS"):
-        assert f'"{code}"' in fuente, f"el formato no dibuja {code}"
-    # Los de report_line_config no tienen nada que hacer acá.
-    assert '"OPEX_ROOMS"' not in fuente
+    dibujadas = set(re.findall(r'code: "([A-Z0-9_]+)"', fuente))
+
+    assert not (dibujadas - emitidas), (
+        "renglones que el motor NO emite: quedarían vacíos para siempre — "
+        f"{sorted(dibujadas - emitidas)}")
+    assert not (emitidas - dibujadas), (
+        "líneas que el motor emite y el cuadro no dibuja: esa plata no se vería "
+        f"y los totales no cerrarían contra sus renglones — "
+        f"{sorted(emitidas - dibujadas)}")
 
 
 def test_el_formato_dibuja_cafeteria_y_lavanderia():
