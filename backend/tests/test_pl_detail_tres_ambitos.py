@@ -215,3 +215,25 @@ def test_la_pantalla_llega_por_las_tres_entradas_del_menu():
         encoding="utf-8")
     for a in AMBITOS:
         assert f"/reports/pl-detail?ambito={a}" in nav, f"falta la entrada de {a}"
+
+
+# ── El reporte calcula, no lee una foto (owner, 2026-08-28) ──────────────────
+
+def test_no_lee_pl_lines():
+    """`pl_lines` es una FOTO: sólo existe si alguien apretó «Recalcular».
+
+    Estos tres reportes la leían, y con los actuales de 2026 salieron en CERO
+    teniendo el mayor cargado —115 filas de marzo a julio— porque el escenario
+    nunca se había recalculado. El dato estaba y el reporte decía que no había
+    nada, que es peor que un error: un cero se lee como una respuesta.
+
+    Ahora salen del mismo `_monthly_results` que Cierre de Mes, el P&L y la
+    Junta. Si alguien vuelve a leer la tabla, los cuatro dejan de coincidir el
+    día que uno se recalcule y el otro no.
+    """
+    fuente = (RAIZ / "app" / "api" / "pl_detail_api.py").read_text(encoding="utf-8")
+    assert "PLLine" not in fuente, (
+        "el reporte volvió a leer `pl_lines`: va a mostrar cero en cualquier "
+        "escenario que no se haya recalculado")
+    assert "_monthly_results" in fuente, (
+        "el reporte tiene que calcular con el mismo motor que el resto de la app")

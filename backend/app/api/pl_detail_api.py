@@ -32,10 +32,15 @@ ingreso, dos de las tres se quedan viejas y ninguna avisa.
 
 ## De dónde sale cada número
 
-De `pl_lines` — las mismas filas que lee el tab de P&L y el reporte a la Junta.
-No se recalcula nada acá: si el motor cambia una fórmula, los tres reportes
-cambian con él. Un reporte que recalcula por su cuenta es un segundo motor que
-hay que mantener, y el día que discrepan nadie sabe cuál creer.
+Del MISMO motor que Cierre de Mes, el P&L y la Junta: `_monthly_results`. No se
+recalcula nada acá — un reporte que calcula por su cuenta es un segundo motor
+que hay que mantener, y el día que discrepan nadie sabe cuál creer.
+
+⚠️ **Antes leía la tabla `pl_lines`, y era un defecto.** Esa tabla es una FOTO:
+sólo existe si alguien apretó «Recalcular». Con los actuales de 2026 —el mayor
+cargado, 115 filas de marzo a julio— estos tres reportes salían en CERO porque
+el escenario nunca se había recalculado. El dato estaba y el reporte decía que
+no había nada, que es peor que un error: un cero se lee como una respuesta.
 
 ## El bloque de control, al pie
 
@@ -54,7 +59,6 @@ from app.auth import get_current_user
 from app.db import get_session
 from app.errores import ErrorApi
 from app.models.club_membership_stat import ClubMembershipStat
-from app.models.pl_line import PLLine
 from app.models.scenario import Scenario
 from app.models.scenario_stat import ScenarioStat
 
@@ -426,13 +430,30 @@ async def _clases_de(s, scenario_id: str) -> dict:
 
 
 async def _serie_por_codigo(s, scenario_id: str) -> dict[str, list[float]]:
-    """Los doce meses de cada línea del P&L de un escenario."""
+    """Los doce meses de cada línea del P&L, CALCULADOS — no leídos de la tabla.
+
+    ⚠️ **Antes esto leía `pl_lines`, y era un defecto.** El resto de la app
+    —Cierre de Mes, el P&L, la Junta— calcula al vuelo con `_monthly_results`;
+    `pl_lines` es una foto que sólo existe si alguien apretó «Recalcular».
+
+    Se vio con los actuales de 2026: el mayor estaba cargado (115 filas, marzo a
+    julio) y estos tres reportes salían en CERO, porque el escenario nunca se
+    había recalculado. El dato estaba y el reporte decía que no había nada —
+    peor que un error, porque un cero se lee como una respuesta.
+
+    Ahora sale del mismo lugar que todo lo demás. Cuesta una pasada del motor
+    por versión, que es exactamente lo que ya paga la pantalla de Cierre de Mes.
+    """
+    from app.api.pl_api import _monthly_results
+
+    escenario = await s.get(Scenario, scenario_id)
     out: dict[str, list[float]] = {}
-    for ln in (await s.execute(select(PLLine).where(
-            PLLine.scenario_id == scenario_id))).scalars().all():
-        if 1 <= ln.month <= 12:
-            out.setdefault(ln.line_code, [0.0] * 12)[ln.month - 1] += float(
-                ln.amount_usd or 0)
+    for m in await _monthly_results(s, escenario):
+        i = m["month"] - 1
+        if not 0 <= i <= 11:
+            continue
+        for ln in m["lines"]:
+            out.setdefault(ln.line_code, [0.0] * 12)[i] += float(ln.amount_usd or 0)
     return out
 
 
