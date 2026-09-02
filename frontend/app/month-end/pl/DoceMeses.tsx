@@ -59,19 +59,35 @@ const TD: React.CSSProperties = {
 };
 const TDL: React.CSSProperties = { padding: "3px 10px", fontSize: 12 };
 
+/** El primero de un tipo, para arrancar en lo obvio sin quitarle la opción de
+ *  cambiar. Owner, 2026-08-28: «siempre aparece actual y el otro budget, pero
+ *  con opción a cambiar». */
+function primeroDe(escenarios: Scenario[], tipo: string): string {
+  return escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
+}
+
 export default function DoceMeses({ escenarios, inicial }: {
   escenarios: Scenario[];
   /** El escenario que la pantalla ya tenía elegido, para no arrancar en blanco. */
   inicial?: string;
 }) {
-  const [scenarioId, setScenarioId] = useState(inicial || "");
+  /** Dos paneles, no dos pantallas: el de ACTUAL y el de BUDGET. Cada uno
+   *  recuerda SU versión, así cambiar de panel no pierde lo que se eligió en el
+   *  otro — que es lo que pasaría con un solo selector compartido. */
+  const [panel, setPanel] = useState<"actual" | "budget">("actual");
+  const [vActual, setVActual] = useState("");
+  const [vBudget, setVBudget] = useState("");
+  const scenarioId = panel === "actual" ? vActual : vBudget;
+  const setScenarioId = panel === "actual" ? setVActual : setVBudget;
   const [datos, setDatos] = useState<PLDoceMeses | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!scenarioId && escenarios.length) setScenarioId(inicial || escenarios[0].id);
-  }, [escenarios, inicial, scenarioId]);
+    if (!escenarios.length) return;
+    setVActual(x => x || primeroDe(escenarios, "ACTUAL"));
+    setVBudget(x => x || inicial || primeroDe(escenarios, "BUDGET"));
+  }, [escenarios, inicial]);
 
   const cargar = useCallback(async () => {
     if (!scenarioId) return;
@@ -134,6 +150,20 @@ export default function DoceMeses({ escenarios, inicial }: {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
                     marginBottom: 12 }}>
+        <nav aria-label="Panel" style={{ display: "inline-flex", borderRadius: 6,
+             overflow: "hidden", border: "1px solid var(--border-medium)" }}>
+          {([["actual", "12 meses Actual"], ["budget", "12 meses Budget"]] as const)
+            .map(([k, r], i) => (
+              <button key={k} onClick={() => setPanel(k)} style={{
+                padding: "5px 13px", fontSize: 12, fontWeight: 600, border: "none",
+                borderLeft: i ? "1px solid var(--border-medium)" : "none",
+                cursor: panel === k ? "default" : "pointer",
+                background: panel === k ? "var(--brand)" : "var(--bg-surface)",
+                color: panel === k ? "#fff" : "var(--text-primary)",
+              }}>{r}</button>
+            ))}
+        </nav>
+
         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
           VERSIÓN
         </span>
