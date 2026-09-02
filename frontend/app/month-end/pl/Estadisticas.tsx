@@ -48,11 +48,19 @@ const TDL: React.CSSProperties = {
 
 /** Las filas del cuadro. `valor` saca el dato de una versión ya cargada.
  *
- *  ⚠️ `Average Daily Room Only` usa **`adr_derivado`** —ingreso de habitaciones
- *  ÷ noches ocupadas— porque es como lo arma P&L Detail y como lo tiene el
- *  owner en su hoja. El otro ADR, el de las estadísticas del escenario, viaja
- *  igual y se avisa abajo cuando difieren: `REV_ROOMS` consolida cuentas que no
- *  son noche vendida y eso infla la tarifa sin que nada lo delate. */
+ *  ⚠️ `Average Daily Room Only` usa **`adr`** —el de las estadísticas del
+ *  escenario— y NO el derivado del ingreso, que es lo contrario de lo que
+ *  parecía razonable al principio.
+ *
+ *  Owner, 2026-09-02: *«puedes recalcular el ADR de Julio dejando por fuera
+ *  esos 2500»*. `REV_ROOMS` consolida cuentas que no son noche vendida: en
+ *  julio de Amarena, dentro de los $36.218,36 hay $2.500 de «Otros ingresos de
+ *  operación» y $0,02 de sobrantes de caja. Derivar sobre el total da $274,38
+ *  donde la tarifa real es $255,44 — y un ADR no tiene contra qué cuadrar, así
+ *  que el error no se nota.
+ *
+ *  El derivado sigue viajando y se avisa abajo cuando difieren, para que la
+ *  diferencia se pueda explicar en vez de descubrirse. */
 const FILAS: {
   rotulo: string;
   valor: (d: EstadisticasCierre) => string;
@@ -63,7 +71,7 @@ const FILAS: {
   { rotulo: "Total Rooms Occupied", valor: d => num(d.rooms_occupied) },
   { rotulo: "Total Guests", valor: d => num(d.guests) },
   { rotulo: "% Occupancy", valor: d => pct(d.occupancy_pct), fuerte: true },
-  { rotulo: "Average Daily Room Only", valor: d => usd(d.adr_derivado), fuerte: true },
+  { rotulo: "Average Daily Room Only", valor: d => usd(d.adr), fuerte: true },
   { rotulo: "Total RevPAR", valor: d => usd(d.revpar), fuerte: true },
   { rotulo: "Socios pagando (Club)", valor: d => num(d.club_pagando), club: true },
   { rotulo: "Cuota promedio por socio", valor: d => usd(d.club_cuota_promedio),
@@ -161,12 +169,11 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
       {brechas.length > 0 && (
         <div style={{ fontSize: 11, lineHeight: 1.55, marginTop: 6,
                       color: "var(--text-secondary)", maxWidth: 820 }}>
-          ⚠️ <b>Average Daily Room Only</b> divide TODO el ingreso de
-          habitaciones entre las noches ocupadas, y ese total incluye cuentas
-          que no son noche vendida —otros ingresos de operación, sobrantes de
-          caja—, así que sale más alto que la tarifa de las estadísticas del
-          escenario:{" "}
-          {brechas.map(b => `${b.e} +${usd(Math.abs(b.dif))}`).join(" · ")}.
+          ⚠️ <b>Average Daily Room Only</b> es la tarifa por noche vendida.
+          Dividir TODO el ingreso de habitaciones entre las noches ocupadas
+          daría más alto, porque ese total incluye cuentas que no son noche
+          vendida —otros ingresos de operación, sobrantes de caja—:{" "}
+          {brechas.map(b => `${b.e} daría +${usd(Math.abs(b.dif))}`).join(" · ")}.
         </div>
       )}
     </div>

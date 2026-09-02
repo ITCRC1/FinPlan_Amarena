@@ -36,10 +36,16 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getPLDetail, type PLDetail, type Scenario } from "@/lib/api";
+import { getPLDetail, getPLDoceMeses, getEstadisticasCierre,
+         type EstadisticasCierre, type PLDetail, type PLDoceMeses,
+         type Scenario } from "@/lib/api";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+const numero = (n: number) =>
+  n ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—";
+const pct = (n: number) => (n ? (n * 100).toFixed(2) + "%" : "—");
 
 const usd = (n: number) =>
   Math.abs(n) < 0.005 ? "—"
@@ -82,6 +88,17 @@ export default function Formato({ escenarios, inicial, compacto = true }: {
   /** Enseñar los doce meses aunque estén vacíos. Apagado por defecto: Amarena
    *  abrió en marzo y nueve columnas en cero no dejan leer las cinco que hay. */
   const [todosLosMeses, setTodosLosMeses] = useState(false);
+  /** Las estadisticas mes a mes, para el encabezado del cuadro.
+   *
+   *  Owner, 2026-09-02: «necesito las estadisticas aca en este tab llamado
+   *  formato; favor agrega como head del reporte». Van ARRIBA y con las mismas
+   *  columnas que la cascada: son el denominador de todo lo que sigue. */
+  const [kpis, setKpis] = useState<PLDoceMeses | null>(null);
+  /** El acumulado. ⚠️ NO se suma acá: la ocupacion, el ADR y la cuota son
+   *  razones y se rederivan con el numerador y el denominador del periodo. Lo
+   *  hace `/pl/{id}/estadisticas/`, que es el mismo calculo del resto de la
+   *  pantalla. */
+  const [total, setTotal] = useState<EstadisticasCierre | null>(null);
 
   useEffect(() => {
     if (!escenarios.length) return;
@@ -100,6 +117,11 @@ export default function Formato({ escenarios, inicial, compacto = true }: {
   }, [scenarioId, ambito]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  useEffect(() => {
+    if (!scenarioId) { setKpis(null); return; }
+    getPLDoceMeses(scenarioId).then(setKpis).catch(() => setKpis(null));
+  }, [scenarioId]);
 
   /** Una sola versión: la que se eligió arriba. */
   const filas = useMemo(() => datos?.filas ?? [], [datos]);
@@ -124,6 +146,50 @@ export default function Formato({ escenarios, inicial, compacto = true }: {
       marcadoras.some(f => Math.abs(valor(f, i)) >= 0.005));
     return vivos.length ? vivos : todos;
   }, [filas, valor, todosLosMeses]);
+
+  useEffect(() => {
+    if (!scenarioId || !columnas.length) { setTotal(null); return; }
+    getEstadisticasCierre(scenarioId, columnas[0] + 1,
+                          columnas[columnas.length - 1] + 1)
+      .then(setTotal).catch(() => setTotal(null));
+  }, [scenarioId, columnas]);
+
+  /** Las filas del encabezado. `mes` saca el dato de UN mes; `acum` el del
+   *  acumulado, que viene ya agregado del backend porque las razones no se
+   *  suman. */
+  const CABECERA: {
+    rotulo: string;
+    mes: (k: PLDoceMeses["meses"][number]["kpis"]) => string;
+    acum: (t: EstadisticasCierre) => string;
+    club?: boolean;
+    fuerte?: boolean;
+  }[] = [
+    { rotulo: "Total available Rooms",
+      mes: k => numero(k.rooms_available), acum: t => numero(t.rooms_available) },
+    { rotulo: "Total Rooms Occupied",
+      mes: k => numero(k.rooms_occupied), acum: t => numero(t.rooms_occupied) },
+    { rotulo: "Total Guests",
+      mes: k => numero(k.guests), acum: t => numero(t.guests) },
+    { rotulo: "% Occupancy", fuerte: true,
+      mes: k => pct(k.occupancy_pct), acum: t => pct(t.occupancy_pct) },
+    { rotulo: "Average Daily Room Only", fuerte: true,
+      mes: k => usd(k.adr), acum: t => usd(t.adr) },
+    { rotulo: "Total RevPAR", fuerte: true,
+      mes: k => usd(k.revpar), acum: t => usd(t.revpar) },
+    { rotulo: "Socios pagando (Club)", club: true,
+      mes: k => numero(k.club_pagando ?? 0),
+      acum: t => numero(t.club_pagando ?? 0) },
+    { rotulo: "Cuota promedio por socio", club: true, fuerte: true,
+      mes: () => "—",
+      acum: t => usd(t.club_cuota_promedio ?? 0) },
+  ];
+
+  const porMes = useMemo(() => {
+    const out: Record<number, PLDoceMeses["meses"][number]["kpis"]> = {};
+    for (const m of kpis?.meses ?? []) out[m.month - 1] = m.kpis;
+    return out;
+  }, [kpis]);
+  const hayClub = (kpis?.meses ?? []).some(m => m.kpis.club_pagando !== undefined);
 
   /** Una línea está vacía si es cero en TODOS los meses dibujados.
    *
@@ -198,6 +264,43 @@ export default function Formato({ escenarios, inicial, compacto = true }: {
             </tr>
           </thead>
           <tbody>
+            {/* ── El encabezado de estadisticas ─────────────────────────────
+                Owner, 2026-09-02: «necesito las estadisticas aca en este tab
+                llamado formato; favor agrega como head del reporte».
+
+                Va DENTRO de la misma tabla y no en un cuadro aparte: asi las
+                columnas quedan alineadas al milimetro con la cascada. Dos
+                tablas una encima de otra se desalinean apenas un numero se
+                hace mas ancho, y entonces hay que contar columnas con el dedo
+                para saber que mes se esta mirando.
+
+                ⚠️ El ACUMULADO no se suma aca. La ocupacion, el ADR y la cuota
+                son razones: se rederivan con el numerador y el denominador del
+                periodo, y eso lo hace `/pl/{id}/estadisticas/`. */}
+            {kpis && CABECERA.filter(f => !f.club || hayClub).map(f => (
+              <tr key={"kpi-" + f.rotulo} style={{ background: "var(--bg-surface)" }}>
+                <td style={{ padding: "3px 10px", fontSize: 11.5,
+                             color: "var(--text-secondary)" }}>
+                  {f.rotulo}
+                </td>
+                {columnas.map(i => (
+                  <td key={i} style={{ ...TD,
+                                       fontWeight: f.fuerte ? 800 : 600 }}>
+                    {porMes[i] ? f.mes(porMes[i]) : "—"}
+                  </td>
+                ))}
+                <td style={{ ...TD, fontWeight: 800,
+                             borderLeft: "2px solid var(--border-medium)" }}>
+                  {total ? f.acum(total) : "—"}
+                </td>
+              </tr>
+            ))}
+            {kpis && (
+              <tr><td colSpan={columnas.length + 2}
+                      style={{ height: 10,
+                               borderBottom: "2px solid var(--border-medium)" }} /></tr>
+            )}
+
             {visibles.map((f, n) => f.tipo === "esp" ? (
               <tr key={n}><td colSpan={columnas.length + 2} style={{ height: 7 }} /></tr>
             ) : (

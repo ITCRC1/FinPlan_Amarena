@@ -658,7 +658,13 @@ async def get_estadisticas(scenario_id: str, desde: int = 1, hasta: int = 12):
             "rooms_revenue": rooms_rev,
             "adr": adr,
             "adr_derivado": (rooms_rev / occ) if occ else 0.0,
-            "revpar": (rooms_rev / avail) if avail else 0.0,
+            # ⚠️ El RevPAR sale del ADR **de las estadísticas**, no del ingreso
+            # bruto: tiene que ser coherente con la tarifa que se muestra al
+            # lado. Julio 2026 lo hace evidente — con el ingreso completo daba
+            # $73,02 y con la tarifa depurada da $67,98, y los $5,04 de
+            # diferencia son los mismos $2.500 que no son noche vendida.
+            "revpar": (adr * occ / avail) if avail else 0.0,
+            "revpar_bruto": (rooms_rev / avail) if avail else 0.0,
             # `None` —no cero— cuando la propiedad no tiene Club: un cero se lee
             # como «no hay socios» donde en realidad no hay Club.
             "club_pagando": (sel[-1]["kpis"].get("club_pagando", 0)

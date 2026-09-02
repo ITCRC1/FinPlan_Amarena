@@ -2579,7 +2579,11 @@ export interface EstadisticasCierre {
   adr: number;
   /** Ingreso de habitaciones ÷ noches ocupadas. */
   adr_derivado: number;
+  /** Sale del `adr` de las estadísticas, para ser coherente con la tarifa que
+   *  se muestra al lado. */
   revpar: number;
+  /** El mismo, pero sobre el ingreso completo de habitaciones. */
+  revpar_bruto: number;
   /** `null` cuando la propiedad NO tiene Club — distinto de cero socios. */
   club_pagando: number | null;
   club_total: number | null;
