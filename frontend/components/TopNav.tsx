@@ -171,6 +171,12 @@ export const NAV: NavGroup[] = [
       // ellos— a cambio de nada: el menu es donde se busca, la ruta es donde
       // vive.
       { key: "plFullExec", href: "/reports/pl-full" },
+      // Segunda ENTRADA al mismo reporte, no una copia de la pantalla
+      // (owner, 2026-08-28). Duplicar el archivo daria dos verdades que
+      // hay que sincronizar a mano, y la primera vez que se toque una, la
+      // otra se queda vieja sin avisar. El `?ambito=` ya hace que las
+      // tres entradas de Reportes lleguen a la misma pantalla.
+      { key: "monthEndDetailFull", href: "/reports/pl-detail?ambito=consolidado" },
     ],
   },
   {
