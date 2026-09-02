@@ -676,6 +676,37 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
     return _canon(f"OVH_{grupo}" if de_overhead else f"OPEXP_{grupo}"), tipo
 
 
+def codigos_atribuibles() -> set[str]:
+    """Los renglones a los que una fila del GL PUEDE caer.
+
+    Sirve para saber qué se puede auditar y qué no. El P&L tiene renglones
+    **derivados** —los totales, y todo el bloque de Operating Profit, que es
+    ingreso menos gasto— que no se componen de asientos: su detalle siempre
+    daría cero y compararlos contra él inventa un descuadre por renglón.
+
+    En julio 2026 eran seis: `PROFIT_ROOMS`, `PROFIT_FB`, `PROFIT_SPA`,
+    `PROFIT_TOURS`, `PROFIT_CLUB` y la fila de misceláneos. Ninguno estaba mal.
+
+    ⚠️ **Se calcula recorriendo `linea_de_fila`, no con una lista.** Una lista
+    de exclusiones habría que acordarse de actualizarla cada vez que se agrega
+    un departamento o una cuenta; esto pregunta directamente adónde puede ir
+    cada combinación, así que un bloque derivado nuevo queda excluido solo.
+    """
+    out: set[str] = set()
+    #: Una cuenta de cada clase alcanza: la clase es lo que decide la rama.
+    muestras = ["4000", "5700", "6000", "7065", "4900"]
+    for dept in list(_DEPT_TO_GROUP) + [""]:
+        for cuenta in muestras:
+            code, _ = linea_de_fila(cuenta, dept)
+            if code:
+                out.add(code)
+    for cuenta in NONOP_ACCOUNT_LINE:
+        code, _ = linea_de_fila(cuenta, "0250")
+        if code:
+            out.add(code)
+    return out
+
+
 def build_actual_inputs(rows: list[dict]) -> dict:
     """
     Turn raw ActualEntry-like rows into the kwargs that calculate_full_pl expects.

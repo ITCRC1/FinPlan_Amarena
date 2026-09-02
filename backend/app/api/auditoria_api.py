@@ -149,10 +149,17 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         del_mes = next((m for m in mensual if m["month"] == mes), None)
         lineas_motor = {l.line_code: l for l in (del_mes or {}).get("lines", [])}
 
+        # Los renglones DERIVADOS quedan afuera: el bloque de Operating Profit
+        # es ingreso menos gasto, no se compone de asientos, y su «detalle»
+        # siempre daría cero. En julio 2026 eran seis descuadres inventados.
+        atribuibles = pl_engine.codigos_atribuibles()
+
         cuadre = []
         atribuidos: set[str] = set()
         for tipo, rotulo, codigos in CONSOLIDADO:
             if tipo != "det" or not codigos:
+                continue
+            if not any(c in atribuibles for c in codigos):
                 continue
             motor = sum((Decimal(str(lineas_motor[c].amount_usd))
                          for c in codigos if c in lineas_motor), CERO)

@@ -404,3 +404,38 @@ def test_la_plantilla_agrupa_el_costo_con_su_gasto():
         assert any(c.startswith("OPEX_") for c in codigos), (
             f"el renglón «{rotulo}» tiene costo de ventas ({cos}) pero no su "
             f"opex: el detalle atribuye al opex y este renglón lo perdería")
+
+
+def test_los_renglones_DERIVADOS_no_se_auditan():
+    """⚠️ Un renglón derivado no se compone de asientos: su detalle da cero.
+
+    Cotejado contra julio 2026 en producción, el cuadre marcaba seis
+    descuadres —`PROFIT_ROOMS`, `PROFIT_FB`, `PROFIT_SPA`, `PROFIT_TOURS`,
+    `PROFIT_CLUB` y la fila de misceláneos— y **ninguno estaba mal**: el bloque
+    de Operating Profit es ingreso menos gasto, no plata que entre por el GL.
+
+    El conjunto se calcula preguntándole a `linea_de_fila` adónde puede caer
+    cada combinación, no con una lista de exclusiones: un bloque derivado nuevo
+    queda afuera solo, sin que nadie se acuerde.
+    """
+    atribuibles = pl_engine.codigos_atribuibles()
+    assert atribuibles, "el conjunto salió vacío: no se auditaría nada"
+    derivados = [c for c in atribuibles
+                 if c.startswith("PROFIT_") or c.startswith("TOTAL_")
+                 or c in ("GOP", "EBT", "NET_PROFIT", "EBITDA_BEFORE",
+                          "EBITDA_AFTER")]
+    assert not derivados, (
+        f"estos renglones son derivados y no deberían auditarse: {derivados}")
+    # Y los que SÍ se componen de asientos tienen que estar.
+    for esperado in ("REV_ROOMS", "OPEX_ROOMS", "OH_ADMIN", "DEPRECIATION"):
+        assert esperado in atribuibles, f"{esperado} dejó de ser auditable"
+
+
+def test_el_cuadre_SALTA_los_renglones_que_no_puede_atribuir():
+    import inspect
+
+    from app.api import auditoria_api
+
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert "codigos_atribuibles()" in fuente
+    assert "if not any(c in atribuibles for c in codigos)" in fuente
