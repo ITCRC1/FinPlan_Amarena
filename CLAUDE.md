@@ -123,6 +123,38 @@ FinPlan CWL es un sistema de **planificación y análisis financiero hotelero US
 
 ---
 
+### ⚠️ REGLA PERMANENTE — Perfiles: quién ve y quién escribe
+
+Owner, 2026-08-26: *«sería por perfil: editor, view, y con vistas limitadas por
+perfil»*. Son **dos capas distintas y no se reemplazan**:
+
+| | dónde | qué hace | qué NO hace |
+|---|---|---|---|
+| **Permiso** | `app/perfiles.py` | el perfil `viewer` recibe **403** en todo `POST/PUT/PATCH/DELETE` | no esconde nada de la pantalla |
+| **Vista** | `tab_enablement` (col. `perfil`) | esconde tabs y reportes de la barra | **no impide el acceso**: la ruta responde si se escribe la URL |
+
+**El permiso se engancha en `_guard`, en `main.py`, y en ningún otro lado.** Es
+el mismo mecanismo del candado del escenario: una ruta nueva queda cubierta sin
+que nadie se acuerde. Un `if user.role == "viewer"` dentro de un endpoint es la
+variante que falla **abierta** — la que se olvide deja escribir.
+
+**La matriz de vistas es esparsa y el default es PRENDIDO.** Sin fila, se ve.
+`perfil = ""` significa «para toda la propiedad», y un usuario ve la **unión**
+de lo apagado para la propiedad más lo apagado para su perfil: **la propiedad
+manda sobre el perfil**.
+
+⚠️ **`""` y `NULL` no son lo mismo.** El centinela es `""` porque en Postgres
+dos `NULL` no chocan en un `UNIQUE`, y la tabla dejaría de tener una fila por
+decisión. Igual de importante en la API: `GET .../tabs/` **sin** `perfil`
+contesta por el rol de quien llama (eso usa la barra), y con `perfil=""`
+contesta la matriz cruda (eso usa `/admin/tabs`). Confundirlas hace que la
+pantalla de administración se edite a sí misma.
+
+Los roles viven en `app/models/user.py::ROLES`. Un rol nuevo **no hereda**
+administración: `get_current_admin` sigue comparando contra `"admin"` a secas.
+
+---
+
 ## 2. FUENTES DE DATOS REALES
 
 Todos los archivos viven en la carpeta `data/raw/` del proyecto. Nunca modificar los originales.

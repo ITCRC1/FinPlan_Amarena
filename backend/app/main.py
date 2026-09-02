@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.auth import get_current_user
 from app.candado import candado_del_escenario
+from app.perfiles import solo_lectura
 # ⚠️ El import ENGANCHA el listener del ORM: un mes cerrado no se edita.
 # Ver `app/candado_meses.py`.
 import app.candado_meses  # noqa: F401
@@ -121,7 +122,15 @@ async def _escenario_bloqueado(request: Request, exc: ScenarioLockedError):
 # el 2026-08-20, de 194 endpoints que escriben sólo catorce lo verificaban.
 # Enganchado en el router, una ruta nueva queda cubierta sin que nadie se
 # acuerde — ver `app/candado.py`.
-_guard = [Depends(get_current_user), Depends(candado_del_escenario)]
+# `solo_lectura` va en la MISMA lista y por la misma razon que el candado: es
+# el perfil `viewer` del owner, y engancharlo aca cubre los 197 endpoints que
+# escriben de una vez. Ver `app/perfiles.py`.
+#
+# El orden importa poco pero no es casual: primero quien sos, despues si tu
+# perfil escribe, y de ultimo si ESE escenario esta enllavado. Asi un lector
+# recibe 403 («vos no podes») y no 409 («esta cerrado»), que diria otra cosa.
+_guard = [Depends(get_current_user), Depends(solo_lectura),
+          Depends(candado_del_escenario)]
 app.include_router(accounts_router, prefix="/api", dependencies=_guard)
 app.include_router(scenarios_router, prefix="/api", dependencies=_guard)
 app.include_router(exchange_rates_router, prefix="/api", dependencies=_guard)

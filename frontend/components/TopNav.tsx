@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { getStoredUser, logout, type AuthUser } from "@/lib/api";
+import { esSoloLectura } from "@/lib/perfil";
 import LanguageSwitch from "@/components/LanguageSwitch";
 import { useHotel } from "@/lib/useHotel";
 import { HOTEL_ID } from "@/lib/hotel";
@@ -839,6 +840,18 @@ export default function TopNav() {
               {(user.name || user.email).split("@")[0].trim().split(/\s+/)[0]}
               {user.role === "admin" && <span style={{ color: "var(--nav-fg-dim)", marginLeft: 4 }}>· {tc("admin")}</span>}
             </span>
+            {/* El perfil que sólo mira se DICE. Un lector que no sabe que lo es
+                interpreta cada 403 como que la app está rota; con el rótulo
+                delante, entiende. Ver `lib/perfil.ts` y `app/perfiles.py`. */}
+            {esSoloLectura() && (
+              <span title="Tu perfil es de sólo lectura: podés ver todo, pero no modificar"
+                style={{ border: "1px solid var(--border-medium)", borderRadius: 4,
+                         padding: "1px 6px", fontSize: 10.5, letterSpacing: .3,
+                         color: "var(--nav-fg-dim)", textTransform: "uppercase",
+                         whiteSpace: "nowrap" }}>
+                Sólo lectura
+              </span>
+            )}
             <button onClick={() => { logout(); setUser(null); router.push("/login"); }}
               style={{ border: "1px solid var(--border-medium)", borderRadius: 4, padding: "3px 10px", cursor: "pointer",
                 background: "none", color: "var(--nav-fg)", fontSize: 12 }}>

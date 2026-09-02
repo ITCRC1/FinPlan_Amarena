@@ -25,7 +25,12 @@ separado, y la de departamentos ya está probada:
 ⚠️ **Esto ESCONDE de la barra; NO es un permiso.** La ruta sigue respondiendo:
 quien escriba la URL entra igual, y el endpoint contesta lo mismo. Es
 navegación, no seguridad — si hace falta impedir el acceso, eso son roles, no
-esta tabla.
+esta tabla. El permiso de verdad vive en `app/perfiles.py`, y las dos capas se
+complementan: una ordena la vista, la otra impide el cambio.
+
+**Y también por PERFIL** (owner, 2026-08-26: *«vistas limitadas por perfil»*).
+La columna `perfil` con `""` = «para todos» agrega el segundo eje sin cambiar
+ninguna de las dos reglas de arriba. Ver la migración 137.
 
 Y esa misma propiedad es la que hace seguro poder apagarlo **todo**, incluida la
 pantalla que administra esto: aunque se esconda, se vuelve entrando a su URL.
@@ -52,7 +57,7 @@ class TabEnablement(Base):
 
     __tablename__ = "tab_enablement"
     __table_args__ = (
-        UniqueConstraint("hotel_id", "scope_kind", "clave",
+        UniqueConstraint("hotel_id", "scope_kind", "clave", "perfil",
                          name="uq_tab_enablement"),
     )
 
@@ -68,6 +73,20 @@ class TabEnablement(Base):
     #: guarda lo apagado; una clave que ya no exista en la barra no rompe nada,
     #: simplemente no esconde nada.
     clave: Mapped[str] = mapped_column(String(60))
+    #: Para QUIÉN está apagado. `""` = para todos los perfiles.
+    #:
+    #: ⚠️ **El centinela es `""` y no `NULL` a propósito.** En Postgres dos NULL
+    #: no chocan en un UNIQUE: con la columna nullable, la misma clave se podría
+    #: apagar dos veces «para todos» y la tabla dejaría de tener una fila por
+    #: decisión.
+    #:
+    #: Un usuario ve la unión de dos conjuntos: lo apagado para su propiedad
+    #: (`""`) más lo apagado para su perfil. **La propiedad manda sobre el
+    #: perfil**: si una propiedad no hace Break-Even, no lo hace para nadie, y
+    #: prenderlo para un perfil sería contradecir esa decisión desde un lugar
+    #: más chico.
+    perfil: Mapped[str] = mapped_column(String(20), default="")
+
     #: Siempre `False`. La columna existe para poder leer una fila y entender
     #: qué significa sin ir al docstring.
     visible: Mapped[bool] = mapped_column(Boolean, default=False)
