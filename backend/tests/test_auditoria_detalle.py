@@ -56,9 +56,17 @@ def _por_linea(filas):
 
 
 def _del_motor(filas):
-    """{line_code: monto} según `calculate_full_pl` — la verdad de referencia."""
-    lineas = pl_engine.calculate_full_pl(
-        **pl_engine.build_actual_inputs(filas))
+    """{line_code: monto} por la MISMA tubería que corre en producción.
+
+    ⚠️ `calculate_full_pl` a secas **no alcanza**: emite su propio vocabulario
+    (`OPEXP_ROOMS`, `OVH_ADMIN`) y lo que llega a la pantalla pasa además por
+    `add_pl_aliases` + `canonicalize_pl_lines`, que lo traducen al canónico
+    (`OPEX_ROOMS`, `OH_ADMIN`). Comparar contra el crudo dejaba pasar
+    exactamente el bug que se encontró cotejando julio contra el libro del
+    owner: totales perfectos y detalle en cero.
+    """
+    lineas = pl_engine.canonicalize_pl_lines(pl_engine.add_pl_aliases(
+        pl_engine.calculate_full_pl(**pl_engine.build_actual_inputs(filas))))
     return {l.line_code: l.amount_usd for l in lineas}
 
 
@@ -101,7 +109,8 @@ def test_TODA_cuenta_conocida_cae_en_una_linea_que_el_motor_DIBUJA():
         nonop=pl_engine.NonOpActuals(
             **{c: D(1) for c in pl_engine._LINEA_DE_CAJON}),
     )
-    emitidas = {l.line_code for l in lineas}
+    emitidas = {l.line_code for l in pl_engine.canonicalize_pl_lines(
+        pl_engine.add_pl_aliases(lineas))}
 
     casos = [(c, "0250") for c in pl_engine.NONOP_ACCOUNT_LINE]
     for dept in pl_engine._DEPT_TO_GROUP:
@@ -141,7 +150,7 @@ def test_un_departamento_de_OVERHEAD_manda_todo_a_su_unica_linea():
     (owner, 2026-08-28) en vez de perderse."""
     for cuenta in ("6000", "5700", "7065", "4900"):
         code, _ = linea_de_fila(cuenta, "0220")
-        assert code == "OVH_CAFETERIA", f"{cuenta} se fue a {code}"
+        assert code == "OH_CAFETERIA", f"{cuenta} se fue a {code}"
 
 
 def test_el_reparto_va_a_la_MISMA_linea_que_el_gasto_que_reparte():
@@ -149,7 +158,7 @@ def test_el_reparto_va_a_la_MISMA_linea_que_el_gasto_que_reparte():
     y el departamento mostraría su gasto bruto."""
     gasto, _ = linea_de_fila("7065", "0110")
     reparto, _ = linea_de_fila("4900", "0110")
-    assert gasto == reparto == "OPEXP_ROOMS"
+    assert gasto == reparto == "OPEX_ROOMS"
 
 
 def test_un_grupo_de_solo_ingreso_con_gasto_queda_HUERFANO_y_no_escondido():
@@ -202,60 +211,61 @@ def test_los_dos_tabs_HONRAN_el_modo_compacto():
         assert "compacto" in fuente, f"{arch} ignora el modo compacto"
 
 
-def test_esconder_es_EVERY_y_no_SOME():
+def test_esconder_es_CERO_EN_TODOS_y_no_CERO_EN_ALGUNO():
     """⚠️ Una línea que sólo tuvo saldo en junio TIENE que seguir viéndose.
 
-    Con `some` se escondería todo lo que tenga algún mes en cero, que es casi
-    todo. La lección ya se pagó en el modo compacto de los otros sub-tabs.
+    Se ESCONDE cuando ningún mes tiene saldo, que se escribe `!some(...)`. La
+    variante equivocada —esconder si algún mes está en cero— borraría casi
+    todo el reporte. La lección ya se pagó en el modo compacto de los otros
+    sub-tabs.
     """
     fuente = (CIERRE / "Formato.tsx").read_text(encoding="utf-8")
-    assert "columnas.every(" in fuente
-    assert "columnas.some(" not in fuente
+    assert "|| columnas.some(i => Math.abs(valor(f, i)) >= 0.005)" in fuente, (
+        "cambió la condición de esconder: tiene que MOSTRAR la fila si ALGÚN "
+        "mes tiene saldo")
 
 
-def test_el_formato_dibuja_EXACTAMENTE_las_lineas_del_motor():
-    """⚠️ Ni una de más ni una de menos, y las dos mitades importan.
+def test_el_formato_NO_escribe_su_propia_plantilla():
+    """⚠️ La plantilla de la cascada se escribe UNA vez.
 
-    * Un código que el motor **no emite** deja un renglón en «—» para siempre,
-      sin ningún error. Así entraron dieciséis: `MGMT_FEE_3` por `MGMT_FEE`,
-      `OVH_SALES_MARKETING` por `OVH_SALES`, `LEASINGS_RENTS` que ni existe…
-      Todos venían del vocabulario del REPORTE de dueños, que no es el que
-      devuelve `/doce-meses/`.
-    * Una línea que el motor emite y el cuadro **no dibuja** es plata que no se
-      ve: el total no cerraría contra sus renglones y nadie sabría por qué.
+    Este cuadro nació con su propia lista de códigos y, cotejado contra el
+    libro de julio del owner en producción, **cerró perfecto en todos los
+    totales y mostró el detalle entero en cero**: `TOTAL_OVERHEAD` daba
+    47.853,67 y sus ocho componentes, «—».
+
+    La causa: hay DOS vocabularios de línea que se ven iguales. El motor emite
+    `OPEXP_ROOMS` / `OVH_ADMIN`; el camino DB-driven —el que corre en
+    producción para los actuales— emite `OPEX_ROOMS` / `OH_ADMIN`. Los totales
+    coinciden por `add_pl_aliases`, así que **el error no se ve en ningún
+    total**: sólo en los renglones, y como ceros.
+
+    Por eso el cuadro lee `/pl-detail/`, que ya trae los doce meses de cada
+    fila con la plantilla que el owner aprobó.
     """
+    fuente = (CIERRE / "Formato.tsx").read_text(encoding="utf-8")
+    assert "getPLDetail" in fuente, (
+        "el cuadro dejó de leer /pl-detail/: si vuelve a escribir su propia "
+        "lista de códigos, el detalle se va a cero sin que ningún total falle")
     import re
-
-    lineas = pl_engine.calculate_full_pl(
-        revenue_by_line={l: D(1) for l in pl_engine.GROUP_TO_REVENUE_LINE.values()},
-        payroll_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
-        cos_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
-        opex_by_dept={d: D(1) for d in pl_engine._DEPT_TO_GROUP},
-        nonop=pl_engine.NonOpActuals(
-            **{c: D(1) for c in pl_engine._LINEA_DE_CAJON}),
-    )
-    emitidas = {l.line_code for l in lineas}
-    fuente = (CIERRE / "Formato.tsx").read_text(encoding="utf-8")
-    dibujadas = set(re.findall(r'code: "([A-Z0-9_]+)"', fuente))
-
-    assert not (dibujadas - emitidas), (
-        "renglones que el motor NO emite: quedarían vacíos para siempre — "
-        f"{sorted(dibujadas - emitidas)}")
-    assert not (emitidas - dibujadas), (
-        "líneas que el motor emite y el cuadro no dibuja: esa plata no se vería "
-        f"y los totales no cerrarían contra sus renglones — "
-        f"{sorted(emitidas - dibujadas)}")
+    propios = re.findall(r'code: "([A-Z0-9_]+)"', fuente)
+    assert not propios, (
+        f"volvió a haber códigos de línea escritos a mano: {propios[:8]}")
 
 
-def test_el_formato_dibuja_cafeteria_y_lavanderia():
+def test_la_plantilla_del_reporte_dibuja_cafeteria_y_lavanderia():
     """Ahí sale el SOBRANTE que no alcanzó a repartirse (owner, 2026-08-28).
 
-    El reporte viejo no las tenía y por eso el residuo no se veía — que fue
-    exactamente el bug de mayo a julio.
+    Como el cuadro ya no tiene lista propia, lo que hay que vigilar es la
+    plantilla compartida: si esas dos líneas se caen de ahí, el residuo deja de
+    verse en TODOS los reportes a la vez — que fue el bug de mayo a julio.
     """
-    fuente = (CIERRE / "Formato.tsx").read_text(encoding="utf-8")
-    assert '"OVH_CAFETERIA"' in fuente
-    assert '"OVH_LAUNDRY_OPS"' in fuente
+    from app.api.pl_detail_api import CONSOLIDADO
+
+    codigos = {c for fila in CONSOLIDADO for c in (fila[2] or [])}
+    for esperado in ("OH_CAFETERIA", "OH_LAUNDRY"):
+        assert any(esperado in c for c in codigos), (
+            f"{esperado} salió de la plantilla: el sobrante de reparto dejaría "
+            f"de verse")
 
 
 def test_la_auditoria_NO_recalcula_en_la_pantalla():
@@ -293,3 +303,55 @@ def test_el_endpoint_cuadra_contra_el_MOTOR_y_no_contra_la_foto():
     fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
     assert "_monthly_results" in fuente
     assert "PLLine" not in fuente
+
+
+# ── Que los renglones sumen su propio total ──────────────────────────────────
+
+def test_los_renglones_de_OVERHEAD_suman_su_TOTAL():
+    """⚠️ La prueba que faltaba en todo el repo, y por eso el hueco duró.
+
+    Cotejando julio 2026 contra el libro del owner: `TOTAL_OVERHEAD` daba
+    47.853,67 —correcto— y la suma de los renglones visibles, 45.794,98. Los
+    2.058,69 de diferencia eran `COH_INFORMATION_SYSTEM` (937,33) y
+    `OH_LAUNDRY` (1.121,36): plata dentro del total y en NINGÚN renglón.
+
+    Dos causas distintas, el mismo síntoma:
+
+    * el overhead tiene **costo de ventas propio** (`COH_*`) y la plantilla
+      sólo sumaba `OH_*`;
+    * **Cafetería y Lavandería no estaban** en la plantilla, y justo ahí es
+      donde el owner pidió ver el sobrante del reparto (2026-08-28).
+
+    Un total que no cuadra contra sus partes es el defecto más caro de un libro
+    contable: cierra, se ve bien, y no dice la verdad.
+    """
+    from app.api.pl_detail_api import CONSOLIDADO
+
+    # Un mes con TODOS los departamentos de overhead poblados.
+    overhead = [d for d, g in pl_engine._DEPT_TO_GROUP.items()
+                if g in pl_engine.OVERHEAD_GROUP_ORDER]
+    lineas = pl_engine.canonicalize_pl_lines(pl_engine.add_pl_aliases(
+        pl_engine.calculate_full_pl(
+            revenue_by_line={},
+            payroll_by_dept={d: D(100) for d in overhead},
+            cos_by_dept={d: D(10) for d in overhead},
+            opex_by_dept={d: D(5) for d in overhead},
+        )))
+    monto = {l.line_code: l.amount_usd for l in lineas}
+
+    # Los renglones de detalle del bloque OVERHEAD de la plantilla.
+    en_bloque = False
+    suma = D(0)
+    for tipo, rotulo, codigos in CONSOLIDADO:
+        if tipo == "sec":
+            en_bloque = "OVERHEAD" in rotulo
+            continue
+        if tipo == "tot" and "OVERHEAD" in rotulo:
+            break
+        if en_bloque and tipo == "det":
+            suma += sum((monto.get(c, D(0)) for c in codigos), D(0))
+
+    total = monto.get("TOTAL_OVERHEAD", D(0))
+    assert abs(total - suma) < Decimal("0.005"), (
+        f"los renglones de OVERHEAD suman {suma} y su total dice {total}: hay "
+        f"{total - suma} dentro del total que no se ve en ningún renglón")

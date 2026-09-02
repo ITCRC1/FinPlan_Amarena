@@ -580,6 +580,26 @@ TIPO_REPARTO = "Reparto"
 TIPO_BAJO_GOP = "Bajo GOP"
 
 
+def _canon(code: str | None) -> str | None:
+    """Del vocabulario del motor al CANÓNICO (`report_line_config`).
+
+    ⚠️ **Los dos vocabularios se ven iguales y no lo son**, y confundirlos ya
+    costó dos veces. `calculate_full_pl` emite `OPEXP_ROOMS`, `OVH_ADMIN`,
+    `MGMT_FEE`; el camino DB-driven —que es el que corre en producción para los
+    actuales— emite `OPEX_ROOMS`, `OH_ADMIN`, `MGMT_FEE_3`. Los TOTALES
+    coinciden por `add_pl_aliases`, así que un cuadro mal codificado **cierra
+    igual** y sólo se le ven los renglones de detalle en cero.
+
+    `canonicalize_pl_lines` ya traduce las líneas; esto traduce un código suelto
+    con la misma tabla, para que la auditoría hable el idioma que el reporte
+    realmente devuelve.
+    """
+    if code is None:
+        return None
+    par = _MOTOR_TO_CANON.get(code)
+    return par[0] if par else code
+
+
 def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
     """A qué línea del P&L cae UNA fila del GL, y de qué naturaleza es.
 
@@ -613,7 +633,8 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
     de_overhead = grupo in OVERHEAD_GROUP_ORDER
 
     if code in ALLOCATION_ACCOUNTS:
-        return (f"OVH_{grupo}" if de_overhead else f"OPEXP_{grupo}"), TIPO_REPARTO
+        return _canon(f"OVH_{grupo}" if de_overhead
+                      else f"OPEXP_{grupo}"), TIPO_REPARTO
 
     primero = code[0]
     if primero == "4":
@@ -621,12 +642,12 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
         #: que con el departamento resuelto el grupo YA es la respuesta — pasar
         #: por la línea de ingreso y volver sería un rodeo que puede diferir.
         if dept and dept in _DEPT_TO_GROUP:
-            return (f"REV_{grupo}" if not de_overhead else None), TIPO_INGRESO
+            return _canon(f"REV_{grupo}") if not de_overhead else None, TIPO_INGRESO
         #: Sin departamento, el motor cae en `revenue_line_for_account`. Se
         #: repite ese camino y se vuelve al grupo por la tabla inversa.
         linea = revenue_line_for_account(code)
         grp = _GRUPO_DE_LINEA_INGRESO.get(linea or "")
-        return (f"REV_{grp}" if grp else None), TIPO_INGRESO
+        return (_canon(f"REV_{grp}") if grp else None), TIPO_INGRESO
     if primero == "8":
         #: ⚠️ **`nonop_line_for_account` NO sirve acá.** Devuelve el vocabulario
         #: del REPORTE de dueños (`MGMT_FEE_5_ROYALTIES`, `PROPERTY_INSURANCE`,
@@ -637,7 +658,8 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
         #:
         #: El camino correcto es el mismo que recorre el motor: cuenta → cajón
         #: de `NonOpActuals` → línea que ese cajón alimenta.
-        return _LINEA_DE_CAJON.get(nonop_bucket_for_account(code)), TIPO_BAJO_GOP
+        return _canon(
+            _LINEA_DE_CAJON.get(nonop_bucket_for_account(code))), TIPO_BAJO_GOP
     if primero == "9":
         return None, ""
     if primero not in ("5", "6", "7"):
@@ -651,7 +673,7 @@ def linea_de_fila(account_code: str, dept_code: str) -> tuple[str | None, str]:
     #: la auditoría lo muestre como huérfano en vez de esconderlo.
     if not de_overhead and grupo in REVENUE_ONLY_GROUPS:
         return None, tipo
-    return (f"OVH_{grupo}" if de_overhead else f"OPEXP_{grupo}"), tipo
+    return _canon(f"OVH_{grupo}" if de_overhead else f"OPEXP_{grupo}"), tipo
 
 
 def build_actual_inputs(rows: list[dict]) -> dict:

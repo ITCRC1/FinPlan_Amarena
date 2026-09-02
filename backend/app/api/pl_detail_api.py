@@ -126,12 +126,27 @@ CONSOLIDADO: list[tuple] = [
     ("tot", "OPERATING PROFIT", ["OPERATING_PROFIT"]),
     ("esp", "", []),
     ("sec", "OVERHEAD EXPENSES", []),
-    ("det", "Administrations", ["OH_ADMIN"]),
-    ("det", "Sales & Marketing", ["OH_SALES_MARKETING"]),
-    ("det", "Maintenance", ["OH_MAINTENANCE"]),
-    ("det", "Information System", ["OH_INFORMATION_SYSTEM"]),
-    ("det", "Utilities", ["OH_UTILITIES"]),
-    ("det", "Area Recreativa", ["OH_AREC"]),
+    # ⚠️ Cada renglón suma `OH_` **y** `COH_`. El overhead tiene costo de ventas
+    # propio y vive en su propio código: en julio 2026, Sistemas daba 5.019,44
+    # por `OH_` y el libro del owner decía 5.956,77 — los 937,33 que faltaban
+    # eran `COH_INFORMATION_SYSTEM`. Como el TOTAL sí los incluía, los renglones
+    # no sumaban su propio total y nada lo avisaba.
+    ("det", "Administrations", ["OH_ADMIN", "COH_ADMIN"]),
+    ("det", "Sales & Marketing", ["OH_SALES_MARKETING", "COH_SALES_MARKETING"]),
+    ("det", "Maintenance", ["OH_MAINTENANCE", "COH_MAINTENANCE"]),
+    ("det", "Information System", ["OH_INFORMATION_SYSTEM",
+                                   "COH_INFORMATION_SYSTEM"]),
+    ("det", "Utilities", ["OH_UTILITIES", "COH_UTILITIES"]),
+    ("det", "Claro Huerta", ["OH_CLARO_HUERTA", "COH_CLARO_HUERTA"]),
+    # Los dos departamentos de REPARTO. Su renglón es el SOBRANTE que no
+    # alcanzó a repartirse (owner, 2026-08-28: «si tiene saldo que aparezca esa
+    # diferencia en overhead»). Faltaban en la plantilla, así que en julio 2026
+    # los 1.121,36 de lavandería estaban dentro del total y en NINGÚN renglón.
+    ("det", "Cafeteria", ["OH_CAFETERIA", "COH_CAFETERIA"]),
+    ("det", "Laundry", ["OH_LAUNDRY", "COH_LAUNDRY"]),
+    ("det", "Employee Benefits", ["OH_EMPLOYEE_BENEFITS",
+                                  "COH_EMPLOYEE_BENEFITS"]),
+    ("det", "Area Recreativa", ["OH_AREC", "COH_AREC"]),
     ("esp", "", []),
     ("tot", "TOTAL OVERHEAD EXPENSES", ["TOTAL_OVERHEAD"]),
     ("esp", "", []),
