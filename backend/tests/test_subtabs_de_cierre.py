@@ -191,7 +191,11 @@ def test_el_Word_no_copia_ningun_calculo():
     copia sería una segunda verdad en un reporte que ven los dueños.
     """
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    assert "cuadros.push(cuadroEstado())" in pagina, (
+    # ⚠️ Desde el 2026-09-03 los capítulos salen de un REGISTRO recorrido en
+    # el orden de `VISTAS`, no de una secuencia escrita a mano — ver
+    # `test_word_todas_las_vistas`. Lo que se sigue exigiendo es lo mismo: que
+    # el capítulo use el constructor de la pantalla y no una copia.
+    assert "cuadroEstado(false), cuadroEstado(true)" in pagina, (
         "el capítulo del P&L Statement dejó de usar el constructor de la "
         "pantalla")
     assert "armar as armarResumen, filasResumen" in pagina, (

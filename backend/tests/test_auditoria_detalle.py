@@ -696,12 +696,19 @@ def test_el_EXCEL_y_el_WORD_bajan_lo_que_se_esta_viendo():
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
     i = pagina.index("function cuadroEstado")
     bloque = pagina[i:i + 3500]
-    assert "deptEstado ? desglose(f.code) : []" in bloque, (
+    assert "conDepto ? desglose(f.code) : []" in bloque, (
         "el cuadro del P&L Statement dejó de incluir el desglose departamental "
         "que se ve en pantalla")
+    # `conDepto` sigue por defecto al interruptor de la pantalla; el Word lo
+    # pasa explícito para sacar las dos vistas.
+    assert "conDepto: boolean = deptEstado" in bloque
     # Y los dos formatos lo usan.
+    #
+    # El botón de Excel baja LA VISTA QUE SE ESTÁ VIENDO —por eso llama sin
+    # argumento y hereda el interruptor—; el Word saca las dos, porque en un
+    # documento caben (owner, 2026-09-03).
     assert "bajarCuadros(`PL_Statement_${MESES[mes - 1]}_${year}`, [cuadroEstado()])" in pagina
-    assert "cuadros.push(cuadroEstado())" in pagina
+    assert "cuadroEstado(false), cuadroEstado(true)" in pagina
 
 
 def test_el_sub_departamento_del_checkbook_sube_a_su_PADRE():

@@ -65,8 +65,11 @@ def test_el_EXCEL_baja_lo_que_se_esta_viendo():
     (owner, 2026-08-27: «el excel no baja lo que está viendo»). Dejar el par
     fijo en el export mientras la pantalla dibuja tres sería repetirlo."""
     src = PAGINA.read_text(encoding="utf-8")
-    i = src.index("function cuadroEstado()")
-    cuadro = src[i:src.index("const idASum")]
+    # ⚠️ La firma lleva un parámetro desde el 2026-09-03 (`conDepto`), así que
+    # buscar `cuadroEstado()` con paréntesis vacío fallaba por el cambio de
+    # firma y no por la regla.
+    i = src.index("function cuadroEstado(")
+    cuadro = src[i:src.index("function cuadroSummary")]
     assert "usadas.slice(0, trasVariacion)" in cuadro
     assert "% Rev Budget" not in cuadro
     # Y el subtítulo nombra a todas, no a dos.
