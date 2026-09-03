@@ -65,3 +65,53 @@ def test_el_encabezado_tambien_lo_dice():
     pagina = (FRONT / "app/opex/checkbook/page.tsx").read_text(encoding="utf-8")
     assert "CABECERA_CERRADA" in pagina
     assert "Meses cerrados:" in pagina, "falta el aviso arriba de la grilla"
+
+
+CHECKBOOKS = ["opex", "costs", "payroll", "revenue", "nonop"]
+
+
+def test_los_CINCO_checkbooks_marcan_los_meses_cerrados():
+    """No alcanza con uno: el usuario entra por cualquiera.
+
+    Si sólo Opex lo mostrara, en Costos seguiría escribiendo encima de un mes
+    cerrado y perdiendo lo tipeado — el mismo defecto, sólo que más difícil de
+    encontrar porque «en la otra pantalla sí funciona».
+    """
+    faltan = []
+    for cb in CHECKBOOKS:
+        p = FRONT / f"app/{cb}/checkbook/page.tsx"
+        src = p.read_text(encoding="utf-8")
+        if "useMesesCerrados" not in src or "CABECERA_CERRADA" not in src:
+            faltan.append(cb)
+    assert not faltan, f"estos checkbooks no marcan los meses cerrados: {faltan}"
+
+
+def test_todos_avisan_ARRIBA_cual_es_el_corte():
+    """El gris se entiende si algo dice por qué. Un campo gris sin explicación
+    se lee como que la app está rota."""
+    faltan = [cb for cb in CHECKBOOKS
+              if "Meses cerrados:" not in
+              (FRONT / f"app/{cb}/checkbook/page.tsx").read_text(encoding="utf-8")]
+    assert not faltan, f"sin el aviso arriba de la grilla: {faltan}"
+
+
+def test_donde_hay_INPUT_se_usa_readOnly_y_no_disabled():
+    """⚠️ Un input deshabilitado no deja seleccionar ni copiar el número, y un
+    mes cerrado se sigue CONSULTANDO — es el dato real del mes.
+
+    `readOnly` bloquea la escritura y deja leer, que es exactamente lo que
+    corresponde.
+    """
+    for cb in ("nonop", "revenue"):
+        src = (FRONT / f"app/{cb}/checkbook/page.tsx").read_text(encoding="utf-8")
+        assert "readOnly={cerrado(" in src, (
+            f"{cb}: el mes cerrado se bloqueó con `disabled` en vez de "
+            f"`readOnly`, y así no se puede ni copiar el número")
+
+
+def test_el_pegado_no_desborda_sobre_un_mes_cerrado():
+    """Un paste que arranca en un mes abierto puede tapar varios a la derecha.
+    Si alguno está cerrado, el guardado lo rechaza y se pierde el pegado
+    entero — mejor cortarlo antes."""
+    src = (FRONT / "app/revenue/checkbook/page.tsx").read_text(encoding="utf-8")
+    assert "if (cerrado(mi + 1)) { e.preventDefault(); return; }" in src
