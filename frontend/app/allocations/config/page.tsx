@@ -1,5 +1,6 @@
 "use client";
 import BloqueSeguro from "@/components/BloqueSeguro";
+import { borrarFilaReparto } from "@/lib/api";
 import { usePlanningScenarioConUrl, sharedScenarioOr } from "@/lib/planningScenario";
 import { elegir } from "@/lib/escenarioPreferido";
 import { useTranslations } from "next-intl";
@@ -268,6 +269,32 @@ export default function AllocationsConfigPage() {
   function toggleLauParticipates(idx: number) {
     setDirty(true);
     setLauRows(rows => rows.map((r, i) => i === idx ? { ...r, participates: !r.participates } : r));
+  }
+
+  /** Saca una fila de la matriz.
+   *
+   *  ⚠️ Borra en el SERVIDOR y no solo en la pantalla. Quitarla de la lista
+   *  local y guardar no la borraria: el guardado hace upsert fila por fila y no
+   *  sabe que una desaparecio — es exactamente lo que dejo pegada la `110`
+   *  cuando el owner corrigio el codigo a `0110`.
+   *
+   *  No recalcula: saca la fila y deja los asientos. Rehacer el reparto es el
+   *  boton de al lado, y asi se puede limpiar la matriz sin mover numeros. */
+  async function borrarFila(tipo: "laundry" | "cafeteria", dept: string) {
+    if (!scenarioId) return;
+    if (!confirm(dept
+      ? `¿Sacar el departamento ${dept} de la matriz de reparto?`
+      : "¿Sacar la fila sin departamento?")) return;
+    try {
+      await borrarFilaReparto(tipo, scenarioId, dept);
+      if (tipo === "laundry") {
+        setLauRows(rows => rows.filter(r => (r.dept_code || "") !== dept));
+      } else {
+        setCafRows(rows => rows.filter(r => (r.dept_code || "") !== dept));
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo borrar la fila");
+    }
   }
 
   function updateLauField(idx: number, field: "dept_code" | "dept_name", value: string) {
@@ -952,6 +979,13 @@ export default function AllocationsConfigPage() {
                         style={{ cursor: "pointer", accentColor: "var(--brand)" }}
                       />
                     </td>
+                    <td style={{ textAlign: "center" }}>
+                      <button onClick={() => borrarFila("cafeteria", row.dept_code || "")}
+                        title="Sacar esta fila de la matriz"
+                        style={{ border: "none", background: "none", cursor: "pointer",
+                                 color: "var(--text-disabled)", fontSize: 13,
+                                 padding: "0 4px" }}>×</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1101,6 +1135,13 @@ export default function AllocationsConfigPage() {
                           <input type="checkbox" checked={row.participates}
                             onChange={() => toggleLauParticipates(idx)}
                             style={{ cursor: "pointer", accentColor: "var(--brand)" }} />
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <button onClick={() => borrarFila("laundry", row.dept_code || "")}
+                            title="Sacar esta fila de la matriz"
+                            style={{ border: "none", background: "none", cursor: "pointer",
+                                     color: "var(--text-disabled)", fontSize: 13,
+                                     padding: "0 4px" }}>×</button>
                         </td>
                       </tr>
                     );

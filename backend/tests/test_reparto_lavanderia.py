@@ -170,3 +170,57 @@ def test_el_endpoint_de_calculate_NO_manda_monthly_y_la_pantalla_lo_sabe():
     assert not sueltos, (
         "estos usos de `monthly` no están guardados y volverían a dejar la "
         f"pantalla en blanco: {sueltos}")
+
+
+def test_se_puede_BORRAR_una_fila_de_la_matriz():
+    """Owner, 2026-09-03: corrigió el código de Habitaciones de `110` a `0110` y
+    la fila vieja quedó pegada — **la pantalla no tenía forma de borrar**.
+
+    Los kilos pasaron a sumar 1,70 en vez de 1,00 y el reparto se partió en dos,
+    con Rooms llevándose la mitad de lo que le tocaba. Hubo que sacarla por la
+    base.
+
+    ⚠️ `dept` va como PARÁMETRO y no en la ruta: la fila que más hay que poder
+    borrar es la del departamento VACÍO —un renglón en blanco guardado sin
+    llenar— y `.../config//` no es una URL: el servidor la normaliza y la fila
+    queda inalcanzable justo en el caso que más importa.
+    """
+    import inspect
+
+    from app.api import allocation_api
+
+    fuente = inspect.getsource(allocation_api.borrar_fila_config)
+    assert 'dept: str = ""' in fuente, (
+        "`dept` volvió a la ruta: la fila sin departamento quedaría "
+        "inalcanzable")
+    # Sirve para las dos matrices, no solo lavandería.
+    assert '"laundry": LaundryAllocationConfig' in fuente
+    assert '"cafeteria": CafeteriaAllocationConfig' in fuente
+    # Y respeta el candado del escenario, como todo lo que escribe.
+    assert "await candado(session, scenario_id)" in fuente
+
+
+def test_borrar_NO_recalcula():
+    """Saca la fila y deja los asientos. Rehacer el reparto es el botón de al
+    lado — así se puede limpiar la matriz sin mover números hasta estar
+    conforme."""
+    import inspect
+
+    from app.api import allocation_api
+
+    fuente = inspect.getsource(allocation_api.borrar_fila_config)
+    assert "_recalc_allocations" not in fuente
+    assert "calculate" not in fuente.split('"""')[2]
+
+
+def test_la_pantalla_borra_en_el_SERVIDOR():
+    """Quitar la fila de la lista local y guardar NO la borraría: el guardado
+    hace upsert fila por fila y no sabe que una desapareció. Es exactamente lo
+    que dejó pegada la `110`."""
+    from pathlib import Path
+
+    pagina = (Path(__file__).resolve().parents[2]
+              / "frontend/app/allocations/config/page.tsx").read_text(encoding="utf-8")
+    assert "borrarFilaReparto(tipo, scenarioId, dept)" in pagina
+    assert pagina.count('borrarFila("laundry"') == 1
+    assert pagina.count('borrarFila("cafeteria"') == 1

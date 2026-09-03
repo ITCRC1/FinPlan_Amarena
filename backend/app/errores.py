@@ -233,6 +233,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "auth.credenciales_invalidas": {
         "es": "Credenciales inválidas",
         "en": "Invalid credentials"},
+    "reparto.tipo_desconocido": {
+        "es": "Tipo de reparto desconocido: '{tipo}'. Válidos: {validos}",
+        "en": "Unknown allocation type: '{tipo}'. Valid ones: {validos}"},
     "auth.solo_lectura": {
         "es": "Tu perfil ({perfil}) es de sólo lectura: podés ver todo, pero no modificar.",
         "en": "Your profile ({perfil}) is read-only: you can see everything, but not change it."},

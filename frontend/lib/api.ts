@@ -2237,6 +2237,24 @@ export interface CalculateResult {
   };
 }
 
+/**
+ * Saca un departamento de la matriz de reparto.
+ *
+ * ⚠️ `dept` va como parámetro, no en la ruta: la fila que más hay que poder
+ * borrar es la que tiene el departamento VACÍO —un renglón en blanco guardado
+ * sin llenar—, y `.../config//` no es una URL válida.
+ *
+ * No recalcula: saca la fila y deja los asientos. Rehacer el reparto es una
+ * decisión aparte.
+ */
+export async function borrarFilaReparto(
+  tipo: "laundry" | "cafeteria", scenarioId: string, dept: string,
+): Promise<{ ok: boolean; borradas: number }> {
+  return api.delete<{ ok: boolean; borradas: number }>(
+    `/allocations/${tipo}/${encodeURIComponent(scenarioId)}/config/`
+    + `?dept=${encodeURIComponent(dept)}`);
+}
+
 export async function getCafeteriaConfig(scenarioId: string): Promise<CafeteriaConfigRow[]> {
   return api.get<CafeteriaConfigRow[]>(`/allocations/cafeteria/${scenarioId}/config/`);
 }

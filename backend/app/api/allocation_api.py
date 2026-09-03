@@ -334,6 +334,44 @@ async def upsert_laundry_config(scenario_id: str, rows: list[LaundryConfigRow]):
             "descartadas": len(rows) - len(limpias)}
 
 
+@router.delete("/allocations/{tipo}/{scenario_id}/config/")
+async def borrar_fila_config(tipo: str, scenario_id: str, dept: str = ""):
+    """Saca UN departamento de la matriz de reparto.
+
+    Owner, 2026-09-03: corrigió el código de Habitaciones de `110` a `0110` y
+    la fila vieja quedó pegada — **la pantalla no tenía forma de borrar**. Los
+    kilos pasaron a sumar 1,70 en vez de 1,00 y el reparto se partió en dos,
+    con Rooms llevándose la mitad de lo que le tocaba. Hubo que sacarla por la
+    base.
+
+    ⚠️ **`dept` viaja como parámetro y no en la ruta.** La fila que hay que
+    borrar es muchas veces la que tiene el departamento VACÍO —un renglón en
+    blanco guardado sin llenar—, y `.../config//` no es una URL: el servidor la
+    normaliza y la fila queda inalcanzable justo en el caso que más importa.
+
+    Borrar acá **no recalcula**: saca la fila de la configuración y deja los
+    asientos como están. El reparto se rehace con «Recalcular», que es una
+    decisión aparte — y así se puede limpiar la matriz sin tocar los números
+    hasta estar conforme.
+    """
+    modelos = {"laundry": LaundryAllocationConfig,
+               "cafeteria": CafeteriaAllocationConfig}
+    Modelo = modelos.get(tipo)
+    if Modelo is None:
+        raise ErrorApi(422, "reparto.tipo_desconocido", tipo=tipo,
+                       validos=sorted(modelos))
+
+    async with get_session() as session:
+        await candado(session, scenario_id)
+        filas = (await session.execute(select(Modelo).where(
+            Modelo.scenario_id == scenario_id,
+            Modelo.dept_code == (dept or "")))).scalars().all()
+        for f in filas:
+            await session.delete(f)
+        await session.commit()
+    return {"ok": True, "borradas": len(filas), "dept": dept}
+
+
 # ─── Lavandería params (kilos uniformes/huéspedes + cuentas) ───────────────────
 
 async def _get_or_make_laundry_params(session, scenario_id: str) -> LaundryParams:
