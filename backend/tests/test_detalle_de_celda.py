@@ -98,7 +98,25 @@ def test_se_cierra_con_ESCAPE_y_tocando_afuera():
 def test_solo_se_marca_lo_que_de_verdad_ABRE():
     """Un adorno que no hace nada al tocarlo es peor que no tenerlo."""
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    assert "CLASE_DE[f.code] ? ABRIBLE : {}" in pagina
+    assert "CLASE_DE[f.code] ? ABRIBLE : undefined" in pagina
+
+
+def test_la_celda_abrible_SE_VE_sin_pasar_el_mouse():
+    """Owner, 2026-09-03, con la función ya desplegada: «no se ve nada».
+
+    ⚠️ El primer intento fue un subrayado punteado en `--text-disabled`, que en
+    una tabla de doscientos números es invisible. En una presentación nadie va
+    tanteando la pantalla con el mouse: la marca tiene que estar antes de
+    tocar.
+
+    Y no puede ser color: en un estado de resultados el color ya significa otra
+    cosa —rojo es negativo—, así que un renglón azul se leería como un dato
+    distinto de los de al lado.
+    """
+    css = (FRONT / "app/globals.css").read_text(encoding="utf-8")
+    assert ".fin-abrible" in css
+    assert ".fin-abrible::after" in css, "no hay marca visible sin hover"
+    assert ".fin-abrible:hover" in css, "no hay respuesta al pasar el mouse"
 
 
 def test_el_total_del_desplegable_se_dibuja():

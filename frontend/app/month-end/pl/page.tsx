@@ -838,11 +838,10 @@ export default function MonthEndPLPage() {
    *  color ya significa otra cosa —rojo es negativo— y un renglón azul se
    *  leería como un dato distinto de los de al lado. El puntito dice «hay más
    *  abajo» sin competir con los números. */
-  const ABRIBLE: React.CSSProperties = {
-    cursor: "pointer",
-    textDecoration: "underline dotted var(--text-disabled)",
-    textUnderlineOffset: 3,
-  };
+  //  El estilo vive en `globals.css` (`.fin-abrible`) y no acá porque necesita
+  //  `:hover` y un `::after`, que un estilo en línea no puede tener — y sin el
+  //  hover no hay forma de saber que la celda responde antes de tocarla.
+  const ABRIBLE = "fin-abrible";
 
   const CLASE_DE: Record<string, string> = {
     C_PAYROLL: "payroll", C_COST: "cost", C_OPEX: "opex",
@@ -2410,9 +2409,9 @@ export default function MonthEndPLPage() {
                           ? () => setCelda({ clase: CLASE_DE[f.code], clave: "",
                                              titulo: f.label })
                           : undefined}
+                        className={CLASE_DE[f.code] ? ABRIBLE : undefined}
                         title={CLASE_DE[f.code] ? "Ver las cuentas que suman esta línea" : undefined}
-                        style={{ ...TDL, fontWeight: f.fuerte ? 700 : 500,
-                                 ...(CLASE_DE[f.code] ? ABRIBLE : {}) }}>
+                        style={{ ...TDL, fontWeight: f.fuerte ? 700 : 500 }}>
                       {f.label}
                     </td>
                     {bloques.map(bl => {
@@ -2483,9 +2482,10 @@ export default function MonthEndPLPage() {
                           clave: sub.clave,
                           titulo: `${f.label} · ${sub.label}`,
                         })}
+                        className={ABRIBLE}
                         title="Ver las cuentas que suman este departamento"
                         style={{ ...TDL, paddingLeft: 26, fontSize: 11.5,
-                                 color: "var(--text-secondary)", ...ABRIBLE }}>
+                                 color: "var(--text-secondary)" }}>
                       {sub.label}
                     </td>
                     {bloques.map(bl => {
@@ -3037,12 +3037,12 @@ export default function MonthEndPLPage() {
                   crece un renglón y no se pierde nada. */}
               <td onClick={k === null ? undefined
                     : () => setCelda({ clase, clave: k, titulo: rotulo(k) })}
+                  className={k === null ? undefined : ABRIBLE}
                   title={k === null ? undefined
                     : `${rotulo(k)} — ver las cuentas que lo suman`}
                   style={{ ...TDL, fontWeight: k === null ? 700 : 500,
                            whiteSpace: "normal", overflowWrap: "anywhere",
-                           lineHeight: 1.35,
-                           ...(k === null ? {} : ABRIBLE) }}>
+                           lineHeight: 1.35 }}>
                 {k === null ? "TOTAL" : rotulo(k)}
               </td>
               {usadas.slice(0, trasVariacion).map(u => celda(u.i))}
