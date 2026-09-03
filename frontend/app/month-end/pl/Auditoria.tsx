@@ -283,26 +283,75 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
         </div>
       )}
 
+      {/* ── Los tres números, arriba de todo ──────────────────────────────
+          Owner, 2026-09-03: «total ingresos, total gastos, net profit».
+
+          ⚠️ TOTAL GASTOS no existe como línea del P&L. No se inventa una: sale
+          de la identidad del propio estado —lo que entró menos lo que quedó—,
+          calculada en el backend. Sumar renglones a mano acá sería una segunda
+          aritmética que el día que se agregue un bloque al P&L dejaría de
+          cuadrar en silencio. */}
+      {datos && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap",
+                      margin: "16px 0 4px" }}>
+          {([
+            ["Total Ingresos", datos.resumen.ingresos, "var(--positive)"],
+            ["Total Gastos", datos.resumen.gastos, "var(--text-primary)"],
+            ["Net Profit", datos.resumen.neto,
+             datos.resumen.neto < 0 ? "var(--negative)" : "var(--positive)"],
+          ] as const).map(([rotulo, valor, color]) => (
+            <div key={rotulo} style={{
+              flex: "1 1 190px", minWidth: 170, padding: "11px 15px",
+              borderRadius: 9, background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
+              borderTop: `3px solid ${color}`,
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .7,
+                            textTransform: "uppercase",
+                            color: "var(--text-secondary)", marginBottom: 3 }}>
+                {rotulo}
+              </div>
+              <div className="mono" style={{ fontSize: 20, fontWeight: 800,
+                                             color, lineHeight: 1.15 }}>
+                {usd(valor)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── 1. Cuadre ─────────────────────────────────────────────────────── */}
-      <h3 style={{ fontSize: 13, fontWeight: 800, margin: "16px 0 6px" }}>
+      <h3 style={{ fontSize: 13, fontWeight: 800, margin: "18px 0 6px" }}>
         Cuadre — cada renglón del P&L contra la suma de su detalle
       </h3>
       <div className="fin-scroll-x">
         <table style={{ borderCollapse: "collapse", minWidth: 560 }}>
           <thead><tr>
-            <th style={{ ...TH, textAlign: "left", minWidth: 250 }}>Renglón</th>
-            <th style={{ ...TH, minWidth: 120 }}>P&L (motor)</th>
-            <th style={{ ...TH, minWidth: 120 }}>Suma del detalle</th>
-            <th style={{ ...TH, minWidth: 110 }}>Dif.</th>
+            <th style={{ ...TH, textAlign: "left", minWidth: 270,
+                         borderBottom: "2px solid var(--text-primary)" }}>
+              Renglón
+            </th>
+            <th style={{ ...TH, minWidth: 130,
+                         borderBottom: "2px solid var(--text-primary)" }}>
+              P&L (motor)
+            </th>
+            <th style={{ ...TH, minWidth: 130,
+                         borderBottom: "2px solid var(--text-primary)" }}>
+              Suma del detalle
+            </th>
+            <th style={{ ...TH, minWidth: 110,
+                         borderBottom: "2px solid var(--text-primary)" }}>
+              Dif.
+            </th>
           </tr></thead>
           <tbody>
             {cuadre.map((f, i) => {
               // ── Un blanco, para que el cuadro respire entre bloques ──
               if (f.tipo === "esp") {
-                return <tr key={`esp-${i}`}><td colSpan={4} style={{ height: 9 }} /></tr>;
+                return <tr key={`esp-${i}`}><td colSpan={4} style={{ height: 10 }} /></tr>;
               }
 
-              // ── El encabezado de sección: REVENUES, Operating Expenses… ──
+              // ── El encabezado de sección: una banda, no una fila más ──
               //
               // ⚠️ Es lo que faltaba. Sin secciones, «Rooms» salía dos veces
               // —el ingreso y el gasto— y los $36.218 y los $17.847 se leían
@@ -311,10 +360,10 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                 return (
                   <tr key={`sec-${i}`}>
                     <td colSpan={4} style={{
-                      ...TDL, paddingTop: 10, paddingBottom: 3,
-                      fontSize: 11, fontWeight: 800, letterSpacing: .7,
-                      textTransform: "uppercase", color: "var(--brand)",
-                      borderBottom: "1px solid var(--border-medium)",
+                      padding: "7px 10px",
+                      fontSize: 10.5, fontWeight: 800, letterSpacing: 1,
+                      textTransform: "uppercase", color: "#fff",
+                      background: "var(--brand)",
                     }}>
                       {f.nombre}
                     </td>
@@ -322,17 +371,35 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                 );
               }
 
-              const total = f.tipo === "tot";
-              const derivado = f.tipo === "der";
+              const total = f.tipo === "tot" || f.tipo === "sub";
               const mal = f.dif !== null && Math.abs(f.dif) >= 0.005;
+
+              // Tres pesos, y cada uno dice algo distinto:
+              //   hito     — Total Revenues, Operating Profit, GOP, Net Profit
+              //   tot/sub  — el cierre de un bloque
+              //   det/der  — un renglón
+              const peso = f.hito ? 800 : total ? 700 : 400;
+              const fondo = mal ? "rgba(230,168,23,0.13)"
+                : f.hito ? "var(--bg-elevated, #EDF1F5)"
+                : total ? "var(--bg-surface)" : undefined;
+
               return (
                 <tr key={`${f.tipo}-${f.linea}-${i}`} style={{
-                  background: mal ? "rgba(230,168,23,0.10)"
-                    : total ? "var(--bg-surface)" : undefined,
-                  borderTop: total ? "1px solid var(--border-medium)" : undefined,
+                  background: fondo,
+                  // ⚠️ La regla DOBLE es la del hito, y la simple la del
+                  // subtotal. Es la convención de un estado de resultados
+                  // impreso: la línea de arriba dice «acá se cierra algo» y
+                  // cuánto pesa ese cierre.
+                  borderTop: f.hito ? "2px solid var(--text-primary)"
+                    : total ? "1px solid var(--border-medium)" : undefined,
+                  borderBottom: f.hito ? "1px solid var(--text-primary)" : undefined,
                 }}>
-                  <td style={{ ...TDL, fontWeight: total ? 800 : 400,
-                               paddingLeft: total ? 10 : 22 }}>
+                  <td style={{ ...TDL, fontWeight: peso,
+                               fontSize: f.hito ? 12.5 : 11.5,
+                               letterSpacing: f.hito ? .3 : undefined,
+                               paddingTop: total ? 6 : 3,
+                               paddingBottom: total ? 6 : 3,
+                               paddingLeft: total ? 10 : 26 }}>
                     {f.nombre}
                     {/* Los códigos sólo cuando hay algo que investigar: en un
                         renglón que cuadra son ruido, y ahora son varios por
@@ -344,8 +411,10 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                       </span>
                     )}
                   </td>
-                  <td style={{ ...TD, fontWeight: total ? 800 : 400,
-                               color: (f.motor ?? 0) < 0 ? "var(--negative)" : undefined }}>
+                  <td className="mono" style={{ ...TD, fontWeight: peso,
+                        fontSize: f.hito ? 12.5 : 11.5,
+                        paddingTop: total ? 6 : 3, paddingBottom: total ? 6 : 3,
+                        color: (f.motor ?? 0) < 0 ? "var(--negative)" : undefined }}>
                     {usd(f.motor ?? 0)}
                   </td>
                   {/* Un TOTAL es suma de otros renglones y un DERIVADO es
@@ -353,14 +422,17 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                       que no tienen detalle contra qué cuadrar. Poner cero ahí
                       inventaría un descuadre — eran seis en el primer
                       intento. */}
-                  <td style={{ ...TD, color: "var(--text-disabled)" }}
+                  <td className="mono" style={{ ...TD, fontWeight: peso,
+                        color: "var(--text-disabled)",
+                        paddingTop: total ? 6 : 3, paddingBottom: total ? 6 : 3 }}
                       title={f.detalle === null
                         ? "No se compone de asientos: es una suma de otros renglones."
                         : undefined}>
                     {f.detalle === null ? "—" : usd(f.detalle)}
                   </td>
-                  <td style={{ ...TD, fontWeight: mal ? 800 : 400,
-                               color: mal ? "var(--negative)" : "var(--text-disabled)" }}>
+                  <td className="mono" style={{ ...TD, fontWeight: mal ? 800 : peso,
+                        paddingTop: total ? 6 : 3, paddingBottom: total ? 6 : 3,
+                        color: mal ? "var(--negative)" : "var(--text-disabled)" }}>
                     {f.dif === null ? "" : usd(f.dif)}
                   </td>
                 </tr>

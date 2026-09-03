@@ -71,6 +71,19 @@ GASTO = {pl_engine.TIPO_COSTO, pl_engine.TIPO_PAYROLL, pl_engine.TIPO_OPEX,
 
 CERO = Decimal("0")
 
+#: Los renglones que se leen de un vistazo: los que un dueño busca primero.
+#:
+#: Owner, 2026-09-03: *«meté líneas bold y cuadros para que se lea bien: total
+#: ingresos, total gastos, net profit, un subtotal bien identificado»*.
+#:
+#: ⚠️ Se marcan en el BACKEND y no en la pantalla porque el rótulo cambia
+#: —«TOTAL GROSS OPERATING PROFIT» hoy, otra cosa mañana— y comparar textos en
+#: el front dejaría de resaltar la línea sin que nada fallara. El `line_code`
+#: es lo estable.
+HITOS = {"TOTAL_REVENUES", "TOTAL_OPERATING_EXPENSES", "OPERATING_PROFIT",
+         "TOTAL_OVERHEAD", "GOP", "EBITDA_BEFORE", "EBITDA_AFTER", "EBT",
+         "NET_PROFIT"}
+
 #: Nombre de cuenta cuando el asiento vino sin él.
 #:
 #: Owner, 2026-09-03: *«que todas las cuentas lleven nombre»*.
@@ -290,24 +303,29 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         for tipo, rotulo, codigos in CONSOLIDADO:
             if tipo == "esp":
                 cuadre.append({"tipo": "esp", "linea": "", "nombre": "",
-                               "seccion": "", "motor": None,
+                               "seccion": "", "hito": False, "motor": None,
                                "detalle": None, "dif": None})
                 continue
             if tipo == "sec":
                 cuadre.append({"tipo": "sec", "linea": "", "nombre": rotulo,
-                               "seccion": "", "motor": None,
+                               "seccion": "", "hito": False, "motor": None,
                                "detalle": None, "dif": None})
                 continue
 
             motor = sum((Decimal(str(lineas_motor[c].amount_usd))
                          for c in codigos if c in lineas_motor), CERO)
 
-            # Un TOTAL no tiene detalle propio: es la suma de otros renglones.
-            # Comparar su «detalle» daría cero contra el total y sería un
-            # descuadre inventado — los seis del primer intento.
-            if tipo == "tot":
-                cuadre.append({"tipo": "tot", "linea": " · ".join(codigos),
+            # Un TOTAL o SUBTOTAL no tiene detalle propio: es la suma de otros
+            # renglones. Comparar su «detalle» daría cero contra el total y
+            # sería un descuadre inventado — los seis del primer intento.
+            #
+            # ⚠️ El `sub` estaba sin tratar y caía en la rama de detalle, así
+            # que `TOTAL RENT AND MANAGEMENT FEES` y sus tres hermanos se
+            # auditaban como si fueran renglones.
+            if tipo in ("tot", "sub"):
+                cuadre.append({"tipo": tipo, "linea": " · ".join(codigos),
                                "nombre": rotulo, "seccion": "",
+                               "hito": any(c in HITOS for c in codigos),
                                "motor": _f(motor), "detalle": None, "dif": None})
                 continue
 
@@ -318,8 +336,8 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
                 if motor != CERO:
                     cuadre.append({"tipo": "der", "linea": " · ".join(codigos),
                                    "nombre": rotulo, "seccion": "",
-                                   "motor": _f(motor), "detalle": None,
-                                   "dif": None})
+                                   "hito": False, "motor": _f(motor),
+                                   "detalle": None, "dif": None})
                 continue
 
             det = sum((por_linea.get(c, CERO) for c in codigos), CERO)
@@ -331,6 +349,7 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
                 "linea": " · ".join(codigos),
                 "nombre": rotulo,
                 "seccion": "",
+                "hito": False,
                 "motor": _f(motor),
                 "detalle": _f(det),
                 "dif": _f(motor - det),
@@ -343,14 +362,15 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
                      if c not in atribuidos and d != CERO]
         if huerfanas:
             cuadre.append({"tipo": "esp", "linea": "", "nombre": "",
-                           "seccion": "", "motor": None, "detalle": None,
-                           "dif": None})
+                           "seccion": "", "hito": False, "motor": None,
+                           "detalle": None, "dif": None})
             cuadre.append({"tipo": "sec", "linea": "",
                            "nombre": "NO CAEN EN NINGÚN RENGLÓN", "seccion": "",
-                           "motor": None, "detalle": None, "dif": None})
+                           "hito": False, "motor": None, "detalle": None,
+                           "dif": None})
             for code, det in huerfanas:
                 cuadre.append({
-                    "tipo": "det", "linea": code,
+                    "tipo": "det", "linea": code, "hito": False,
                     "nombre": "(ningún renglón lo dibuja)", "seccion": "HUERFANO",
                     "motor": 0.0, "detalle": _f(det), "dif": _f(-det)})
 
@@ -367,6 +387,29 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         totales = {c: round(sum(d[c] for d in departamentos), 2) for c in COLUMNAS}
         totales["total_gasto"] = round(
             sum(d["total_gasto"] for d in departamentos), 2)
+
+        # ── 3b. Los tres números de cabecera ─────────────────────────────────
+        #
+        # Owner, 2026-09-03: *«total ingresos, total gastos, net profit»*.
+        #
+        # ⚠️ **TOTAL GASTOS no existe como línea del P&L**, y no se inventa una:
+        # se deduce de la identidad del propio estado —lo que entró menos lo que
+        # quedó—. Sumar renglones a mano acá sería una segunda aritmética que el
+        # día que se agregue un bloque al P&L dejaría de cuadrar en silencio.
+        #
+        # Es además el número que el owner estaba cotejando cuando encontró que
+        # el Resumen 12m y el P&L diferían en los $1.121,36 de lavandería.
+        def _linea(code: str) -> Decimal:
+            fila = lineas_motor.get(code)
+            return Decimal(str(fila.amount_usd)) if fila else CERO
+
+        ingresos = _linea("TOTAL_REVENUES")
+        neto = _linea("NET_PROFIT")
+        resumen = {
+            "ingresos": _f(ingresos),
+            "gastos": _f(ingresos - neto),
+            "neto": _f(neto),
+        }
 
         # ── 4. La cobertura: la prueba de que no se descartó nada ────────────
         #
@@ -426,6 +469,7 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
             "totales": totales,
             "columnas": COLUMNAS,
             "cobertura": cobertura,
+            "resumen": resumen,
             "avisos": avisos,
             "nota_cuenta_local": (
                 "El GL que importa la app viene en códigos USALI de cuatro "

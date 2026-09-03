@@ -2702,7 +2702,14 @@ export interface AuditoriaCuadre {
    *
    *  ⚠️ Sin esto salía una lista plana donde **«Rooms» aparecía dos veces**
    *  —el ingreso y el gasto— sin nada que dijera cuál era cuál. */
-  tipo: "sec" | "det" | "tot" | "der" | "esp";
+  tipo: "sec" | "det" | "sub" | "tot" | "der" | "esp";
+  /** Un renglón que se busca de un vistazo: Total Revenues, Operating Profit,
+   *  GOP, EBITDA, Net Profit.
+   *
+   *  ⚠️ Lo marca el BACKEND por `line_code`, no la pantalla por el rótulo: el
+   *  texto cambia («TOTAL GROSS OPERATING PROFIT» hoy, otra cosa mañana) y
+   *  comparar textos acá dejaría de resaltar la línea sin que nada fallara. */
+  hito: boolean;
   linea: string; nombre: string; seccion: string;
   /** Lo que dice el motor. `null` en secciones y blancos. */
   motor: number | null;
@@ -2732,6 +2739,10 @@ export interface Auditoria {
     estadisticos: number; monto_estadistico: number;
     opciones_gl: number; suma_detalle: number;
   };
+  /** Los tres números de cabecera. `gastos` NO es una línea del P&L: sale de
+   *  la identidad del estado —ingresos menos resultado—, para no inventar una
+   *  segunda aritmética que el día que cambie el P&L deje de cuadrar. */
+  resumen: { ingresos: number; gastos: number; neto: number };
 }
 export async function getAuditoria(
   scenarioId: string, mes: number,

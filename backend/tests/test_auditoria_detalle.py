@@ -906,3 +906,56 @@ def test_la_pantalla_no_deja_secciones_HUERFANAS_al_esconder_filas():
     un título sobre la nada, y dos blancos seguidos un agujero."""
     src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
     assert 'f.tipo === "sec"' in src and "visibles.slice(i + 1)" in src
+
+
+# ─── La jerarquía visual (owner, 2026-09-03) ────────────────────────────────
+#
+# «Meté líneas bold y cuadros para que se lea bien: total ingresos, total
+# gastos, net profit, un subtotal bien identificado. Y profesional.»
+
+def test_los_SUBTOTALES_no_se_auditan_como_si_fueran_renglones():
+    """⚠️ El tipo `sub` estaba sin tratar y caía en la rama de detalle, así que
+    `TOTAL RENT AND MANAGEMENT FEES` y sus tres hermanos se comparaban contra un
+    detalle que no tienen — un descuadre por el monto entero."""
+    import inspect
+
+    from app.api import auditoria_api
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert 'if tipo in ("tot", "sub"):' in fuente
+
+
+def test_los_HITOS_se_marcan_por_CODIGO_y_no_por_rotulo():
+    """El texto cambia —«TOTAL GROSS OPERATING PROFIT» hoy, otra cosa mañana— y
+    comparar textos en la pantalla dejaría de resaltar la línea sin que nada
+    fallara. El `line_code` es lo estable."""
+    from app.api.auditoria_api import HITOS
+    for code in ("TOTAL_REVENUES", "OPERATING_PROFIT", "GOP", "NET_PROFIT"):
+        assert code in HITOS
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "f.hito" in src
+    for rotulo in ("TOTAL REVENUES", "NET PROFIT", "GROSS OPERATING"):
+        assert rotulo not in src, (
+            f"la pantalla volvió a reconocer «{rotulo}» por su texto")
+
+
+def test_TOTAL_GASTOS_no_se_inventa_sumando_renglones():
+    """⚠️ No existe como línea del P&L. Se deduce de la identidad del estado
+    —ingresos menos resultado—; sumar renglones a mano sería una segunda
+    aritmética que el día que se agregue un bloque dejaría de cuadrar en
+    silencio, y este es justo el número que el owner estaba cotejando cuando
+    encontró los $1.121,36 de lavandería."""
+    import inspect
+
+    from app.api import auditoria_api
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert '"gastos": _f(ingresos - neto)' in fuente
+
+
+def test_la_pantalla_distingue_TRES_pesos():
+    """Un hito, un total y un renglón no se pueden ver igual: si todo pesa lo
+    mismo, no pesa nada."""
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "const peso = f.hito ? 800 : total ? 700 : 400;" in src
+    # La regla doble del hito y la simple del subtotal — la convención de un
+    # estado de resultados impreso.
+    assert '2px solid var(--text-primary)' in src
