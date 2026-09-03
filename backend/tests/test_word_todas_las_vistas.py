@@ -102,11 +102,11 @@ def test_un_capitulo_que_falla_no_se_lleva_el_DOCUMENTO():
     cierre entero por un cuadro."""
     src = _fuente()
     cuerpo = src[src.index("for (const clave of activos)"):]
-    assert "} catch (e) {" in cuerpo[:600]
+    assert "} catch (e) {" in cuerpo[:900]
     # ⚠️ Y SE DICE cuál se cayó. Un capítulo que desaparece en silencio es un
     # dato que falta sin aviso — que es cómo el owner terminó con un documento
     # sin el P&L Statement y sin saberlo.
-    assert "afuera.push" in cuerpo[:900]
+    assert "afuera.push" in cuerpo[:1200]
 
 
 def test_un_cuadro_SIN_DATOS_no_entra_al_documento():
@@ -133,3 +133,58 @@ def test_el_Word_no_se_baja_con_la_pantalla_A_MEDIO_CARGAR():
     src = _fuente()
     cuerpo = src[src.index("async function bajarWord()"):]
     assert "if (!datos.length || !gastos.length)" in cuerpo[:1500]
+
+
+# ─── Que cada capítulo baje el sub-tab COMPLETO (owner, 2026-09-03) ─────────
+#
+# «El tab de Auditoría no baja el archivo completo, sólo la primera parte.»
+
+def test_la_AUDITORIA_baja_sus_TRES_bloques():
+    """⚠️ La Auditoría son tres cuadros, no uno: si CUADRA, de QUÉ está hecho y
+    CÓMO se reparte. El capítulo armaba sólo el cuadre.
+
+    Juntarlos en una hoja mezclaría tres tablas con columnas que no tienen nada
+    que ver; por eso son tres cuadros y no uno con todo pegado.
+    """
+    src = _fuente()
+    cuerpo = src[src.index("    auditoria: async () => {"):src.index("    resumen12:")]
+    assert "· Cuadre" in cuerpo
+    assert "Detalle por cuenta" in cuerpo
+    assert "Por departamento" in cuerpo
+    assert "a.departamentos" in cuerpo and "a.totales" in cuerpo
+
+
+def test_el_detalle_de_auditoria_baja_PLANO():
+    """⚠️ Con el departamento y la naturaleza en su columna, no agrupado como
+    en la pantalla: en un Excel una tabla plana se pivotea sin tocar nada, y con
+    encabezados de grupo intercalados hay que limpiarla antes de usarla."""
+    src = _fuente()
+    cuerpo = src[src.index("    auditoria: async () => {"):src.index("    resumen12:")]
+    assert '{ label: "Departamento"' in cuerpo
+    assert '{ label: "Naturaleza"' in cuerpo
+
+
+def test_los_cuadros_de_DOS_bloques_bajan_los_dos():
+    """Revenue Detail y F&B muestran mes Y acumulado. Bajar sólo el acumulado
+    deja fuera el mes que se está cerrando — la misma mitad que faltaba en
+    Auditoría."""
+    src = _fuente()
+    assert "const CORTES_DEL_CIERRE = () =>" in src, (
+        "el par mes/acumulado dejó de estar declarado en un solo lugar, y cada "
+        "capítulo puede volver a elegir uno solo por su cuenta")
+    for clave in ("revdet:", "fb:"):
+        cuerpo = src[src.index(f"    {clave} async () => {{"):]
+        cuerpo = cuerpo[:cuerpo.index("\n    },")]
+        assert "CORTES_DEL_CIERRE()" in cuerpo, f"«{clave}» baja un solo corte"
+
+
+def test_el_porcentaje_de_costo_se_calcula_sobre_SU_corte():
+    """Es un cociente, no una suma: promediar doce porcentajes da un número que
+    no es el costo del período. Con dos cortes, cada uno tiene el suyo."""
+    src = _fuente()
+    cuerpo = src[src.index("    fb: async () => {"):]
+    cuerpo = cuerpo[:cuerpo.index("\n    },")]
+    assert "const pctCosto = (sid: string, g:" in cuerpo
+    assert "ms: number[]) => {" in cuerpo, (
+        "el % de costo dejó de recibir el corte: volvería a calcularse sobre "
+        "un período fijo aunque la columna diga otro")

@@ -25,9 +25,10 @@ import { useTranslations } from "next-intl";
 import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
   getAuditoria, getPLDetail, getComentariosPL, guardarComentarioPL,
+  getEstadisticasCierre,
   getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
   type ConsultaFila, type ConsultaCatalogo, type FbDetalle, type FbMes, type IngresoDetalle,
-  type AuditoriaCuadre, type PLDetailFila,
+  type AuditoriaCuadre, type PLDetailFila, type EstadisticasCierre,
   type Scenario, type PLCompareVersion, type PLColumn, type GastoEscenario,
 } from "@/lib/api";
 import { HOTEL_ID } from "@/lib/hotel";
@@ -1356,6 +1357,18 @@ export default function MonthEndPLPage() {
    *  Cada entrada devuelve una LISTA porque hay sub-tabs que rinden más de un
    *  cuadro: Resumen 12m saca uno por versión.
    */
+  /** Los dos cortes del cierre: el mes y el acumulado hasta ese mes.
+   *
+   *  ⚠️ Es el MISMO par que dibujan los sub-tabs. Bajar sólo el acumulado deja
+   *  fuera el mes que se está cerrando —la mitad del cuadro— y bajar sólo el
+   *  mes pierde el año. Declarado acá una vez para que ningún capítulo elija
+   *  uno solo por su cuenta. */
+  const CORTES_DEL_CIERRE = () => [
+    { rotulo: MESES[mes - 1], meses: Array.from({ length: 1 }, () => mes) },
+    { rotulo: `YTD ${MESES[mes - 1]}`,
+      meses: Array.from({ length: mes }, (_, i) => i + 1) },
+  ];
+
   const CAPITULOS: Partial<Record<Vista, () => Promise<Cuadro[]>>> = {
     // ⚠️ DOS capítulos, no uno. En la pantalla el botón «Totales /
     // Departamental» muestra una vista por vez; en el documento caben las dos,
@@ -1367,24 +1380,92 @@ export default function MonthEndPLPage() {
       const id = ranuras[varA];
       if (!id) return [];
       const a = await getAuditoria(id, mes);
-      return [{
-        titulo: t("tab_auditoria"),
-        subtitulo: a.escenario + " · " + MESES[mes - 1] + " " + year + " · USD",
+      const cab = `${a.escenario} · ${MESES[mes - 1]} ${year} · USD`;
+
+      // ⚠️ La Auditoría son TRES cuadros, no uno. El capítulo armaba sólo el
+      // primero —el cuadre— y el owner lo vio enseguida: «el tab de auditoría
+      // no baja el archivo completo, sólo la primera parte» (2026-09-03).
+      //
+      // Los tres contestan preguntas distintas: si CUADRA, de QUÉ está hecho, y
+      // CÓMO se reparte. Juntarlos en una sola hoja mezclaría tres tablas con
+      // columnas que no tienen nada que ver.
+      const cuadres: Cuadro[] = [{
+        titulo: `${t("tab_auditoria")} · Cuadre`,
+        subtitulo: cab,
+        hoja: "Auditoría Cuadre",
         columnas: [
           { label: "Renglón", ancho: 38, formato: "texto" as const },
           { label: "P&L (motor)", ancho: 17, formato: "usd2" as const },
           { label: "Suma del detalle", ancho: 17, formato: "usd2" as const },
           { label: "Dif.", ancho: 14, formato: "usd2" as const },
         ],
-        // Las filas en blanco del P&L no viajan al documento: en una hoja
-        // impresa una fila vacía se lee como un dato que falta.
+        // Las filas en blanco del P&L no viajan: en una hoja impresa una fila
+        // vacía se lee como un dato que falta.
         filas: a.cuadre.filter((f: AuditoriaCuadre) => f.tipo !== "esp")
-                        .map((f: AuditoriaCuadre) => ({
+                       .map((f: AuditoriaCuadre) => ({
           label: (f.tipo === "det" || f.tipo === "der") ? "    " + f.nombre : f.nombre,
           es_total: f.tipo === "sec" || f.tipo === "tot" || f.tipo === "sub",
           valores: [f.motor, f.detalle, f.dif],
         })),
       }];
+
+      // ── 2. El detalle, cuenta por cuenta ────────────────────────────────
+      //
+      // ⚠️ PLANO, con el departamento y la naturaleza en su columna, y no
+      // agrupado como en la pantalla. En un Excel una tabla plana se pivotea
+      // sin tocar nada; con encabezados de grupo intercalados hay que limpiarla
+      // antes de poder usarla, y ahí es donde la gente se equivoca.
+      const conMonto = a.detalle.filter(f => f.movimiento);
+      if (conMonto.length) {
+        cuadres.push({
+          titulo: `${t("tab_auditoria")} · Detalle por cuenta`,
+          subtitulo: `${cab} · ${conMonto.length} asientos con monto`,
+          hoja: "Auditoría Detalle",
+          columnas: [
+            { label: "Departamento", ancho: 26, formato: "texto" as const },
+            { label: "Cuenta", ancho: 9, formato: "texto" as const },
+            { label: "Nombre", ancho: 34, formato: "texto" as const },
+            { label: "Naturaleza", ancho: 15, formato: "texto" as const },
+            { label: "Renglón del P&L", ancho: 22, formato: "texto" as const },
+            { label: "Monto US$", ancho: 15, formato: "usd2" as const },
+          ],
+          filas: conMonto.map(f => ({
+            label: f.dept_name ? `${f.dept_code} · ${f.dept_name}` : f.dept_code,
+            es_total: false,
+            valores: [f.account_code, f.account_name, f.tipo,
+                      f.linea || "(no cae en ninguna línea)", f.monto],
+          })),
+        });
+      }
+
+      // ── 3. La matriz por departamento ───────────────────────────────────
+      if (a.departamentos.length) {
+        cuadres.push({
+          titulo: `${t("tab_auditoria")} · Por departamento`,
+          subtitulo: cab,
+          hoja: "Auditoría x Depto",
+          columnas: [
+            { label: "Departamento", ancho: 30, formato: "texto" as const },
+            ...a.columnas.map(c => ({ label: c, ancho: 15,
+                                      formato: "usd2" as const })),
+            { label: "Total gasto", ancho: 16, formato: "usd2" as const },
+          ],
+          filas: [
+            ...a.departamentos.map(d => ({
+              label: d.dept_name ? `${d.dept_code} · ${d.dept_name}`
+                                 : String(d.dept_code),
+              es_total: false,
+              valores: [...a.columnas.map(c => Number(d[c] ?? 0)),
+                        Number(d.total_gasto ?? 0)],
+            })),
+            { label: "TOTAL", es_total: true,
+              valores: [...a.columnas.map(c => Number(a.totales[c] ?? 0)),
+                        Number(a.totales.total_gasto ?? 0)] },
+          ],
+        });
+      }
+
+      return cuadres;
     },
     resumen12: async () => resumen12Cuadros(),
     doce: async () => {
@@ -1465,61 +1546,72 @@ export default function MonthEndPLPage() {
       const ids = [ranuras[varA], ranuras[varB]].filter(Boolean);
       if (!ids.length) return [];
       const det = await getIngresoDetalle(ids);
-      const meses = Array.from({ length: mes }, (_, i) => i + 1);
-      const suma = (sid: string, code: string) => {
+      // ⚠️ Las DOS columnas por versión, como la pantalla. Bajar sólo el
+      // acumulado deja fuera el mes que se está cerrando, que es la mitad del
+      // cuadro — el mismo defecto que el owner vio en Auditoría.
+      const cortes = CORTES_DEL_CIERRE();
+      const suma = (sid: string, code: string, ms: number[]) => {
         const e = det.escenarios.find(x => x.scenario_id === sid);
         if (!e) return null;
-        return e.meses.filter(m => meses.includes(m.month))
+        return e.meses.filter(m => ms.includes(m.month))
           .reduce((a, m) => a + Number(m[code] ?? 0), 0);
       };
       const codigos = Object.keys(det.nombres).sort(
         (a, b) => det.nombres[a].localeCompare(det.nombres[b]));
       return [{
         titulo: t("tab_revdet"),
-        subtitulo: "YTD " + MESES[mes - 1] + " " + year + " · USD",
+        subtitulo: `${MESES[mes - 1]} ${year} y acumulado · USD`,
+        hoja: "Revenue Detail",
         columnas: [
           { label: "Concepto", ancho: 34, formato: "texto" as const },
-          ...ids.map(id => ({ label: etiqueta(id), ancho: 18,
-                              formato: "usd2" as const })),
+          ...ids.flatMap(id => cortes.map(c => ({
+            label: `${etiqueta(id)} · ${c.rotulo}`, ancho: 18,
+            formato: "usd2" as const }))),
         ],
         filas: codigos
-          .filter(c => ids.some(id => Math.abs(suma(id, c) ?? 0) >= 0.005))
+          .filter(c => ids.some(id => cortes.some(
+            k => Math.abs(suma(id, c, k.meses) ?? 0) >= 0.005)))
           .map(c => ({ label: det.nombres[c], es_total: false,
-                       valores: ids.map(id => suma(id, c)) })),
+                       valores: ids.flatMap(id => cortes.map(
+                         k => suma(id, c, k.meses))) })),
       }];
     },
     fb: async () => {
       const ids = [ranuras[varA], ranuras[varB]].filter(Boolean);
       if (!ids.length) return [];
       const d = await getFbDetalle(ids);
-      const meses = Array.from({ length: mes }, (_, i) => i + 1);
-      const suma = (sid: string, campo: keyof FbMes) => {
+      const cortes = CORTES_DEL_CIERRE();
+      const suma = (sid: string, campo: keyof FbMes, ms: number[]) => {
         const e = d.escenarios.find(x => x.scenario_id === sid);
         if (!e) return null;
-        return e.meses.filter(m => meses.includes(m.month))
+        return e.meses.filter(m => ms.includes(m.month))
           .reduce((a, m) => a + Number(m[campo]), 0);
       };
-      const pctCosto = (sid: string, g: "comida" | "bebida" | "misc") => {
-        const ing = suma(sid, ("ing_" + g) as keyof FbMes);
-        const cos = suma(sid, ("cos_" + g) as keyof FbMes);
+      // ⚠️ El % de costo se calcula sobre el ACUMULADO DEL CORTE, no
+      // promediando meses: es un cociente. Promediar doce porcentajes da un
+      // número que no es el costo del período.
+      const pctCosto = (sid: string, g: "comida" | "bebida" | "misc",
+                        ms: number[]) => {
+        const ing = suma(sid, ("ing_" + g) as keyof FbMes, ms);
+        const cos = suma(sid, ("cos_" + g) as keyof FbMes, ms);
         return ing ? (cos ?? 0) / ing : null;
       };
       return [{
         titulo: t("tab_fb"),
-        subtitulo: "YTD " + MESES[mes - 1] + " " + year + " · USD",
+        subtitulo: `${MESES[mes - 1]} ${year} y acumulado · USD`,
+        hoja: "F&B Cost Detail",
         columnas: [
           { label: "Concepto", ancho: 34, formato: "texto" as const },
-          ...ids.map(id => ({ label: etiqueta(id), ancho: 18,
-                              formato: "usd2" as const })),
+          ...ids.flatMap(id => cortes.map(c => ({
+            label: `${etiqueta(id)} · ${c.rotulo}`, ancho: 18,
+            formato: "usd2" as const }))),
         ],
         filas: FB_FILAS.filter(f => !f.hueco).map(f => ({
           label: f.label,
           es_total: !!f.fuerte,
-          // ⚠️ El % de costo se calcula sobre el ACUMULADO del período, no
-          // promediando meses: es un cociente. Promediar doce porcentajes da un
-          // número que no es el costo del año.
-          valores: ids.map(id => f.pctDe ? pctCosto(id, f.pctDe)
-            : f.campo ? suma(id, f.campo) : null),
+          valores: ids.flatMap(id => cortes.map(k => f.pctDe
+            ? pctCosto(id, f.pctDe, k.meses)
+            : f.campo ? suma(id, f.campo, k.meses) : null)),
         })),
       }];
     },
@@ -1685,12 +1777,63 @@ export default function MonthEndPLPage() {
    *   como «el mes no tuvo movimiento»; en Excel una hoja vacía se ve vacía, y
    *   sacarla dejaría la duda de si el tab existe.
    */
+  /** La franja de estadísticas, para los documentos.
+   *
+   * Owner, 2026-09-03: *«no están saliendo las estadísticas en cada tab»*.
+   *
+   * ⚠️ En la pantalla se dibuja UNA vez arriba de los sub-tabs, así que se ve
+   * en todos. En un documento cada hoja se lee sola —se imprime, se manda
+   * suelta— y sin las estadísticas al lado los montos no tienen contra qué
+   * leerse: 56.001 de ingreso con 132 noches vendidas dice algo muy distinto
+   * que con 400.
+   *
+   * Los rótulos son los MISMOS que en pantalla: ver `Estadisticas.tsx`. Que el
+   * documento llame «Average Daily Room Only» a lo que la pantalla llama otra
+   * cosa obliga a comprobar que son el mismo número.
+   */
+  async function franjaKpis(): Promise<{
+    kpis: { label: string; valores: (string | number | null)[] }[];
+    kpis_columnas: string[];
+  } | null> {
+    const ids = usadas.map(u => u.id);
+    if (!ids.length) return null;
+    const desde = horizonte === "month" ? mes : 1;
+    const hasta = horizonte === "full" ? 12 : mes;
+    let datosKpi: (EstadisticasCierre | null)[];
+    try {
+      datosKpi = await Promise.all(ids.map(id =>
+        getEstadisticasCierre(id, desde, hasta).catch(() => null)));
+    } catch {
+      return null;   // sin estadísticas el documento sale igual; sin documento, no
+    }
+    if (!datosKpi.some(Boolean)) return null;
+    const fila = (label: string, get: (e: EstadisticasCierre) => number | null) =>
+      ({ label, valores: datosKpi.map(e => (e ? get(e) : null)) });
+    const hayClub = datosKpi.some(e => e && e.club_pagando != null);
+    return {
+      kpis_columnas: usadas.map(u => etiqueta(u.id)),
+      kpis: [
+        fila("Total available Rooms", e => e.rooms_available),
+        fila("Total Rooms Occupied", e => e.rooms_occupied),
+        fila("Total Guests", e => e.guests),
+        fila("% Occupancy", e => e.occupancy_pct),
+        fila("Average Daily Room Only", e => e.adr),
+        fila("Total RevPAR", e => e.revpar),
+        ...(hayClub ? [
+          fila("Socios pagando (Club)", e => e.club_pagando),
+          fila("Cuota promedio por socio", e => e.club_cuota_promedio),
+        ] : []),
+      ],
+    };
+  }
+
   async function bajarExcel() {
     if (!datos.length || !gastos.length) {
       alert("Todavía se están cargando los datos de la pantalla. Esperá a que "
             + "se dibujen los cuadros y volvé a bajar el Excel.");
       return;
     }
+    const franja = await franjaKpis();
     const cuadros: Cuadro[] = [];
     const fallaron: string[] = [];
     for (const v of VISTAS) {
@@ -1702,7 +1845,7 @@ export default function MonthEndPLPage() {
           // libro resuelve los repetidos.
           // El capítulo manda su nombre de pestaña si lo tiene; si no, el
           // título. Excel lo corta a 31 y el libro resuelve los repetidos.
-          cuadros.push({ ...c, hoja: c.hoja || c.titulo });
+          cuadros.push({ ...c, ...(franja || {}), hoja: c.hoja || c.titulo });
         }
       } catch {
         fallaron.push(t(`tab_${v.key}`));
@@ -1746,6 +1889,7 @@ export default function MonthEndPLPage() {
 
     const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
     const notas = await notasDelMes();
+    const franja = await franjaKpis();
     const cuadros: Cuadro[] = [];
     const afuera: string[] = [];
     for (const clave of activos) {
@@ -1758,7 +1902,10 @@ export default function MonthEndPLPage() {
         const suyas = clave === "estado" ? notasDe(notas, ["__pl__"])
           : ["revenue", "payroll", "cost", "opex", "property"].includes(clave)
             ? notasDe(notas, [clave]) : [];
-        if (suyas.length) hechos = hechos.map(c => ({ ...c, comentarios: suyas }));
+        hechos = hechos.map(c => ({
+          ...c, ...(franja || {}),
+          ...(suyas.length ? { comentarios: suyas } : {}),
+        }));
       } catch (e) {
         // Un capítulo que falla no puede llevarse el documento entero: se cae
         // ése y los demás salen igual. Pero SE DICE cuál — un capítulo que

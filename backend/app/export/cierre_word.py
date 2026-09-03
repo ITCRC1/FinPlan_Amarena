@@ -313,6 +313,67 @@ def _portada(doc, propiedad: str, titulo: str, periodo: str,
     r.font.size = Pt(9); r.font.color.rgb = GRIS
 
 
+def _franja_kpis(doc, cuadro: dict) -> None:
+    """La franja de estadísticas, arriba del cuadro.
+
+    Owner, 2026-09-03: *«no están saliendo las estadísticas en cada tab»*.
+
+    ⚠️ En la pantalla la franja se dibuja UNA vez arriba de los sub-tabs, así
+    que se ve en todos. En un documento **cada hoja se lee sola** —se imprime,
+    se manda suelta— y sin las estadísticas al lado los montos no tienen contra
+    qué leerse: 56.001 de ingreso con 132 noches vendidas dice algo muy
+    distinto que con 400.
+
+    Va compacta y en gris: es contexto, no el cuadro. Si compitiera con la
+    tabla, cada página tendría dos cosas que parecen el reporte.
+    """
+    filas = cuadro.get("kpis") or []
+    columnas = cuadro.get("kpis_columnas") or []
+    if not filas or not columnas:
+        return
+
+    tabla = doc.add_table(rows=1, cols=1 + len(columnas))
+    _sin_rejilla(tabla)
+    _apretar(tabla, arriba=8, abajo=8)
+
+    enc = tabla.rows[0]
+    p = _vaciar(enc.cells[0])
+    r = p.add_run("ESTADÍSTICAS")
+    r.font.size = Pt(7); r.font.bold = True; r.font.color.rgb = GRIS
+    for i, col in enumerate(columnas, start=1):
+        p = _vaciar(enc.cells[i])
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = p.add_run(str(col))
+        r.font.size = Pt(7); r.font.bold = True; r.font.color.rgb = GRIS
+    for celda in enc.cells:
+        _regla(celda, "bottom", 4, "C7CCD1")
+
+    for fila in filas:
+        celdas = tabla.add_row().cells
+        p = _vaciar(celdas[0])
+        r = p.add_run(str(fila.get("label") or ""))
+        r.font.size = Pt(7.5); r.font.color.rgb = GRIS
+        for i, v in enumerate(fila.get("valores") or [], start=1):
+            if i >= len(celdas):
+                break
+            p = _vaciar(celdas[i])
+            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            # El formato lo decide el rótulo: la ocupación es un porcentaje y
+            # la tarifa son dólares. Mandar el formato por fila desde la
+            # pantalla sería una tercera copia de la misma decisión.
+            rot = str(fila.get("label") or "").lower()
+            fmt = "pct" if "%" in rot else ("usd2" if ("adr" in rot or "daily" in rot
+                                                      or "revpar" in rot
+                                                      or "cuota" in rot) else "num")
+            r = p.add_run(_texto(v, fmt))
+            r.font.size = Pt(7.5); r.font.bold = True; r.font.color.rgb = NEGRO
+
+    seccion = doc.sections[-1]
+    _anchos(tabla, [{"ancho": 26}] + [{"ancho": 14}] * len(columnas),
+            seccion.page_width - seccion.left_margin - seccion.right_margin)
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+
+
 def _tabla(doc, cuadro: dict) -> None:
     columnas = cuadro.get("columnas") or []
     filas = cuadro.get("filas") or []
@@ -471,6 +532,7 @@ def build_cierre_docx(cuadros: list[dict], propiedad: str, titulo: str,
             r = p.add_run(sub)
             r.font.size = Pt(9.5); r.font.color.rgb = GRIS
 
+        _franja_kpis(doc, cuadro)
         _tabla(doc, cuadro)
         _comentarios(doc, cuadro.get("comentarios"))
 

@@ -59,6 +59,18 @@ export interface Cuadro {
    *  aparezcan en el box editable». Separar lo escrito de donde se escribe
    *  haría que en la reunión se comente dos veces lo mismo. */
   comentarios?: string[];
+  /** La franja de estadísticas, como cabecera del cuadro.
+   *
+   *  Owner, 2026-09-03: «no están saliendo las estadísticas en cada tab».
+   *
+   *  ⚠️ En la pantalla la franja se dibuja UNA vez arriba de los sub-tabs, así
+   *  que se ve en todos. En un documento cada hoja se lee sola —se imprime, se
+   *  manda suelta— y sin las estadísticas al lado, los montos no tienen contra
+   *  qué leerse: 56.001 de ingreso con 132 noches vendidas dice algo distinto
+   *  que con 400. */
+  kpis?: { label: string; valores: (string | number | null)[] }[];
+  /** Los rótulos de las columnas de `kpis` (una por versión). */
+  kpis_columnas?: string[];
 }
 
 /**

@@ -54,6 +54,13 @@ class Fila(BaseModel):
     valores: list[float | str | None] = Field(default_factory=list)
 
 
+class FilaKpi(BaseModel):
+    """Un renglón de la franja de estadísticas: el rótulo y un valor por
+    versión."""
+    label: str = ""
+    valores: list[float | str | None] = Field(default_factory=list)
+
+
 class Cuadro(BaseModel):
     titulo: str = "Cuadro"
     subtitulo: str | None = None
@@ -69,6 +76,13 @@ class Cuadro(BaseModel):
     #: — el documento salía con el recuadro vacío (owner, 2026-09-03: «las
     #: notas no salen»).
     comentarios: list[str] = Field(default_factory=list)
+    #: La franja de estadísticas, como cabecera del cuadro.
+    #:
+    #: ⚠️ Igual que `comentarios`: si el modelo no lo declara, Pydantic lo
+    #: descarta en silencio y el documento sale sin la franja sin que nada
+    #: falle. Ya pasó una vez con las notas.
+    kpis: list[FilaKpi] = Field(default_factory=list)
+    kpis_columnas: list[str] = Field(default_factory=list)
 
 
 class ExportBody(BaseModel):

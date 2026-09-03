@@ -64,6 +64,52 @@ FILA_CABECERA = 4
 PRIMERA_FILA = 5
 
 
+def _kpis(ws, cuadro: dict, desde: int) -> int:
+    """La franja de estadísticas, arriba del cuadro. Devuelve la fila siguiente.
+
+    Owner, 2026-09-03: *«no están saliendo las estadísticas en cada tab»*.
+
+    ⚠️ En la pantalla la franja se dibuja UNA vez arriba de los sub-tabs, así
+    que se ve en todos. Acá **cada hoja se lee sola** —se imprime, se manda
+    suelta— y sin las estadísticas al lado los montos no tienen contra qué
+    leerse: 56.001 de ingreso con 132 noches vendidas dice algo muy distinto
+    que con 400.
+
+    Va en gris y compacta: es contexto, no el cuadro.
+    """
+    filas = cuadro.get("kpis") or []
+    columnas = cuadro.get("kpis_columnas") or []
+    if not filas or not columnas:
+        return desde
+
+    fila = desde
+    c = ws.cell(fila, 1, "ESTADÍSTICAS")
+    c.font = font(bold=True, size=9, color=C["navy_mid"])
+    for i, col in enumerate(columnas, start=2):
+        c = ws.cell(fila, i, col)
+        c.font = font(bold=True, size=9, color=C["navy_mid"])
+        c.alignment = align("right")
+    fila += 1
+
+    for f in filas:
+        rot = str(f.get("label") or "")
+        ws.cell(fila, 1, rot).font = font(size=9)
+        # El formato lo decide el rótulo: la ocupación es un porcentaje y la
+        # tarifa son dólares. Mandarlo por fila desde la pantalla sería una
+        # tercera copia de la misma decisión.
+        bajo = rot.lower()
+        fmt = ("pct" if "%" in rot else
+               "usd2" if ("adr" in bajo or "daily" in bajo or "revpar" in bajo
+                          or "cuota" in bajo) else "num")
+        for i, v in enumerate(f.get("valores") or [], start=2):
+            celda = ws.cell(fila, i, v)
+            celda.number_format = FORMATOS.get(fmt, FORMATOS["usd"])
+            celda.alignment = align("right")
+            celda.font = font(size=9)
+        fila += 1
+    return fila + 1          # una en blanco antes del cuadro
+
+
 def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     columnas = cuadro.get("columnas") or []
     filas = cuadro.get("filas") or []
@@ -76,6 +122,12 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     if cuadro.get("subtitulo"):
         merged_header(ws, FILA_SUBTITULO, 1, n_col, cuadro["subtitulo"],
                       C["navy_mid"], sz=10)
+
+    # ⚠️ La cabecera del cuadro se corre hacia abajo lo que ocupe la franja.
+    # Las constantes de fila eran fijas; con la franja delante, escribir la
+    # tabla en la fila 4 la pisaría.
+    FILA_CABECERA = _kpis(ws, cuadro, FILA_SUBTITULO + 2)
+    PRIMERA_FILA = FILA_CABECERA + 1
 
     for i, col in enumerate(columnas, start=1):
         c = ws.cell(FILA_CABECERA, i, col.get("label", ""))
