@@ -199,8 +199,21 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
     }
     return [...out.entries()].map(([code, g]) => ({
       code, nombre: g.nombre, total: g.total,
-      grupos: [...g.grupos.entries()].sort(
-        (a, b) => orden(a[0]) - orden(b[0])),
+      grupos: [...g.grupos.entries()]
+        .sort((a, b) => orden(a[0]) - orden(b[0]))
+        // ⚠️ Dentro de cada naturaleza, PRIMERO lo que se movió y de mayor a
+        // menor; las cuentas disponibles y sin usar, al final.
+        //
+        // Owner, 2026-09-03: «nada que sale bien en auditoría, en la parte de
+        // abajo». Ordenadas por número de cuenta, las opciones en cero se
+        // intercalaban entre los montos reales: en el Opex del Club, un
+        // 12.075,82 quedaba entre dos ceros. Un cuadro donde hay que buscar el
+        // dato entre lo que no es dato no se lee.
+        .map(([tipo, filas]) => [tipo, [...filas].sort((x, y) => {
+          if (x.movimiento !== y.movimiento) return x.movimiento ? -1 : 1;
+          if (!x.movimiento) return x.account_code.localeCompare(y.account_code);
+          return Math.abs(y.monto) - Math.abs(x.monto);
+        })] as [string, AuditoriaFila[]]),
     }));
   }, [datos, compacto]);
 
@@ -502,7 +515,24 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                       </td>
                     </tr>
                     {filas.map((f, i) => (
-                      <tr key={`${d.code}-${tipo}-${i}`}
+                      <Fragment key={`${d.code}-${tipo}-${i}`}>
+                      {/* La línea que separa lo que se movió de lo que está
+                          disponible. Sin ella, una fila en gris se lee como un
+                          movimiento de cero y no como una cuenta sin usar. */}
+                      {!f.movimiento && (i === 0 || filas[i - 1].movimiento) && (
+                        <tr>
+                          <td colSpan={5} style={{
+                            ...TDL, paddingLeft: 34, paddingTop: 5,
+                            fontSize: 10, fontStyle: "italic",
+                            color: "var(--text-disabled)",
+                            borderTop: "1px dashed var(--border-medium)",
+                          }}>
+                            cuentas disponibles en este departamento, sin usar
+                            este mes
+                          </td>
+                        </tr>
+                      )}
+                      <tr
                           title={f.movimiento ? undefined
                             : "Opción del catálogo GL de este departamento. Este mes no se usó."}
                           style={f.movimiento ? undefined
@@ -526,6 +556,7 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                         </td>
                         <td style={TD}>{usd(f.monto)}</td>
                       </tr>
+                      </Fragment>
                     ))}
                   </Fragment>
                 ))}

@@ -966,3 +966,47 @@ def test_la_pantalla_distingue_TRES_pesos():
     # La regla doble del hito y la simple del subtotal — la convención de un
     # estado de resultados impreso.
     assert '2px solid var(--text-primary)' in src
+
+
+# ─── El bloque de departamentos, legible (owner, 2026-09-03) ────────────────
+#
+# «Nada que sale bien en auditoría, en la parte de abajo cuando empiezan los
+# departamentos por GL detail.»
+
+def test_las_opciones_sin_uso_van_AL_FINAL_de_su_naturaleza():
+    """⚠️ Ordenadas por número de cuenta, las opciones en cero se intercalaban
+    entre los montos reales.
+
+    Medido en julio, Opex del Club Madresal: las tres primeras filas eran
+    7030 (172,49) · 7050 (0, opción) · 7065 (12.075,82). Un cuadro donde hay
+    que buscar el dato entre lo que no es dato no se lee.
+
+    Ahora: lo que se movió primero y de mayor a menor; lo disponible después.
+    """
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "if (x.movimiento !== y.movimiento) return x.movimiento ? -1 : 1;" in src
+    assert "Math.abs(y.monto) - Math.abs(x.monto);" in src
+
+
+def test_solo_se_ofrecen_opciones_donde_el_departamento_SE_MOVIO():
+    """⚠️ Ofrecer las 17 cuentas de planilla de un departamento que no tiene
+    planilla no muestra una opción: inventa un bloque entero de ruido con
+    subtotal cero. Las opciones sirven donde hay algo que comparar.
+
+    Medido: el Sistemas (0230) traía «Payroll · 17 cuentas · 0.00» y
+    «Reparto · 1 cuenta · 0.00», los dos sin una sola fila con monto.
+    """
+    import inspect
+
+    from app.api import auditoria_api
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert "con_movimiento = {" in fuente
+    assert "(dept, tipo) not in con_movimiento" in fuente
+
+
+def test_se_AVISA_donde_empiezan_las_cuentas_sin_usar():
+    """Sin una separación, una fila en gris se lee como un movimiento de cero y
+    no como una cuenta que existe y no se usó."""
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "cuentas disponibles en este departamento, sin usar" in src
+    assert "!f.movimiento && (i === 0 || filas[i - 1].movimiento)" in src

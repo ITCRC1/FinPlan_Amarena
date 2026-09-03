@@ -231,11 +231,25 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         #
         # Sólo de los departamentos que tienen algo este mes: ofrecer las 51
         # cuentas de un departamento que no operó llenaría el reporte de ruido.
+        # ⚠️ Sólo donde el departamento SE MOVIÓ en esa naturaleza.
+        #
+        # Owner, 2026-09-03: *«nada que sale bien en auditoría, en la parte de
+        # abajo cuando empiezan los departamentos»*. Medido en julio: el Club
+        # tenía 30 cuentas de opex y 12 de planilla, casi todas en cero, y los
+        # tres montos reales quedaban enterrados entre ellas.
+        #
+        # Ofrecer las 17 cuentas de planilla de un departamento que no tiene
+        # planilla no muestra una opción: inventa un bloque entero de ruido con
+        # un subtotal de cero. Las opciones sirven donde hay algo que comparar
+        # —«esta cuenta la usás y aquélla no»—, no donde no hay nada.
+        con_movimiento = {
+            (r["dept_code"], r["tipo"]) for r in detalle if r["movimiento"]
+        }
         for (dept, cuenta), nombre in sorted(catalogo.items()):
             if dept not in por_depto or (dept, cuenta) in vistas:
                 continue
             linea, tipo = pl_engine.linea_de_fila(cuenta, dept)
-            if not tipo:
+            if not tipo or (dept, tipo) not in con_movimiento:
                 continue
             detalle.append({
                 "dept_code": dept,
