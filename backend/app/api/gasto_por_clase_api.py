@@ -39,6 +39,7 @@ from app.engine import pl_engine
 from app.engine import recalculate as recalc
 from app.models.actual_entry import ActualEntry
 from app.models.belowgop_account_entry import BelowGopAccountEntry
+from app.models.nonop_entry import NonOpEntry
 from app.models.pl_line import PLLine
 from app.models.scenario import Scenario
 
@@ -147,8 +148,30 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
 
     # Clase 8 del presupuesto: vive en su propio checkbook, con la cuenta en la
     # fila. Se lee una vez y se reparte por mes, en vez de doce consultas.
-    below = (await session.execute(select(BelowGopAccountEntry).where(
-        BelowGopAccountEntry.scenario_id == scenario_id))).scalars().all()
+    #
+    # ⚠️ **`NonOpEntry`, que es lo que lee el P&L — y no `BelowGopAccountEntry`.**
+    #
+    # Owner, 2026-09-03, cotejando su Excel: el gasto de propiedad daba
+    # $116.207,21 en el P&L y $20.585,21 en este cuadro. No era un error de
+    # calculo: el below-GOP vive en DOS tablas y cada pantalla leia una. Los
+    # honorarios (8005) tenian 68.337,08 en una y 18.915,01 en la otra, y cual
+    # numero veias dependia de por que pantalla entraras.
+    #
+    # `recalculate.belowgop_by_line` siembra las lineas del P&L desde
+    # `NonOpEntry`: esa es la fuente. Este cuadro pasa a leer la misma, asi las
+    # dos pantallas no pueden contar versiones distintas del mismo gasto.
+    #
+    # El NOMBRE de cada cuenta se sigue buscando en la tabla vieja: `NonOpEntry`
+    # lo trae casi siempre vacio, y una lista de 8005, 8015, 8020 no le dice
+    # nada a nadie.
+    below = (await session.execute(select(NonOpEntry).where(
+        NonOpEntry.scenario_id == scenario_id))).scalars().all()
+    nombres_bg = {
+        (e.account_code or "").strip(): e.account_name
+        for e in (await session.execute(select(BelowGopAccountEntry).where(
+            BelowGopAccountEntry.scenario_id == scenario_id))).scalars()
+        if e.account_name
+    }
 
     # Las lineas de INGRESO del P&L, por mes. Se leen una vez, no doce.
     #
@@ -175,7 +198,8 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
             if (f.account_code or "").startswith("8"):
                 _nombra(detalle, f.account_code, f.account_name or "")
         for e in below:
-            _nombra(detalle, str(e.account_code or ""), e.account_name or "")
+            cod = str(e.account_code or "")
+            _nombra(detalle, cod, e.account_name or nombres_bg.get(cod, ""))
 
     for m in range(1, 13):
         col = MESES[m - 1]
