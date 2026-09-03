@@ -1725,6 +1725,7 @@ export default function MonthEndPLPage() {
         periodo: `${periodo} ${year}`,
         versiones: usadas.map(u => etiqueta(u.id)).join("  ·  "),
         cuadros,
+        omitidos: afuera,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

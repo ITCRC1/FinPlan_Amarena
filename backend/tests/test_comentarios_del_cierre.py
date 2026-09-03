@@ -219,3 +219,62 @@ def test_si_falla_la_red_el_boton_SIGUE_ofreciendo_guardar():
     cuerpo = cuerpo[:cuerpo.index("}, [escNota")]
     # `setGuardado` sólo dentro del `try`, después de que el servidor contestó.
     assert cuerpo.index("setGuardado(texto)") < cuerpo.index("} catch {")
+
+
+def test_el_MODELO_del_endpoint_conserva_las_notas():
+    """⚠️ Owner, 2026-09-03: «las notas no salen».
+
+    La pantalla las mandaba y el generador sabía imprimirlas. Se caían EN EL
+    MEDIO: el modelo Pydantic del endpoint no declaraba `comentarios`, y
+    Pydantic descarta en silencio los campos que no conoce. Nada fallaba; el
+    recuadro salía vacío.
+    """
+    from app.api.export_api import Cuadro
+    c = Cuadro(**{"titulo": "x", "columnas": [], "filas": [],
+                  "comentarios": ["una nota"]})
+    assert c.comentarios == ["una nota"]
+    assert "comentarios" in c.model_dump()
+
+
+def test_el_documento_DICE_que_quedo_afuera():
+    """Owner: «no todos los tabs salen».
+
+    ⚠️ Con la lista sólo en un aviso del navegador, el que abre el archivo
+    después —o el que lo recibe por correo— no tiene forma de saber si falta
+    algo: un índice de diez cuadros se ve completo aunque falten cuatro.
+    """
+    from app.api.export_api import WordBody
+    assert "omitidos" in WordBody.model_fields
+    fuente = inspect.getsource(build_cierre_docx)
+    assert "omitidos" in fuente
+
+
+def test_los_omitidos_se_IMPRIMEN_en_la_portada(tmp_path):
+    cuadro = {"titulo": "X", "subtitulo": "y",
+              "columnas": [{"label": "A", "ancho": 20, "formato": "texto"}],
+              "filas": [{"label": "uno", "es_total": False, "valores": []}]}
+    ruta = tmp_path / "z.docx"
+    ruta.write_bytes(build_cierre_docx(
+        [cuadro], "H", "C", "Julio 2026", "v",
+        omitidos=["Consulta GL (no aplica)", "Flow Through (sin datos)"]))
+    texto = chr(10).join(p.text for p in Document(str(ruta)).paragraphs)
+    assert "NO SE INCLUYERON" in texto
+    assert "Consulta GL (no aplica)" in texto
+    assert "Flow Through (sin datos)" in texto
+
+
+def test_sin_omitidos_no_aparece_el_bloque(tmp_path):
+    """Un «NO SE INCLUYERON» vacío en la portada haría dudar de un documento
+    que está completo."""
+    cuadro = {"titulo": "X", "subtitulo": "y",
+              "columnas": [{"label": "A", "ancho": 20, "formato": "texto"}],
+              "filas": [{"label": "uno", "es_total": False, "valores": []}]}
+    ruta = tmp_path / "w.docx"
+    ruta.write_bytes(build_cierre_docx([cuadro], "H", "C", "Julio 2026", "v"))
+    texto = chr(10).join(p.text for p in Document(str(ruta)).paragraphs)
+    assert "NO SE INCLUYERON" not in texto
+
+
+def test_la_pantalla_MANDA_los_omitidos():
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "omitidos: afuera," in pagina

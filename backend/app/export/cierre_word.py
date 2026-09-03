@@ -255,7 +255,7 @@ def _pie(seccion, propiedad: str, periodo: str) -> None:
 
 # ─── El documento ─────────────────────────────────────────────────────────────
 def _portada(doc, propiedad: str, titulo: str, periodo: str,
-             versiones: str, cuadros: list[dict]) -> None:
+             versiones: str, cuadros: list[dict], omitidos: list[str] | None = None) -> None:
     for _ in range(4):
         doc.add_paragraph()
     p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -288,6 +288,23 @@ def _portada(doc, propiedad: str, titulo: str, periodo: str,
         p.paragraph_format.space_after = Pt(2)
         r = p.add_run(f"{i}.  {(c.get('titulo') or 'Cuadro').strip()}")
         r.font.size = Pt(10.5); r.font.color.rgb = NEGRO
+
+    # ⚠️ Lo que NO vino, dicho en el propio documento.
+    #
+    # Owner, 2026-09-03: «no todos los tabs salen». Con la lista sólo en un
+    # aviso del navegador, el que abre el archivo después —o el que lo recibe
+    # por correo— no tiene forma de saber si falta algo o si eso es todo lo que
+    # había. Un índice de diez cuadros se ve completo aunque falten cuatro.
+    if omitidos:
+        doc.add_paragraph()
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run("NO SE INCLUYERON")
+        r.font.size = Pt(8.5); r.font.bold = True; r.font.color.rgb = GRIS
+        for texto in omitidos:
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_after = Pt(1)
+            r = p.add_run(str(texto))
+            r.font.size = Pt(9); r.font.color.rgb = GRIS
 
     for _ in range(3):
         doc.add_paragraph()
@@ -418,7 +435,8 @@ def _comentarios(doc, notas: list[str] | None = None) -> None:
 
 
 def build_cierre_docx(cuadros: list[dict], propiedad: str, titulo: str,
-                      periodo: str, versiones: str = "") -> bytes:
+                      periodo: str, versiones: str = "",
+                      omitidos: list[str] | None = None) -> bytes:
     """El documento completo. Devuelve los bytes del `.docx`."""
     doc = Document()
 
@@ -430,7 +448,7 @@ def build_cierre_docx(cuadros: list[dict], propiedad: str, titulo: str,
     _margenes(portada)
     _enderezar(portada)
     _pie(portada, propiedad, periodo)
-    _portada(doc, propiedad, titulo, periodo, versiones, cuadros)
+    _portada(doc, propiedad, titulo, periodo, versiones, cuadros, omitidos)
 
     for cuadro in cuadros:
         ancho = len(cuadro.get("columnas") or []) >= COLUMNAS_APAISADO

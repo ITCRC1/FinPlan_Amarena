@@ -116,6 +116,13 @@ export interface CierreWord {
   periodo: string;
   versiones: string;
   cuadros: Cuadro[];
+  /** Los sub-tabs que la pantalla NO pudo incluir, con el motivo. Se imprimen
+   *  en la portada.
+   *
+   *  ⚠️ Con la lista sólo en un aviso del navegador, el que abre el archivo
+   *  después —o el que lo recibe por correo— no tiene forma de saber si falta
+   *  algo: un índice de diez cuadros se ve completo aunque falten cuatro. */
+  omitidos?: string[];
 }
 
 export async function bajarCierreWord(body: CierreWord): Promise<Blob> {

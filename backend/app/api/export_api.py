@@ -60,6 +60,15 @@ class Cuadro(BaseModel):
     hoja: str | None = None
     columnas: list[Columna] = Field(default_factory=list)
     filas: list[Fila] = Field(default_factory=list)
+    #: Las notas ya escritas, para que el Word las imprima DENTRO del recuadro
+    #: de comentarios.
+    #:
+    #: ⚠️ **Tiene que estar declarado acá o no llega.** Pydantic descarta en
+    #: silencio los campos que el modelo no conoce: la pantalla las mandaba, el
+    #: generador sabía imprimirlas, y en el medio se caían sin que nada fallara
+    #: — el documento salía con el recuadro vacío (owner, 2026-09-03: «las
+    #: notas no salen»).
+    comentarios: list[str] = Field(default_factory=list)
 
 
 class ExportBody(BaseModel):
@@ -77,6 +86,11 @@ class WordBody(ExportBody):
     titulo: str = "Reporte de cierre"
     periodo: str = ""
     versiones: str = ""
+    #: Los sub-tabs que la pantalla NO pudo incluir, con el motivo. Se imprimen
+    #: en la portada: un índice de diez cuadros se ve completo aunque falten
+    #: cuatro, y el que recibe el archivo por correo no tiene otra forma de
+    #: saberlo (owner, 2026-09-03: «no todos los tabs salen»).
+    omitidos: list[str] = Field(default_factory=list)
 
 
 def _validar(body: ExportBody) -> None:
@@ -143,7 +157,8 @@ async def exportar_word(body: WordBody):
     contenido = build_cierre_docx(
         [c.model_dump() for c in body.cuadros],
         propiedad=HOTEL_NAME, titulo=body.titulo,
-        periodo=body.periodo, versiones=body.versiones)
+        periodo=body.periodo, versiones=body.versiones,
+        omitidos=body.omitidos)
     nombre = f"{body.archivo}_{hotel_slug()}.docx".replace(" ", "_")
     return Response(
         content=contenido, media_type=DOCX,
