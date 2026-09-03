@@ -52,33 +52,39 @@ const RANURAS = 4;
  *
  *  El gasto de propiedad se abre por CUENTA del mayor y no por departamento:
  *  vive todo en el mismo depto, asi que abrirlo por depto seria una sola fila. */
+/** Los sub-tabs, EN EL ORDEN EN QUE SE MIRAN.
+ *
+ *  Owner, 2026-09-03: *«vamos a cambiar el orden de los sub tabs: primero es
+ *  P&L Statement, segundo Auditoría, tercero Resumen 12m, sigue 12 meses, y el
+ *  tab P&L pasa de último»*.
+ *
+ *  El orden es el del cierre, no el de cómo se fueron construyendo: se abre con
+ *  el estado de resultados, se comprueba que cuadre, se mira el año, y recién
+ *  después vienen las aperturas por departamento. El `pl` original queda al
+ *  final — lo reemplazó el `estado`.
+ *
+ *  ⚠️ Este arreglo también fija con QUÉ ABRE la pantalla: ver `VISTA_INICIAL`.
+ */
 const VISTAS = [
-  { key: "pl" },
+  { key: "estado" },      // P&L Statement — el estado de resultados
+  { key: "auditoria" },   // ¿cuadra?
+  { key: "resumen12" },   // el año en cuatro líneas
+  { key: "doce" },        // 12 meses de una versión
+  // Las aperturas: la misma plata cortada de otra manera.
   { key: "revenue" },
   { key: "payroll" },
   { key: "cost" },
   { key: "opex" },
   { key: "property" },
+  { key: "formato" },     // el cuadro tal cual el Excel del cierre
+  // Lo que se abre cuando hace falta mirar más abajo.
   { key: "consulta" },
   { key: "flow" },
   { key: "simple" },
   { key: "summary" },
-  { key: "estado" },
   { key: "revdet" },
   { key: "fb" },
-  // Una version a lo largo del año. Los demas sub-tabs comparan versiones
-  // en UN periodo; este hace lo contrario (owner, 2026-08-28).
-  { key: "doce" },
-  // Owner, 2026-09-02, con `julio FORMAT 2026.xlsx` y `p&L auditoria 2026.xlsx`:
-  // «uno para ver el detalle tal cual el formato y el otro para ver la
-  // auditoria de los detalles». Van juntos y al final: el primero es el cuadro
-  // que arma cada cierre, el segundo el que se abre cuando ese cuadro no cuadra.
-  { key: "formato" },
-  { key: "auditoria" },
-  // Owner, 2026-09-02: «un sub tab solamente de 4 lineas por mes... esto que
-  // sea 12 meses». El gasto va por NATURALEZA (planilla, costo, opex,
-  // propiedad), no por departamento: es la diferencia con el resto.
-  { key: "resumen12" },
+  { key: "pl" },          // el primero que existió; hoy lo cubre `estado`
 ] as const;
 type Vista = typeof VISTAS[number]["key"];
 
@@ -385,7 +391,14 @@ export default function MonthEndPLPage() {
   // "Other Rooms Revenue" y mete el miscelaneo dentro de Sustainability.
   const [ing, setIng] = useState<IngresoDetalle | null>(null);
   const [avisoIng, setAvisoIng] = useState<string | null>(null);
-  const [vista, setVista] = useState<Vista>("pl");
+  /** Con qué sub-tab abre la pantalla.
+   *
+   *  ⚠️ Sale de `VISTAS[0]` y no de un texto escrito acá: el owner reordenó
+   *  los sub-tabs el 2026-09-03 y, con el `"pl"` fijo, la pantalla habría
+   *  seguido abriendo en el que él mandó al final. Nada habría fallado; sólo
+   *  habría abierto en el cuadro equivocado. */
+  const VISTA_INICIAL: Vista = VISTAS[0].key;
+  const [vista, setVista] = useState<Vista>(VISTA_INICIAL);
   /** El P&L Statement, abierto por departamento.
    *
    *  Owner, 2026-09-02: *«podés con un click llevarlo de totales a
