@@ -117,3 +117,66 @@ def test_los_cuatro_libros_son_SUB_TABS_de_segundo_nivel():
     assert '2px solid transparent' in src
     # Y no el fondo lleno de la fila de arriba.
     assert 'background: clase === l.clase ? "var(--brand)"' not in src
+
+
+def test_cada_fila_trae_SU_departamento():
+    """Owner, 2026-09-03: «los checkbooks deben estar por departamentos, si no
+    no se puede saber a qué corresponde; puede ser todos, pero internamente
+    separados».
+
+    ⚠️ La llave del endpoint era la CUENTA sola, así que la 7065 de
+    Habitaciones y la 7065 del Club caían en la misma fila y el resultado no era
+    de nadie. Y las dos se llaman «Cleaning Supplies»: sin el departamento son
+    filas idénticas con montos distintos.
+    """
+    import inspect
+
+    from app.api import detalle_celda_api as api
+    for fn in (api._del_mayor, api._del_auxiliar):
+        assert "(dept, cuenta)" in inspect.getsource(fn), (
+            f"{fn.__name__} volvió a indexar por cuenta sola")
+    resp = inspect.getsource(api.detalle_de_celda)
+    assert '"dept_code": dept' in resp and '"dept_name"' in resp
+
+
+def test_el_REPARTO_tambien_lleva_su_departamento_destino():
+    """El reparto que llega a Habitaciones no es el mismo que llega al Club.
+    Con la llave sin departamento los dos caían en una sola fila."""
+    import inspect
+
+    from app.api import detalle_celda_api as api
+    fuente = inspect.getsource(api._del_auxiliar)
+    assert "out.setdefault((destino, cuenta)" in fuente
+
+
+def test_las_opciones_del_selector_salen_de_LOS_DATOS():
+    """⚠️ Owner: «sólo existe la opción Todos, no hay más opciones».
+
+    El selector se llenaba de `gasto-por-clase`, que sólo devuelve los nombres
+    de departamento cuando se le pide el DETALLE — y la pantalla lo pedía sin
+    detalle, así que llegaba vacío.
+
+    Ahora salen de las filas del propio libro, que además es mejor: ofrecer los
+    sesenta y cinco del catálogo en un libro que usa ocho hace buscar el que
+    sirve entre los que no.
+    """
+    src = VISTA.read_text(encoding="utf-8")
+    assert "for (const f of datos?.filas ?? [])" in src
+    assert "vistos.set(f.dept_code" in src
+    # Y se pide el libro COMPLETO una vez; el filtro es local.
+    assert 'getDetalleDeCelda(scenarioIds, clase, "")' in src
+
+
+def test_la_tabla_se_corta_por_departamento_con_su_SUBTOTAL():
+    """Con seis departamentos abiertos, sin subtotal no hay forma de saber
+    cuánto pesa cada uno sin sumar a mano."""
+    src = VISTA.read_text(encoding="utf-8")
+    assert "Subtotal {g.code}" in src
+    assert "grupos.flatMap(g => [" in src
+
+
+def test_un_departamento_que_ya_no_existe_no_deja_la_tabla_VACIA():
+    """Al cambiar de libro, el departamento elegido puede no estar en el nuevo:
+    la tabla quedaría vacía sin decir por qué."""
+    src = VISTA.read_text(encoding="utf-8")
+    assert "if (dept && !opciones.some(([c]) => c === dept)) setDept(\"\");" in src

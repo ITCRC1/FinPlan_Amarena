@@ -74,40 +74,86 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
+  /** ⚠️ Se pide SIEMPRE el libro completo —sin filtrar departamento— y el
+   *  filtro se aplica acá.
+   *
+   *  Dos razones. Una: los departamentos del selector salen de los datos, no de
+   *  un catálogo aparte; ofrecer los sesenta y cinco del catálogo en un libro
+   *  que usa ocho hace buscar el que sirve entre los que no. Y dos: el catálogo
+   *  llegaba vacío —`gasto-por-clase` sólo devuelve los nombres cuando se le
+   *  pide el detalle— y el selector se quedaba con «Todos» y nada más
+   *  (owner, 2026-09-03: «sólo existe la opción Todos, no hay más opciones»).
+   */
   const cargar = useCallback(async () => {
     if (!scenarioIds.length) { setDatos(null); return; }
     setCargando(true); setError(null);
     try {
-      setDatos(await getDetalleDeCelda(scenarioIds, clase, dept));
+      setDatos(await getDetalleDeCelda(scenarioIds, clase, ""));
     } catch (e) {
       setDatos(null);
       setError(e instanceof Error ? e.message : "No se pudo cargar");
     } finally {
       setCargando(false);
     }
-  }, [scenarioIds, clase, dept]);
+  }, [scenarioIds, clase]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  /** Los departamentos que ESTE checkbook usa.
-   *
-   *  ⚠️ Se sacan del catálogo completo pero se ordenan por código: ofrecer los
-   *  sesenta y cinco del catálogo en una clase que usa ocho hace buscar el que
-   *  sirve entre los que no. El «todos» de arriba resuelve el caso de no saber
-   *  cuál. */
-  const opciones = useMemo(
-    () => Object.keys(deptos).sort(), [deptos]);
+  /** Los departamentos que ESTE libro usa de verdad, sacados de sus filas. */
+  const opciones = useMemo(() => {
+    const vistos = new Map<string, string>();
+    for (const f of datos?.filas ?? []) {
+      if (f.dept_code) vistos.set(f.dept_code, f.dept_name || deptos[f.dept_code] || "");
+    }
+    return [...vistos.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [datos, deptos]);
+
+  // Un departamento que ya no existe en el libro nuevo dejaría la tabla vacía
+  // sin decir por qué: se vuelve a «todos» al cambiar de libro.
+  useEffect(() => {
+    if (dept && !opciones.some(([c]) => c === dept)) setDept("");
+  }, [opciones, dept]);
 
   const versiones = datos?.versiones ?? [];
-  const filas = useMemo(() => {
-    const f = (datos?.filas ?? []).map(x => ({
-      ...x,
-      total: versiones.reduce(
-        (a, v) => a + (x.series[v.scenario_id] ?? []).reduce((s, n) => s + n, 0), 0),
-    }));
-    return f.filter(x => Math.abs(x.total) >= 0.005)
-            .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-  }, [datos, versiones]);
+
+  /** Las filas del libro, ya filtradas y AGRUPADAS POR DEPARTAMENTO.
+   *
+   *  Owner, 2026-09-03: *«los checkbooks deben estar por departamentos, si no
+   *  no se puede saber a qué corresponde; puede ser todos, pero internamente
+   *  separados»*.
+   *
+   *  ⚠️ Una lista de cuentas sin su departamento no se puede leer: la 7065
+   *  aparece cuatro veces —Habitaciones, Club, Mantenimiento…— y las cuatro se
+   *  llaman «Cleaning Supplies». Sin el corte, son cuatro filas idénticas con
+   *  montos distintos. */
+  const grupos = useMemo(() => {
+    const con = (datos?.filas ?? [])
+      .filter(x => !dept || x.dept_code === dept)
+      .map(x => ({
+        ...x,
+        total: versiones.reduce(
+          (a, v) => a + (x.series[v.scenario_id] ?? []).reduce((s, n) => s + n, 0), 0),
+      }))
+      .filter(x => Math.abs(x.total) >= 0.005);
+
+    const out = new Map<string, { nombre: string; filas: typeof con }>();
+    for (const f of con) {
+      const g = out.get(f.dept_code)
+        || { nombre: f.dept_name || deptos[f.dept_code] || "", filas: [] };
+      g.filas.push(f);
+      out.set(f.dept_code, g);
+    }
+    return [...out.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([code, g]) => ({
+        code, nombre: g.nombre,
+        // Dentro del departamento, lo más grande primero: lo que explica el
+        // número va arriba.
+        filas: g.filas.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)),
+      }));
+  }, [datos, versiones, dept, deptos]);
+
+  const filas = useMemo(() => grupos.flatMap(g => g.filas), [grupos]);
 
   const rotuloLibro = LIBROS.find(l => l.clase === clase)?.rotulo ?? clase;
 
@@ -153,8 +199,8 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
         </span>
         <select value={dept} onChange={e => setDept(e.target.value)} style={SEL}>
           <option value="">Todos</option>
-          {opciones.map(c => (
-            <option key={c} value={c}>{c} · {deptos[c]}</option>
+          {opciones.map(([c, nombre]) => (
+            <option key={c} value={c}>{c} · {nombre}</option>
           ))}
         </select>
         {cargando && (
@@ -215,11 +261,27 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
                   </tr>
                 </thead>
                 <tbody>
-                  {filas.map(f => {
+                  {grupos.flatMap(g => [
+                    // La banda del departamento. Va siempre, incluso con uno
+                    // solo elegido: el encabezado dice de qué se está mirando
+                    // el checkbook, y sin él la tabla no se puede imprimir.
+                    <tr key={`d-${g.code}`}>
+                      <td colSpan={14} style={{
+                        ...TDL, fontWeight: 800, fontSize: 12,
+                        padding: "7px 10px",
+                        background: "var(--bg-elevated, #EDF1F5)",
+                        borderTop: "2px solid var(--border-medium)",
+                      }}>
+                        <span className="mono" style={{ color: "var(--text-secondary)" }}>
+                          {g.code}
+                        </span>{g.nombre ? ` · ${g.nombre}` : ""}
+                      </td>
+                    </tr>,
+                    ...g.filas.map(f => {
                     const serie = f.series[v.scenario_id] ?? [];
                     return (
-                      <tr key={f.cuenta}>
-                        <td style={TDL}>
+                      <tr key={`${g.code}-${f.cuenta}`}>
+                        <td style={{ ...TDL, paddingLeft: 22 }}>
                           <span className="mono" style={{ color: "var(--text-secondary)",
                                                           marginRight: 7 }}>
                             {f.cuenta}
@@ -239,7 +301,34 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
                         }}>{usd(total(serie))}</td>
                       </tr>
                     );
-                  })}
+                    }),
+                    // El subtotal del departamento: sin él, con seis
+                    // departamentos abiertos no hay forma de saber cuánto pesa
+                    // cada uno sin sumar a mano.
+                    <tr key={`s-${g.code}`}>
+                      <td style={{ ...TDL, paddingLeft: 22, fontWeight: 700,
+                                   borderTop: "1px solid var(--border-medium)" }}>
+                        Subtotal {g.code}
+                      </td>
+                      {MESES.map((_, i) => (
+                        <td key={i} className="mono" style={{
+                          ...TD, fontWeight: 700,
+                          borderTop: "1px solid var(--border-medium)",
+                        }}>
+                          {usd(g.filas.reduce(
+                            (a, f) => a + ((f.series[v.scenario_id] ?? [])[i] ?? 0), 0))}
+                        </td>
+                      ))}
+                      <td className="mono" style={{
+                        ...TD, fontWeight: 700,
+                        borderTop: "1px solid var(--border-medium)",
+                        borderLeft: "2px solid var(--border-medium)",
+                      }}>
+                        {usd(g.filas.reduce(
+                          (a, f) => a + total(f.series[v.scenario_id]), 0))}
+                      </td>
+                    </tr>,
+                  ])}
                   <tr style={{ background: "var(--bg-elevated, #EDF1F5)" }}>
                     <td style={{ ...TDL, fontWeight: 800,
                                  borderTop: "2px solid var(--text-primary)" }}>

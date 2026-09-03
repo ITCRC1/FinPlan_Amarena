@@ -111,7 +111,17 @@ async def _del_mayor(session, escenario, clase: str, clave: str) -> dict:
     """Las cuentas del mayor que caen en esa celda. Devuelve {cuenta: [12]}."""
     filas = (await session.execute(select(ActualEntry).where(
         ActualEntry.scenario_id == escenario.id))).scalars().all()
-    out: dict[str, list[Decimal]] = {}
+    # ⚠️ La llave es (DEPARTAMENTO, cuenta) y no la cuenta sola.
+    #
+    # Owner, 2026-09-03: *«los checkbooks deben estar por departamentos, si no
+    # no se puede saber a qué corresponde; puede ser todos, pero internamente
+    # separados»*.
+    #
+    # Sumando por cuenta a secas, la 7065 de Habitaciones y la 7065 del Club
+    # caían en la misma fila y el resultado no era de nadie. Con la llave
+    # compuesta cada una conserva su departamento, y la pantalla decide si
+    # agrupa o no.
+    out: dict[tuple[str, str], list[Decimal]] = {}
     nombres: dict[str, str] = {}
     digito = CLASE_A_DIGITO.get(clase)
 
@@ -157,7 +167,7 @@ async def _del_mayor(session, escenario, clase: str, clave: str) -> dict:
             # sub-filas por departamento.
             if clave and _padre(dept) != clave:
                 continue
-        serie = out.setdefault(cuenta, [CERO] * 12)
+        serie = out.setdefault((dept, cuenta), [CERO] * 12)
         for i, col in enumerate(MESES):
             serie[i] += Decimal(str(getattr(e, col, None) or 0))
         if cuenta not in nombres:
@@ -167,11 +177,11 @@ async def _del_mayor(session, escenario, clase: str, clave: str) -> dict:
 
 async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
     """Lo mismo, para una versión SIN mayor: sale de los checkbooks."""
-    out: dict[str, list[Decimal]] = {}
+    out: dict[tuple[str, str], list[Decimal]] = {}
     nombres: dict[str, str] = {}
 
-    def sumar(cuenta: str, fila, nombre: str = "") -> None:
-        serie = out.setdefault(cuenta, [CERO] * 12)
+    def sumar(cuenta: str, fila, nombre: str = "", dept: str = "") -> None:
+        serie = out.setdefault((dept, cuenta), [CERO] * 12)
         for i, col in enumerate(MESES):
             serie[i] += Decimal(str(getattr(fila, col, None) or 0))
         if nombre and cuenta not in nombres:
@@ -182,7 +192,8 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
                 OpexEntry.scenario_id == escenario.id))).scalars():
             if not clave or _padre(str(r.dept_code or "")) == clave:
                 sumar(str(r.account_code or ""), r,
-                      str(getattr(r, "account_name", "") or ""))
+                      str(getattr(r, "account_name", "") or ""),
+                      _padre(str(r.dept_code or "")))
 
         # ⚠️ **Y los asientos de REPARTO**, que son parte del opex del
         # departamento que los recibe.
@@ -204,21 +215,27 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
             if not 1 <= m <= 12:
                 continue
             cuenta = str(getattr(a, "account", "") or pl_engine.ALLOCATION_ACCOUNT)
-            out.setdefault(cuenta, [CERO] * 12)[m - 1] += (a.amount_usd or CERO)
+            # ⚠️ La llave lleva el departamento DESTINO, igual que las demás:
+            # el reparto que llega a Habitaciones no es el mismo que el que
+            # llega al Club, y con la llave sin departamento los dos caían en
+            # una sola fila.
+            out.setdefault((destino, cuenta), [CERO] * 12)[m - 1] += (
+                a.amount_usd or CERO)
             nombres.setdefault(cuenta, "Distribución de gastos")
     elif clase == "cost":
         for r in (await session.execute(select(CostEntry).where(
                 CostEntry.scenario_id == escenario.id))).scalars():
             if not clave or _padre(str(r.dept_code or "")) == clave:
                 sumar(str(r.account_code or ""), r,
-                      str(getattr(r, "account_name", "") or ""))
+                      str(getattr(r, "account_name", "") or ""),
+                      _padre(str(r.dept_code or "")))
     elif clase == "payroll":
         # ⚠️ La planilla no guarda una cuenta por fila: guarda los 17 CONCEPTOS
         # como columnas (`c6000_sw`, `c6020_ccss`…). Cada concepto ES una
         # cuenta del mayor, y así se abre igual que el actual — que es todo el
         # punto de este desplegable: comparar lo mismo con lo mismo.
         from app.api.consulta_api import CONCEPTOS
-        acumulado: dict[str, list[Decimal]] = {}
+        acumulado: dict[tuple[str, str], list[Decimal]] = {}
         for r in (await session.execute(select(PayrollConceptEntry).where(
                 PayrollConceptEntry.scenario_id == escenario.id))).scalars():
             if clave and _padre(str(r.dept_code or "")) != clave:
@@ -230,15 +247,19 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
                 v = Decimal(str(getattr(r, campo, None) or 0))
                 if v == CERO:
                     continue
-                acumulado.setdefault(cuenta, [CERO] * 12)[mes - 1] += v
+                acumulado.setdefault((_padre(str(r.dept_code or "")), cuenta),
+                                     [CERO] * 12)[mes - 1] += v
                 nombres.setdefault(cuenta, rotulo)
         out.update(acumulado)
     elif clase == "property":
         for r in (await session.execute(select(NonOpEntry).where(
                 NonOpEntry.scenario_id == escenario.id))).scalars():
             if not clave or str(r.account_code or "") == clave:
+                # El below-GOP es de la propiedad entera: no tiene
+                # departamento y su llave lleva el 0250, que es donde viven sus
+                # reglas de mapeo.
                 sumar(str(r.account_code or ""), r,
-                      str(getattr(r, "description", "") or ""))
+                      str(getattr(r, "description", "") or ""), "0250")
     elif clase == "revenue":
         # 1) Si hay ingreso cargado POR CUENTA, ése es el detalle: es el mismo
         #    nivel que el mayor del actual.
@@ -248,7 +269,8 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
                                                   str(r.dept_code or ""))
             if tipo == pl_engine.TIPO_INGRESO and (not clave or linea == clave):
                 sumar(str(r.account_code or ""), r,
-                      str(getattr(r, "account_name", "") or ""))
+                      str(getattr(r, "account_name", "") or ""),
+                      str(r.dept_code or ""))
         if out:
             return {"series": out, "nombres": nombres}
 
@@ -278,8 +300,10 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
                         str(r.line or "").lower()) != clave:
                     continue
                 agregadas = True
+            # El ingreso del checkbook va por LÍNEA y no tiene departamento;
+            # las tres que sí lo declaran (el Club) lo traen del par.
             sumar(cuenta or r.line, r,
-                  REVENUE_LINE_LABELS.get(r.line, r.line))
+                  REVENUE_LINE_LABELS.get(r.line, r.line), dept)
         return {"series": out, "nombres": nombres, "agregado": agregadas}
     return {"series": out, "nombres": nombres}
 
@@ -335,14 +359,20 @@ async def detalle_de_celda(
                 "agregado": bool(r.get("agregado")),
             })
 
-        cuentas = sorted({c for s in series.values() for c in s})
+        # Una fila por (departamento, cuenta). ⚠️ Ordenadas por departamento
+        # primero: la pantalla las agrupa así, y devolverlas mezcladas la
+        # obligaría a reordenarlas —una segunda decisión sobre lo mismo—.
+        llaves = sorted({k for s in series.values() for k in s})
         filas = []
-        for cuenta in cuentas:
+        for dept, cuenta in llaves:
             filas.append({
+                "dept_code": dept,
+                "dept_name": deptos.get(dept, dept),
                 "cuenta": cuenta,
                 "nombre": nombre_de_cuenta(cuenta, nombres.get(cuenta),
-                                           catalogo, clave),
-                "series": {sid: [_f(v) for v in series[sid].get(cuenta, [CERO] * 12)]
+                                           catalogo, dept or clave),
+                "series": {sid: [_f(v) for v in
+                                 series[sid].get((dept, cuenta), [CERO] * 12)]
                            for sid in series},
             })
 

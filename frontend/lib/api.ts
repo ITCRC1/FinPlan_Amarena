@@ -5009,6 +5009,14 @@ export interface DetalleCeldaVersion {
   agregado?: boolean;
 }
 export interface DetalleCeldaFila {
+  /** ⚠️ Cada fila trae SU departamento, aunque se haya pedido «todos».
+   *
+   *  Sumando por cuenta a secas, la 7065 de Habitaciones y la 7065 del Club
+   *  caían en la misma fila y el resultado no era de nadie (owner, 2026-09-03:
+   *  «los checkbooks deben estar por departamentos, si no no se puede saber a
+   *  qué corresponde»). */
+  dept_code: string;
+  dept_name: string;
   cuenta: string;
   nombre: string;
   /** Los doce meses, por escenario. */
