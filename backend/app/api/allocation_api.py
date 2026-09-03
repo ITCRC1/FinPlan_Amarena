@@ -253,8 +253,7 @@ async def upsert_cafeteria_config(scenario_id: str, rows: list[CafeteriaConfigRo
                     notes=row.notes,
                 ))
         await session.commit()
-    return {"ok": True, "updated": len(limpias),
-            "descartadas": len(rows) - len(limpias)}
+    return {"ok": True, "updated": len(rows)}
 
 
 # ─── Lavandería config ────────────────────────────────────────────────────────
@@ -331,7 +330,8 @@ async def upsert_laundry_config(scenario_id: str, rows: list[LaundryConfigRow]):
                     notes=row.notes,
                 ))
         await session.commit()
-    return {"ok": True, "updated": len(rows)}
+    return {"ok": True, "updated": len(limpias),
+            "descartadas": len(rows) - len(limpias)}
 
 
 # ─── Lavandería params (kilos uniformes/huéspedes + cuentas) ───────────────────
