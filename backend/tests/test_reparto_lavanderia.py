@@ -55,3 +55,34 @@ def test_el_credito_del_reparto_va_a_la_cuenta_de_ALLOCATION():
     netea y la lavandería seguiría contándose entera."""
     assert "4999" in pl_engine.ALLOCATION_ACCOUNTS
     assert "4900" in pl_engine.ALLOCATION_ACCOUNTS
+
+
+def test_los_cuadros_de_validacion_no_se_llevan_la_pantalla():
+    """Owner, 2026-09-03: «cuando doy guardar y recalcular me saca de la
+    pantalla y me da error».
+
+    ⚠️ En React una excepción al dibujar **desmonta el árbol entero**. Esta
+    pantalla tiene varios cuadros de validación, cada uno leyendo un pedazo
+    distinto de la respuesta; que uno se rompa —por un departamento que no está
+    en el catálogo, o por una llave vacía— dejaba al usuario sin pantalla y sin
+    la configuración que acababa de escribir.
+
+    Con la red puesta, el cuadro que falla se vuelve un aviso CON SU MOTIVO y
+    los demás siguen. No tapa el error: lo muestra, que es más de lo que decía
+    la pantalla en blanco.
+    """
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[2] / "frontend"
+    pagina = (raiz / "app/allocations/config/page.tsx").read_text(encoding="utf-8")
+    assert pagina.count("<BloqueSeguro") == 2
+    assert pagina.count("</BloqueSeguro>") == 2, (
+        "quedó una red sin cerrar: el bloque siguiente entraría adentro")
+
+    red = (raiz / "components/BloqueSeguro.tsx").read_text(encoding="utf-8")
+    assert "getDerivedStateFromError" in red, (
+        "sin ese método la clase no atrapa nada — es la única forma que da "
+        "React de capturar un error de render")
+    assert "componentDidCatch" in red
+    assert "this.state.error.message" in red, (
+        "la red dejó de mostrar el motivo: volveríamos a un callejón sin pista")

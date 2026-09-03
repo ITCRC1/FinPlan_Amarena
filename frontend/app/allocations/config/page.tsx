@@ -1,4 +1,5 @@
 "use client";
+import BloqueSeguro from "@/components/BloqueSeguro";
 import { usePlanningScenarioConUrl, sharedScenarioOr } from "@/lib/planningScenario";
 import { elegir } from "@/lib/escenarioPreferido";
 import { useTranslations } from "next-intl";
@@ -1505,6 +1506,7 @@ export default function AllocationsConfigPage() {
       )}
 
       {/* ── Validación: desglose Cafetería por departamento (cuenta 6025) ──── */}
+      <BloqueSeguro nombre="Validacion de cafeteria">
       {tab === "cafeteria" && summary && Object.keys(summary.CAFETERIA).length > 0 && (() => {
         const caf = summary.CAFETERIA;
         const nm = (dc: string) =>
@@ -1585,8 +1587,10 @@ export default function AllocationsConfigPage() {
           </div>
         );
       })()}
+      </BloqueSeguro>
 
       {/* ── Validación: desglose Lavandería 3 vías ──────────────────────────── */}
+      <BloqueSeguro nombre="Desglose de lavanderia">
       {tab === "laundry" && breakdown && breakdown.total_cost.some(v => Math.abs(v) > 0.5) && (() => {
         const nm = (dc: string) =>
           lauRows.find(r => r.dept_code === dc)?.dept_name ??
@@ -1978,6 +1982,7 @@ export default function AllocationsConfigPage() {
           </div>
         );
       })()}
+      </BloqueSeguro>
     </div>
   );
 }
