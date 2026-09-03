@@ -906,13 +906,17 @@ export default function MonthEndPLPage() {
 
     const columnas: ColumnaCuadro[] = [
       { label: "Line Item", ancho: 26, formato: "texto" },
+      // ⚠️ Las MISMAS columnas que la pantalla, una por ranura ocupada. Este
+      // proyecto ya pagó una vez por un Excel que no era lo que se veía
+      // (owner, 2026-08-27: «el excel no baja lo que está viendo»), y dejar
+      // acá el par fijo mientras la pantalla dibuja tres sería repetirlo.
       ...bloques.flatMap(bl => ([
-    { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
-    { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
+    ...usadas.slice(0, trasVariacion).map(u => (
+      { label: `${etiqueta(u.id)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const })),
     { label: "Var $", ancho: 15, formato: "usd2" as const },
     { label: "Var %", ancho: 10, formato: "pct" as const },
-    { label: `% Rev ${bl.titulo}`, ancho: 12, formato: "pct" as const },
-    { label: `% Rev Budget ${bl.titulo}`, ancho: 13, formato: "pct" as const },
+    ...usadas.slice(trasVariacion).map(u => (
+      { label: `${etiqueta(u.id)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const })),
       ])),
       { label: prevScn ? `% Rev ${prevScn.year}` : `% Rev ${t("anioAnt")}`, ancho: 12, formato: "pct" as const },
       { label: "Commentary", ancho: 34, formato: "texto" as const },
@@ -929,8 +933,11 @@ export default function MonthEndPLPage() {
         const b = dato(vB, gB, f.code, bl.h);
         const d = a === null || b === null ? null : a - b;
         const p = d === null || !b ? null : d / Math.abs(b);
-        return [a, b, d, p, pctRev(vA, gA, f.code, bl.h),
-                pctRev(vB, gB, f.code, bl.h)];
+        const deRanura = (u: { id: string }) => dato(
+          datos.find(x => x.scenario_id === u.id),
+          gastos.find(x => x.scenario_id === u.id), f.code, bl.h);
+        return [...usadas.slice(0, trasVariacion).map(deRanura), d, p,
+                ...usadas.slice(trasVariacion).map(deRanura)];
       }),
       pctRev(prevPL, prevGasto, f.code, "ytd"),
       null,
@@ -944,9 +951,10 @@ export default function MonthEndPLPage() {
         const b = sub.valor(gB, bl.h);
         const d = a - b;
         const p = !b ? null : d / Math.abs(b);
-        const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
-        const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
-        return [a, b, d, p, rA ? a / rA : null, rB ? b / rB : null];
+        const deRanura = (u: { id: string }) =>
+          sub.valor(gastos.find(x => x.scenario_id === u.id), bl.h);
+        return [...usadas.slice(0, trasVariacion).map(deRanura), d, p,
+                ...usadas.slice(trasVariacion).map(deRanura)];
       }),
       null,
       null,
@@ -955,7 +963,7 @@ export default function MonthEndPLPage() {
     ]);
     return {
       titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`,
-      subtitulo: `${etiqueta(idA)} vs ${etiqueta(idB)} · USD`,
+      subtitulo: `${usadas.map(u => etiqueta(u.id)).join(" · ")} · USD`,
       hoja: `P&L ${MESES[mes - 1]}`,
       columnas, filas,
     };
@@ -1956,8 +1964,13 @@ export default function MonthEndPLPage() {
               <thead>
                 <tr>
                   <th rowSpan={2} style={{ ...TH, textAlign: "left", verticalAlign: "bottom" }}>Line Item</th>
+                  {/* ⚠️ El ancho del bloque sale de CUÁNTAS ranuras hay, no
+                      de un 6 escrito a mano. Con el número fijo, agregar el
+                      Forecast dejaba el título del bloque corriéndose una
+                      columna y el cuadro entero desalineado. */}
                   {bloques.map(bl => (
-                    <th key={bl.h} colSpan={6} style={{ ...TH, borderLeft: BL }}>{bl.titulo}</th>
+                    <th key={bl.h} colSpan={usadas.length + 2}
+                        style={{ ...TH, borderLeft: BL }}>{bl.titulo}</th>
                   ))}
                   <th rowSpan={2} style={{ ...TH, borderLeft: BL }}>
                     % Rev<br />{prevScn ? prevScn.year : t("anioAnt")}
@@ -1965,14 +1978,33 @@ export default function MonthEndPLPage() {
                   <th rowSpan={2} style={{ ...TH, borderLeft: BL }}>Commentary</th>
                 </tr>
                 <tr>
+                  {/* Owner, 2026-09-03: «no metiste el escenario Forecast;
+                      favor meterlo en las líneas, quitar esas y poner».
+
+                      ⚠️ Este cuadro era el ÚNICO de la pantalla cableado a dos
+                      escenarios (`idA` e `idB`). Los demás ya dibujan una
+                      columna por ranura ocupada, y los datos del tercero YA se
+                      cargaban — sólo que este cuadro no los pedía. Ahora sigue
+                      la misma convención: las ranuras hasta la variación, el
+                      Var $ / Var %, y las que vengan después.
+
+                      Las dos columnas de «% Rev» salen para hacerle lugar: eran
+                      el mismo porcentaje repetido por escenario y es lo que el
+                      owner marcó para sacar. El «% Rev año ant.» del final se
+                      queda: ése compara contra otro año. */}
                   {bloques.map(bl => (
                     <Fragment key={bl.h}>
-                      <th style={{ ...TH2, borderLeft: BL }}>{etiqueta(idA)}</th>
-                      <th style={TH2}>{etiqueta(idB)}</th>
+                      {usadas.slice(0, trasVariacion).map((u, j) => (
+                        <th key={`a${u.i}`}
+                            style={j === 0 ? { ...TH2, borderLeft: BL } : TH2}>
+                          {etiqueta(u.id)}
+                        </th>
+                      ))}
                       <th style={{ ...TH2, color: "var(--brand)" }}>Var $</th>
                       <th style={{ ...TH2, color: "var(--brand)" }}>Var %</th>
-                      <th style={TH2}>% Rev</th>
-                      <th style={TH2}>% Rev Bud</th>
+                      {usadas.slice(trasVariacion).map(u => (
+                        <th key={`b${u.i}`} style={TH2}>{etiqueta(u.id)}</th>
+                      ))}
                     </Fragment>
                   ))}
                 </tr>
@@ -1998,23 +2030,31 @@ export default function MonthEndPLPage() {
                         : (f.gasto ? d < 0 : d > 0) ? "var(--positive)" : "var(--negative)";
                       const num = (x: number | null) => x === null ? "—" : usd(x);
                       const pc = (x: number | null) => x === null ? "—" : pct(x);
+                      /** El valor de una ranura cualquiera, no sólo de las
+                       *  dos comparadas. Los datos de todas ya venían
+                       *  cargados: lo que faltaba era pedirlos. */
+                      const celdaDe = (u: { id: string; i: number },
+                                       primera: boolean) => {
+                        const v = datos.find(x => x.scenario_id === u.id);
+                        const g = gastos.find(x => x.scenario_id === u.id);
+                        const x = dato(v, g, f.code, bl.h);
+                        return (
+                          <td key={`c${u.i}`} className="mono" style={{
+                            ...TD, fontWeight: f.fuerte ? 700 : 400,
+                            ...(primera ? { borderLeft: BL } : {}),
+                            color: x !== null && x < 0 ? "var(--negative)" : undefined,
+                          }}>{num(x)}</td>
+                        );
+                      };
                       return (
                         <Fragment key={bl.h}>
-                          <td className="mono" style={{ ...TD, borderLeft: BL,
-                            fontWeight: f.fuerte ? 700 : 400,
-                            color: a !== null && a < 0 ? "var(--negative)" : undefined }}>{num(a)}</td>
-                          <td className="mono" style={{ ...TD, fontWeight: f.fuerte ? 700 : 400,
-                            color: b !== null && b < 0 ? "var(--negative)" : undefined }}>{num(b)}</td>
+                          {usadas.slice(0, trasVariacion)
+                                 .map((u, j) => celdaDe(u, j === 0))}
                           <td className="mono" style={{ ...TD, color: cv, fontSize: 12.5 }}>{num(d)}</td>
                           <td className="mono" style={{ ...TD, color: cv, fontSize: 12 }}>
                             {p === null ? "—" : `${(p * 100).toFixed(1)}%`}
                           </td>
-                          <td className="mono" style={{ ...TD, fontSize: 12, color: "var(--text-secondary)" }}>
-                            {pc(pctRev(vA, gA, f.code, bl.h))}
-                          </td>
-                          <td className="mono" style={{ ...TD, fontSize: 12, color: "var(--text-secondary)" }}>
-                            {pc(pctRev(vB, gB, f.code, bl.h))}
-                          </td>
+                          {usadas.slice(trasVariacion).map(u => celdaDe(u, false))}
                         </Fragment>
                       );
                     })}
@@ -2050,28 +2090,33 @@ export default function MonthEndPLPage() {
                       const p = !b ? null : d / Math.abs(b);
                       const cv = d === 0 ? "var(--text-secondary)"
                         : (f.gasto ? d < 0 : d > 0) ? "var(--positive)" : "var(--negative)";
-                      const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
-                      const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
-                      const pcOr = (x: number, r: number | null) =>
-                        r ? pct(x / r) : "—";
+                      // ⚠️ La sub-fila tiene que traer EXACTAMENTE las mismas
+                      // columnas que su concepto. Cuando el concepto pasó a
+                      // dibujar una por ranura y esto se quedó en dos, el
+                      // desglose departamental salía corrido — cada número
+                      // debajo del encabezado del de al lado, que es peor que
+                      // no mostrarlo.
+                      const subCelda = (u: { id: string; i: number },
+                                        primera: boolean) => {
+                        const g = gastos.find(x => x.scenario_id === u.id);
+                        const x = sub.valor(g, bl.h);
+                        return (
+                          <td key={`s${u.i}`} className="mono" style={{
+                            ...TD, fontSize: 12,
+                            ...(primera ? { borderLeft: BL } : {}),
+                            color: x < 0 ? "var(--negative)" : undefined,
+                          }}>{usd(x)}</td>
+                        );
+                      };
                       return (
                         <Fragment key={bl.h}>
-                          <td className="mono" style={{ ...TD, borderLeft: BL, fontSize: 12,
-                            color: a < 0 ? "var(--negative)" : undefined }}>{usd(a)}</td>
-                          <td className="mono" style={{ ...TD, fontSize: 12,
-                            color: b < 0 ? "var(--negative)" : undefined }}>{usd(b)}</td>
+                          {usadas.slice(0, trasVariacion)
+                                 .map((u, j) => subCelda(u, j === 0))}
                           <td className="mono" style={{ ...TD, color: cv, fontSize: 12 }}>{usd(d)}</td>
                           <td className="mono" style={{ ...TD, color: cv, fontSize: 11.5 }}>
                             {p === null ? "—" : `${(p * 100).toFixed(1)}%`}
                           </td>
-                          <td className="mono" style={{ ...TD, fontSize: 11.5,
-                                                        color: "var(--text-disabled)" }}>
-                            {pcOr(a, rA)}
-                          </td>
-                          <td className="mono" style={{ ...TD, fontSize: 11.5,
-                                                        color: "var(--text-disabled)" }}>
-                            {pcOr(b, rB)}
-                          </td>
+                          {usadas.slice(trasVariacion).map(u => subCelda(u, false))}
                         </Fragment>
                       );
                     })}
