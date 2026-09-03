@@ -288,6 +288,12 @@ export interface Scenario {
   revenue_source?: string; // "drivers" | "checkbook"
   created_by?: string;
   created_at?: string;
+  /** ¿Es un entregable que no se borra? Lo decide el BACKEND —la misma función
+   *  que rechaza el DELETE—, así que la pantalla sólo lo obedece.
+   *
+   *  ⚠️ No deducirlo del nombre. Estuvo escrito tres veces, cada una con su
+   *  regex de subcadena, y por eso un `Working-VIEJO` quedaba imborrable. */
+  protected?: boolean;
 }
 
 // ── Scenario data operations (planning) ───────────────────────────────────────
