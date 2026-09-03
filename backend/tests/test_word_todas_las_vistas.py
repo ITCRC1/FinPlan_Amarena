@@ -154,14 +154,38 @@ def test_la_AUDITORIA_baja_sus_TRES_bloques():
     assert "a.departamentos" in cuerpo and "a.totales" in cuerpo
 
 
-def test_el_detalle_de_auditoria_baja_PLANO():
-    """⚠️ Con el departamento y la naturaleza en su columna, no agrupado como
-    en la pantalla: en un Excel una tabla plana se pivotea sin tocar nada, y con
-    encabezados de grupo intercalados hay que limpiarla antes de usarla."""
+def test_el_detalle_de_auditoria_baja_AGRUPADO():
+    """Owner, 2026-09-03: «necesito que los departamentos se subdividan
+    internamente por ingresos, payroll, cost y opex, y que haya espacio entre
+    departamentos, para que se vea bien».
+
+    ⚠️ El primer intento lo bajaba PLANO, con el argumento de que así se pivotea
+    sin limpiar nada. Es cierto y no alcanzó: la hoja se abre para LEERLA, y
+    ciento y pico de filas seguidas sin un corte no se leen.
+    """
     src = _fuente()
     cuerpo = src[src.index("    auditoria: async () => {"):src.index("    resumen12:")]
-    assert '{ label: "Departamento"' in cuerpo
-    assert '{ label: "Naturaleza"' in cuerpo
+    assert "const porDepto = new Map" in cuerpo
+    assert "`Subtotal ${nat}`" in cuerpo
+    # El renglón en blanco entre departamentos: sin él, el subtotal de uno
+    # queda pegado al encabezado del siguiente y se leen como una sola cosa.
+    assert 'filas.push({ label: "", es_total: false, valores: [] });' in cuerpo
+
+
+def test_la_jerarquia_va_con_SANGRIA_de_Excel_y_no_con_espacios():
+    """Con espacios dentro del texto, ordenar la columna o copiarla a otro lado
+    se lleva la sangría puesta y el nivel deja de significar nada."""
+    src = _fuente()
+    cuerpo = src[src.index("    auditoria: async () => {"):src.index("    resumen12:")]
+    assert "nivel: 0" in cuerpo and "nivel: 1" in cuerpo and "nivel: 2" in cuerpo
+
+
+def test_las_naturalezas_van_en_orden_de_PL_tambien_en_el_Excel():
+    """Que la misma auditoría se lea en dos órdenes según dónde se mire obliga
+    a comprobar que son lo mismo."""
+    src = _fuente()
+    cuerpo = src[src.index("    auditoria: async () => {"):src.index("    resumen12:")]
+    assert 'const ORDEN_NAT = ["Ingresos", "Costo de ventas", "Payroll", "Opex",' in cuerpo
 
 
 def test_los_cuadros_de_DOS_bloques_bajan_los_dos():

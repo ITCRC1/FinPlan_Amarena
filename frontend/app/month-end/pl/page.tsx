@@ -1409,32 +1409,78 @@ export default function MonthEndPLPage() {
         })),
       }];
 
-      // ── 2. El detalle, cuenta por cuenta ────────────────────────────────
+      // ── 2. El detalle, agrupado como se lee ─────────────────────────────
       //
-      // ⚠️ PLANO, con el departamento y la naturaleza en su columna, y no
-      // agrupado como en la pantalla. En un Excel una tabla plana se pivotea
-      // sin tocar nada; con encabezados de grupo intercalados hay que limpiarla
-      // antes de poder usarla, y ahí es donde la gente se equivoca.
+      // Owner, 2026-09-03: *«necesito que los departamentos se subdividan
+      // internamente por ingresos, payroll, cost y opex, y que haya espacio
+      // entre departamentos, para que se vea bien»*.
+      //
+      // ⚠️ El primer intento lo bajaba PLANO —una columna Departamento y otra
+      // Naturaleza— con el argumento de que así se pivotea sin limpiar nada.
+      // Es cierto y no alcanzó: la hoja se abre para LEERLA, y ciento y pico de
+      // filas seguidas sin un corte no se leen. La jerarquía va con la sangría
+      // de Excel (`nivel`), no con espacios en el texto: con espacios, ordenar
+      // la columna se lleva la sangría puesta.
+      //
+      // El orden de las naturalezas es el del P&L —ingreso, costo, planilla,
+      // opex— y NO el alfabético, igual que en la pantalla: que la misma
+      // auditoría se lea en dos órdenes según dónde se mire obliga a
+      // comprobar que son lo mismo.
+      const ORDEN_NAT = ["Ingresos", "Costo de ventas", "Payroll", "Opex",
+                         "Reparto", "Bajo GOP"];
       const conMonto = a.detalle.filter(f => f.movimiento);
       if (conMonto.length) {
+        const porDepto = new Map<string, { nombre: string; filas: typeof conMonto }>();
+        for (const f of conMonto) {
+          const g = porDepto.get(f.dept_code) || { nombre: f.dept_name, filas: [] };
+          g.filas.push(f);
+          porDepto.set(f.dept_code, g);
+        }
+
+        const filas: FilaCuadro[] = [];
+        for (const [code, g] of [...porDepto.entries()].sort()) {
+          filas.push({
+            label: g.nombre ? `${code} · ${g.nombre}` : code,
+            es_total: true, nivel: 0,
+            valores: [null, null, g.filas.reduce((x, f) => x + f.monto, 0)],
+          });
+          const nats = [...new Set(g.filas.map(f => f.tipo))].sort(
+            (x, y) => (ORDEN_NAT.indexOf(x) + 1 || 99) - (ORDEN_NAT.indexOf(y) + 1 || 99));
+          for (const nat of nats) {
+            const suyas = g.filas.filter(f => f.tipo === nat)
+              .sort((x, y) => Math.abs(y.monto) - Math.abs(x.monto));
+            filas.push({ label: nat, es_total: false, nivel: 1,
+                         valores: [null, null, null] });
+            for (const f of suyas) {
+              filas.push({
+                label: f.account_name, es_total: false, nivel: 2,
+                valores: [f.account_code, f.linea || "(no cae en ninguna línea)",
+                          f.monto],
+              });
+            }
+            filas.push({
+              label: `Subtotal ${nat}`, es_total: true, nivel: 1,
+              valores: [null, null, suyas.reduce((x, f) => x + f.monto, 0)],
+            });
+          }
+          // El renglón en blanco entre departamentos. Sin él, el subtotal de
+          // uno queda pegado al encabezado del siguiente y se leen como una
+          // sola cosa.
+          filas.push({ label: "", es_total: false, valores: [] });
+        }
+
         cuadres.push({
           titulo: `${t("tab_auditoria")} · Detalle por cuenta`,
           subtitulo: `${cab} · ${conMonto.length} asientos con monto`,
           hoja: "Auditoría Detalle",
           columnas: [
-            { label: "Departamento", ancho: 26, formato: "texto" as const },
-            { label: "Cuenta", ancho: 9, formato: "texto" as const },
-            { label: "Nombre", ancho: 34, formato: "texto" as const },
-            { label: "Naturaleza", ancho: 15, formato: "texto" as const },
-            { label: "Renglón del P&L", ancho: 22, formato: "texto" as const },
-            { label: "Monto US$", ancho: 15, formato: "usd2" as const },
+            { label: "Departamento · Naturaleza · Cuenta", ancho: 46,
+              formato: "texto" as const },
+            { label: "Cuenta", ancho: 10, formato: "texto" as const },
+            { label: "Renglón del P&L", ancho: 24, formato: "texto" as const },
+            { label: "Monto US$", ancho: 16, formato: "usd2" as const },
           ],
-          filas: conMonto.map(f => ({
-            label: f.dept_name ? `${f.dept_code} · ${f.dept_name}` : f.dept_code,
-            es_total: false,
-            valores: [f.account_code, f.account_name, f.tipo,
-                      f.linea || "(no cae en ninguna línea)", f.monto],
-          })),
+          filas,
         });
       }
 
