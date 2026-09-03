@@ -253,3 +253,56 @@ def test_no_se_da_por_ACOMODADA_mientras_carga():
     las filas."""
     pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
     assert "!celda.origen || !datos) return;" in pantalla
+
+
+# ─── Que el desplegable SUME la celda (owner, 2026-09-03) ───────────────────
+#
+# «No están saliendo todos los datos en el pop-up… por ejemplo Spa, no veo nada
+# en Budget 2026.»
+#
+# Comprobadas las 120 celdas de 2026 contra `gasto_por_clase`: eran 15 las que
+# no cuadraban, por DOS causas, y las dos eran lo mismo — el desplegable no
+# replicaba algo que el cuadro sí hace.
+
+def test_el_reparto_entra_como_OPEX_en_las_dos_ramas():
+    """⚠️ La causa de 14 de los 15 descuadres.
+
+    Desde que `gasto_por_clase` dejó de descartar los departamentos de reparto,
+    la celda de opex incluye los asientos de distribución. Sin ellos acá, el
+    desplegable quedaba corto en TODO departamento que consume lavandería o
+    cafetería. Medido en el BUDGET 2026: Rooms 7.023,06 de menos, el Club
+    1.768,31, y la propia lavandería mostraba un cuadro VACÍO sobre una celda
+    de −9.838,52.
+    """
+    mayor = inspect.getsource(api._del_mayor)
+    assert "CUENTAS_DE_REPARTO" in mayor
+    aux = inspect.getsource(api._del_auxiliar)
+    assert "AllocationEntry" in aux
+    assert "alloc" in aux.lower()
+
+
+def test_los_asientos_de_reparto_van_por_MES_y_no_por_columnas():
+    """`AllocationEntry` tiene una fila por mes; los checkbooks tienen doce
+    columnas. Tratarlos igual pone todo el año en enero."""
+    aux = inspect.getsource(api._del_auxiliar)
+    assert "int(a.month or 0)" in aux
+
+
+def test_el_ingreso_SIN_LINEA_se_indexa_por_departamento():
+    """⚠️ El descuadre número 15.
+
+    `gasto_por_clase` hace `clave_rev = ln_rev or FUSION_INGRESO.get(dept, dept)`.
+    Sin la segunda mitad, el ingreso del Área Recreativa (270) —que no resuelve
+    a ninguna línea— abría un cuadro vacío sobre una celda de $350,41.
+    """
+    mayor = inspect.getsource(api._del_mayor)
+    assert "FUSION_INGRESO.get(dept, dept)" in mayor
+
+
+def test_las_tablas_compartidas_se_IMPORTAN_y_no_se_copian():
+    """Dos copias de `CUENTAS_DE_REPARTO` o de `FUSION_INGRESO` es cómo el
+    desplegable termina sumando algo distinto del número que se tocó."""
+    fuente = (Path(api.__file__)).read_text(encoding="utf-8")
+    assert "from app.api.gasto_por_clase_api import" in fuente
+    # Y no reescritas acá.
+    assert '"4999"' not in fuente and '"0161": "0162"' not in fuente

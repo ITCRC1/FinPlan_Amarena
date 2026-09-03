@@ -56,6 +56,7 @@ from app.engine import pl_engine
 from app.engine import recalculate as recalc
 from app.errores import ErrorApi
 from app.models.actual_entry import ActualEntry
+from app.models.allocation_entry import AllocationEntry
 from app.models.cost_entry import CostEntry
 from app.models.department_catalog import DepartmentCatalog
 from app.models.mapping import AccountMapping
@@ -75,6 +76,13 @@ CERO = Decimal("0")
 
 #: La clase del cuadro → el primer dígito de la cuenta en el mayor.
 CLASE_A_DIGITO = {"cost": "5", "payroll": "6", "opex": "7", "property": "8"}
+
+#: Las cuentas del crédito de distribución y la fusión del ingreso de
+#: lavandería. ⚠️ Se IMPORTAN de `gasto_por_clase`, que es quien arma la
+#: celda: dos copias de estas dos tablas es cómo el desplegable termina
+#: sumando algo distinto de lo que dice el número que se tocó.
+from app.api.gasto_por_clase_api import (   # noqa: E402
+    CUENTAS_DE_REPARTO, FUSION_INGRESO)
 
 
 def _f(x) -> float:
@@ -111,10 +119,21 @@ async def _del_mayor(session, escenario, clase: str, clave: str) -> dict:
         cuenta = str(e.account_code or "")
         dept = str(e.dept_code or "")
         if clase == "revenue":
-            # El ingreso se indexa por LÍNEA del P&L, no por departamento: es
-            # el mismo vocabulario que usa la celda.
+            if cuenta in CUENTAS_DE_REPARTO:
+                continue   # el crédito de distribución no es venta
             linea, tipo = pl_engine.linea_de_fila(cuenta, dept)
-            if tipo != pl_engine.TIPO_INGRESO or (clave and linea != clave):
+            if tipo != pl_engine.TIPO_INGRESO:
+                continue
+            # ⚠️ La celda se indexa por LÍNEA del P&L **y, si no hay línea, por
+            # departamento** — es literal lo que hace `gasto_por_clase`:
+            #
+            #     clave_rev = ln_rev or FUSION_INGRESO.get(dept, dept)
+            #
+            # Sin la segunda mitad, el ingreso del Área Recreativa (270) —que
+            # no resuelve a ninguna línea— abría un cuadro VACÍO sobre una
+            # celda con $350,41. Medido.
+            propia = linea or FUSION_INGRESO.get(dept, dept)
+            if clave and propia != clave:
                 continue
         elif clase == "property":
             # La clase 8 se abre por CUENTA, no por departamento: vive todo en
@@ -122,11 +141,20 @@ async def _del_mayor(session, escenario, clase: str, clave: str) -> dict:
             if not cuenta.startswith("8") or (clave and cuenta != clave):
                 continue
         else:
+            # ⚠️ El crédito de distribución (49xx) cuenta como OPEX, con signo
+            # negativo. Es lo mismo que hace `gasto_por_clase` desde que dejó
+            # de descartar los departamentos de reparto —el sobrante de
+            # lavandería son ~1.100 al mes— y sin esto el desplegable no suma
+            # la celda de ningún departamento que reciba reparto.
+            es_reparto = cuenta in CUENTAS_DE_REPARTO
+            if es_reparto:
+                if clase != "opex":
+                    continue
+            elif not digito or cuenta[:1] != digito:
+                continue
             # `clave` vacía = la clase entera. Es lo que se abre al tocar el
             # renglón del concepto («Payroll») en vez de una de sus
             # sub-filas por departamento.
-            if not digito or cuenta[:1] != digito:
-                continue
             if clave and _padre(dept) != clave:
                 continue
         serie = out.setdefault(cuenta, [CERO] * 12)
@@ -155,6 +183,29 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
             if not clave or _padre(str(r.dept_code or "")) == clave:
                 sumar(str(r.account_code or ""), r,
                       str(getattr(r, "account_name", "") or ""))
+
+        # ⚠️ **Y los asientos de REPARTO**, que son parte del opex del
+        # departamento que los recibe.
+        #
+        # `gasto_por_clase` los suma con `alloc_by_dept`; sin ellos acá, el
+        # desplegable quedaba corto en TODO departamento que consume
+        # lavandería o cafetería. Medido en el BUDGET 2026: Rooms 7.023,06 de
+        # menos, el Club 1.768,31, y la propia lavandería (0161) mostraba un
+        # cuadro vacío sobre una celda de −9.838,52 —el crédito que reparte—.
+        #
+        # ⚠️ Van por MES y no por columnas: `AllocationEntry` tiene una fila
+        # por mes, no doce columnas como los checkbooks.
+        for a in (await session.execute(select(AllocationEntry).where(
+                AllocationEntry.scenario_id == escenario.id))).scalars():
+            destino = _padre(str(a.target_dept or ""))
+            if clave and destino != clave:
+                continue
+            m = int(a.month or 0)
+            if not 1 <= m <= 12:
+                continue
+            cuenta = str(getattr(a, "account", "") or pl_engine.ALLOCATION_ACCOUNT)
+            out.setdefault(cuenta, [CERO] * 12)[m - 1] += (a.amount_usd or CERO)
+            nombres.setdefault(cuenta, "Distribución de gastos")
     elif clase == "cost":
         for r in (await session.execute(select(CostEntry).where(
                 CostEntry.scenario_id == escenario.id))).scalars():
