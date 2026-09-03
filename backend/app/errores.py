@@ -353,6 +353,10 @@ MENSAJES: dict[str, dict[str, str]] = {
     "fte.archivo_sin_bloques": {
         "es": "El archivo no trae bloques mensuales de FTE.",
         "en": "The file has no monthly FTE blocks."},
+    # La columna Commentary del P&L Statement (`comentario_pl_api`).
+    "comentario.sin_renglon": {
+        "es": "Falta decir a qué renglón pertenece el comentario",
+        "en": "The comment must say which line it belongs to"},
     # El desplegable de detalle de una celda (`detalle_celda_api`).
     "escenario.falta": {
         "es": "Hay que decir al menos un escenario",

@@ -373,7 +373,20 @@ def _tabla(doc, cuadro: dict) -> None:
             seccion.page_width - seccion.left_margin - seccion.right_margin)
 
 
-def _comentarios(doc) -> None:
+def _comentarios(doc, notas: list[str] | None = None) -> None:
+    """El recuadro para comentar, con lo ya escrito adentro.
+
+    Owner, 2026-09-03: *«una vez que se impriman en Word, estas notas aparezcan
+    en el box editable»*.
+
+    ⚠️ Las notas van DENTRO del recuadro y no en un párrafo aparte: el recuadro
+    es el lugar donde se comenta, y separar lo escrito de donde se escribe haría
+    que en la reunión se comente dos veces lo mismo — una en el papel y otra en
+    la app.
+
+    Los renglones en blanco se agregan DESPUÉS de las notas, para que siempre
+    quede espacio para escribir a mano encima de lo que ya está.
+    """
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(10)
     p.paragraph_format.space_after = Pt(3)
@@ -384,8 +397,22 @@ def _comentarios(doc) -> None:
     _borde_caja(caja)
     celda = caja.rows[0].cells[0]
     celda.text = ""
-    for i in range(RENGLONES_COMENTARIO):
-        p = celda.paragraphs[0] if i == 0 else celda.add_paragraph()
+    primero = True
+
+    for nota in (notas or []):
+        texto = str(nota or "").strip()
+        if not texto:
+            continue
+        p = celda.paragraphs[0] if primero else celda.add_paragraph()
+        primero = False
+        p.paragraph_format.space_after = Pt(4)
+        r = p.add_run(texto)
+        r.font.size = Pt(9)
+        r.font.color.rgb = NEGRO
+
+    for _ in range(RENGLONES_COMENTARIO):
+        p = celda.paragraphs[0] if primero else celda.add_paragraph()
+        primero = False
         p.paragraph_format.space_after = Pt(9)
         p.add_run("")
 
@@ -427,7 +454,7 @@ def build_cierre_docx(cuadros: list[dict], propiedad: str, titulo: str,
             r.font.size = Pt(9.5); r.font.color.rgb = GRIS
 
         _tabla(doc, cuadro)
-        _comentarios(doc)
+        _comentarios(doc, cuadro.get("comentarios"))
 
     salida = io.BytesIO()
     doc.save(salida)

@@ -52,6 +52,13 @@ export interface Cuadro {
   hoja?: string;
   columnas: ColumnaCuadro[];
   filas: FilaCuadro[];
+  /** Las notas ya escritas, para que el Word las imprima DENTRO del recuadro
+   *  de comentarios.
+   *
+   *  Owner, 2026-09-03: «una vez que se impriman en Word, estas notas
+   *  aparezcan en el box editable». Separar lo escrito de donde se escribe
+   *  haría que en la reunión se comente dos veces lo mismo. */
+  comentarios?: string[];
 }
 
 /**

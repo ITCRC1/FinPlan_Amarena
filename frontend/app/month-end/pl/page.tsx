@@ -24,7 +24,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTranslations } from "next-intl";
 import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
-  getAuditoria, getPLDetail,
+  getAuditoria, getPLDetail, getComentariosPL, guardarComentarioPL,
   getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
   type ConsultaFila, type ConsultaCatalogo, type FbDetalle, type FbMes, type IngresoDetalle,
   type AuditoriaCuadre, type PLDetailFila,
@@ -412,6 +412,56 @@ export default function MonthEndPLPage() {
    *  donde están y con los mismos números; abajo de cada una aparece de qué
    *  está hecha. */
   const [deptEstado, setDeptEstado] = useState(false);
+
+  /* ── La columna «Commentary» ───────────────────────────────────────────────
+   *
+   * Owner, 2026-09-03: «hay una celda al final del P&L que dice Commentary pero
+   * no tiene forma para que sea editable». Estaba dibujada y vacía.
+   *
+   * ⚠️ Se GUARDA, y por eso no es un campo suelto: un comentario que se pierde
+   * al recargar es peor que ninguno, porque el que lo escribió cree que quedó.
+   *
+   * Se ancla al escenario de la RANURA 1 —el que se está explicando— y al mes
+   * del cierre. La columna es una sola para toda la fila y la fila compara tres
+   * versiones: el comentario responde «por qué MI actual dio esto», no algo del
+   * presupuesto contra el que se compara.
+   */
+  const [comentarios, setComentarios] = useState<Record<string, string>>({});
+  const [guardando, setGuardando] = useState<string | null>(null);
+  const escComentario = ranuras[varA];
+
+  useEffect(() => {
+    if (!escComentario) { setComentarios({}); return; }
+    let vivo = true;
+    getComentariosPL(escComentario, mes)
+      .then(r => { if (vivo) setComentarios(r.comentarios || {}); })
+      .catch(() => { if (vivo) setComentarios({}); });
+    return () => { vivo = false; };
+  }, [escComentario, mes]);
+
+  /** Guarda al salir del campo, no en cada tecla.
+   *
+   *  ⚠️ Guardar por tecla serían treinta llamadas por comentario y una carrera
+   *  entre ellas: la que conteste última gana, y no es necesariamente la
+   *  última que se escribió. */
+  const guardarComentario = useCallback(async (ref: string, texto: string) => {
+    if (!escComentario) return;
+    if ((comentarios[ref] ?? "") === texto) return;   // no cambió
+    setGuardando(ref);
+    try {
+      await guardarComentarioPL(escComentario, ref, mes, texto);
+      setComentarios(prev => {
+        const sig = { ...prev };
+        if (texto) sig[ref] = texto; else delete sig[ref];
+        return sig;
+      });
+    } catch {
+      // Que no se pierda lo escrito por un fallo de red: queda en el campo y
+      // se reintenta al volver a salir de él.
+    } finally {
+      setGuardando(null);
+    }
+  }, [escComentario, mes, comentarios]);
 
   /** La celda que se está mirando de cerca, o `null`.
    *
@@ -981,7 +1031,11 @@ export default function MonthEndPLPage() {
                 ...usadas.slice(trasVariacion).map(deRanura)];
       }),
       pctRev(prevPL, prevGasto, f.code, "ytd"),
-      null,
+      // ⚠️ El comentario BAJA con el cuadro. Escribir la explicación de la
+      // variación y que el Excel salga con la columna vacía es exactamente el
+      // defecto que el owner ya reportó una vez: «el excel no baja lo que está
+      // viendo» (2026-08-27).
+      comentarios[f.code] ?? null,
     ],
       },
       ...(conDepto ? desglose(f.code) : []).map(sub => ({
@@ -1570,6 +1624,47 @@ export default function MonthEndPLPage() {
       v => typeof v === "number" && Math.abs(v) >= 0.005));
   }
 
+  /** Las notas guardadas de este mes, para el Word.
+   *
+   *  ⚠️ Se piden ACÁ y no se reusan las de la pantalla: las de la columna
+   *  «Commentary» sólo cubren los renglones del P&L Statement, y las de los
+   *  desplegables —una por celda— pueden haberse escrito sin abrir ese
+   *  sub-tab. El documento tiene que traer las dos.
+   */
+  async function notasDelMes(): Promise<Record<string, string>> {
+    const id = ranuras[varA];
+    if (!id) return {};
+    try {
+      return (await getComentariosPL(id, mes)).comentarios || {};
+    } catch {
+      return {};   // sin notas se baja igual; sin documento, no
+    }
+  }
+
+  /** Las notas que le tocan a un capítulo.
+   *
+   *  El P&L Statement se queda con las de sus renglones; los cuadros por
+   *  departamento, con las de sus celdas (`celda:<clase>:<clave>`). Cada nota
+   *  sale con el renglón al que pertenece: una lista de frases sueltas dentro
+   *  de un recuadro no dice de qué habla cada una.
+   */
+  function notasDe(notas: Record<string, string>, clases: string[]): string[] {
+    const out: string[] = [];
+    for (const [ref, texto] of Object.entries(notas)) {
+      if (!texto?.trim()) continue;
+      const m = /^celda:([a-z]+):(.*)$/.exec(ref);
+      if (m) {
+        if (!clases.includes(m[1])) continue;
+        const k = m[2] === "*" ? "todos los departamentos" : m[2];
+        out.push(`${deptos[k] ? `${k} · ${deptos[k]}` : k} — ${texto.trim()}`);
+      } else if (clases.includes("__pl__")) {
+        const fila = ESTADO.find(f => f.code === ref);
+        out.push(`${fila ? fila.label : ref} — ${texto.trim()}`);
+      }
+    }
+    return out.sort();
+  }
+
   async function bajarWord() {
     // ⚠️ **Primero, que la pantalla haya cargado.**
     //
@@ -1592,6 +1687,7 @@ export default function MonthEndPLPage() {
     }
 
     const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
+    const notas = await notasDelMes();
     const cuadros: Cuadro[] = [];
     const afuera: string[] = [];
     for (const clave of activos) {
@@ -1600,6 +1696,11 @@ export default function MonthEndPLPage() {
       let hechos: Cuadro[] = [];
       try {
         hechos = await armar();
+        // Las notas del capítulo, para que salgan dentro de su recuadro.
+        const suyas = clave === "estado" ? notasDe(notas, ["__pl__"])
+          : ["revenue", "payroll", "cost", "opex", "property"].includes(clave)
+            ? notasDe(notas, [clave]) : [];
+        if (suyas.length) hechos = hechos.map(c => ({ ...c, comentarios: suyas }));
       } catch (e) {
         // Un capítulo que falla no puede llevarse el documento entero: se cae
         // ése y los demás salen igual. Pero SE DICE cuál — un capítulo que
@@ -2462,7 +2563,29 @@ export default function MonthEndPLPage() {
                       {prevPL ? (pctRev(prevPL, prevGasto, f.code, "ytd") === null ? "—"
                         : pct(pctRev(prevPL, prevGasto, f.code, "ytd")!)) : "—"}
                     </td>
-                    <td style={{ ...TDL, borderLeft: BL }}></td>
+                    {/* El comentario. `contentEditable` y no un `<input>`:
+                        una explicación de variación son dos renglones, y un
+                        input de una línea obliga a leerla de a pedazos.
+
+                        ⚠️ `suppressContentEditableWarning` porque React avisa
+                        cuando algo editable tiene hijos; acá el hijo es el
+                        texto inicial y el navegador lo maneja desde ahí. */}
+                    <td style={{ ...TDL, borderLeft: BL, padding: 0 }}>
+                      <div
+                        contentEditable
+                        suppressContentEditableWarning
+                        onBlur={e => guardarComentario(
+                          f.code, e.currentTarget.textContent?.trim() ?? "")}
+                        title="Escribí acá la explicación. Se guarda al salir del campo."
+                        style={{
+                          minHeight: 26, padding: "4px 8px", fontSize: 12,
+                          lineHeight: 1.45, outline: "none",
+                          background: guardando === f.code
+                            ? "var(--bg-elevated, #EDF1F5)" : undefined,
+                        }}>
+                        {comentarios[f.code] ?? ""}
+                      </div>
+                    </td>
                   </tr>
                 ),
                 // ── Las sub-filas por departamento ────────────────────────

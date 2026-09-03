@@ -35,7 +35,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState } from "react";
 import { createPortal } from "react-dom";
 
-import { getDetalleDeCelda, type DetalleCelda as Datos } from "@/lib/api";
+import { getComentariosPL, getDetalleDeCelda, guardarComentarioPL,
+         type DetalleCelda as Datos } from "@/lib/api";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -66,6 +67,14 @@ export interface Celda {
   origen?: { x: number; y: number };
 }
 
+/** La llave con la que se guarda la nota de una celda.
+ *
+ *  ⚠️ Lleva la clase Y la clave: `payroll` de Rooms y `opex` de Rooms son dos
+ *  celdas distintas y merecen dos notas distintas. Con sólo el departamento,
+ *  escribir una pisaría la otra.
+ */
+export const refDeCelda = (c: Celda) => `celda:${c.clase}:${c.clave || "*"}`;
+
 export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCerrar }: {
   celda: Celda;
   scenarioIds: string[];
@@ -84,6 +93,55 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
       .catch(e => { if (vivo) setError(e instanceof Error ? e.message : "No se pudo cargar"); });
     return () => { vivo = false; };
   }, [scenarioIds, celda.clase, celda.clave]);
+
+  /* ── La nota del mes ──────────────────────────────────────────────────────
+   *
+   * Owner, 2026-09-03: *«una vez que abrimos el popup, abajo de los números
+   * abrir un box para editar comentarios… que sea grande… y este se guarde con
+   * la versión del mes, con el mes. Y si cambio de mes, que se me abra otra
+   * opción para agregar notas»*.
+   *
+   * ⚠️ **Se guarda con el MES**, así que cambiar de mes trae otra nota — vacía
+   * si no se escribió. Es lo que se pidió y además es lo correcto: la
+   * explicación de julio no explica agosto, y una nota sin mes se arrastraría a
+   * todos los cierres siguientes diciendo algo que ya no es cierto.
+   *
+   * Y con la VERSIÓN de la ranura 1, la que se está explicando: la ventana
+   * compara tres, pero la nota responde «por qué MI actual dio esto».
+   */
+  const escNota = scenarioIds[0] || "";
+  const ref = refDeCelda(celda);
+  const [nota, setNota] = useState("");
+  const [notaCargada, setNotaCargada] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [guardada, setGuardada] = useState(false);
+
+  useEffect(() => {
+    if (!escNota) return;
+    let vivo = true;
+    setNotaCargada(false); setGuardada(false);
+    getComentariosPL(escNota, mes)
+      .then(r => { if (vivo) { setNota(r.comentarios?.[ref] ?? ""); setNotaCargada(true); } })
+      .catch(() => { if (vivo) { setNota(""); setNotaCargada(true); } });
+    return () => { vivo = false; };
+  }, [escNota, mes, ref]);
+
+  /** Guarda al salir del campo, no en cada tecla: por tecla serían treinta
+   *  llamadas por nota, y una carrera entre ellas donde gana la que conteste
+   *  última — que no es la última que se escribió. */
+  const guardarNota = useCallback(async () => {
+    if (!escNota || !notaCargada) return;
+    setGuardando(true); setGuardada(false);
+    try {
+      await guardarComentarioPL(escNota, ref, mes, nota.trim());
+      setGuardada(true);
+    } catch {
+      // Lo escrito queda en el campo y se reintenta al volver a salir de él:
+      // perderlo por un fallo de red sería lo peor que puede hacer una nota.
+    } finally {
+      setGuardando(false);
+    }
+  }, [escNota, notaCargada, ref, mes, nota]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onCerrar(); };
@@ -349,6 +407,33 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* ── La nota del mes ──────────────────────────────────────── */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8,
+                            marginBottom: 4 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .6,
+                               textTransform: "uppercase",
+                               color: "var(--text-secondary)" }}>
+                  Nota · {MESES[mes - 1]}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-disabled)" }}>
+                  {guardando ? "guardando…" : guardada ? "guardada" : ""}
+                </span>
+              </div>
+              <textarea
+                value={nota}
+                onChange={e => { setNota(e.target.value); setGuardada(false); }}
+                onBlur={guardarNota}
+                placeholder={`Explicá acá qué pasó en ${MESES[mes - 1]}. Se guarda al salir del campo, y baja con el Word.`}
+                style={{
+                  width: "100%", minHeight: 96, resize: "vertical",
+                  padding: "9px 11px", fontSize: 12.5, lineHeight: 1.55,
+                  borderRadius: 8, border: "1px solid var(--border-medium)",
+                  background: "var(--bg-surface)", color: "var(--text-primary)",
+                  fontFamily: "inherit",
+                }} />
             </div>
 
             {versiones.some(v => v.agregado) && (

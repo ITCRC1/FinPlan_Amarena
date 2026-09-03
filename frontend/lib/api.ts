@@ -5027,3 +5027,21 @@ export async function getDetalleDeCelda(
     `/gasto-por-clase/detalle-de-celda/?scenarios=${encodeURIComponent(ids)}`
     + `&clase=${encodeURIComponent(clase)}&clave=${encodeURIComponent(clave)}`);
 }
+
+
+// ── La columna «Commentary» del P&L Statement ────────────────────────────────
+//
+// Owner, 2026-09-03: «hay una celda al final del P&L que dice Commentary pero
+// no tiene forma para que sea editable».
+export async function getComentariosPL(
+  scenarioId: string, mes: number,
+): Promise<{ comentarios: Record<string, string> }> {
+  return api.get(
+    `/pl/${encodeURIComponent(scenarioId)}/comentarios/?mes=${mes}`);
+}
+export async function guardarComentarioPL(
+  scenarioId: string, ref: string, mes: number, texto: string,
+): Promise<{ guardado: boolean; texto: string }> {
+  return api.put(`/pl/${encodeURIComponent(scenarioId)}/comentarios/`,
+                 { ref, mes, texto });
+}
