@@ -1665,6 +1665,60 @@ export default function MonthEndPLPage() {
     return out.sort();
   }
 
+  /** Un solo Excel con TODOS los sub-tabs, una hoja cada uno.
+   *
+   * Owner, 2026-09-03: *«se podrá bajar en Excel todos los tabs; que bajen
+   * todos es todos, en un solo archivo»*.
+   *
+   * ⚠️ **Sale del MISMO registro de capítulos que el Word** (`CAPITULOS`). Un
+   * segundo armado sería un segundo lugar donde olvidarse un sub-tab, que es
+   * exactamente el defecto que el documento acaba de tener.
+   *
+   * Dos diferencias con el Word, y las dos a pedido:
+   *
+   * * **No filtra por los escondidos.** «Todos es todos»: el Word es lo que ve
+   *   el dueño y por eso respeta el panel de Vistas; esto es el respaldo para
+   *   trabajar, y ahí esconder una hoja no ayuda a nadie.
+   * * **Incluye los cuadros sin datos.** En un Word una página en cero se lee
+   *   como «el mes no tuvo movimiento»; en Excel una hoja vacía se ve vacía, y
+   *   sacarla dejaría la duda de si el tab existe.
+   */
+  async function bajarExcelTodo() {
+    if (!datos.length || !gastos.length) {
+      alert("Todavía se están cargando los datos de la pantalla. Esperá a que "
+            + "se dibujen los cuadros y volvé a bajar el Excel.");
+      return;
+    }
+    const cuadros: Cuadro[] = [];
+    const fallaron: string[] = [];
+    for (const v of VISTAS) {
+      const armar = CAPITULOS[v.key];
+      if (!armar) continue;
+      try {
+        for (const c of await armar()) {
+          // La hoja se nombra con el cuadro; Excel corta en 31 caracteres y el
+          // libro resuelve los repetidos.
+          cuadros.push({ ...c, hoja: c.titulo });
+        }
+      } catch {
+        fallaron.push(t(`tab_${v.key}`));
+      }
+    }
+    if (!cuadros.length) {
+      alert("No se pudo armar ningún cuadro.");
+      return;
+    }
+    try {
+      await bajarCuadros(`Cierre_${year}_${String(mes).padStart(2, "0")}`, cuadros);
+      if (fallaron.length) {
+        alert("El archivo salió con " + cuadros.length + " hojas, pero estos "
+              + "no se pudieron armar:\n\n· " + fallaron.join("\n· "));
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo generar el Excel");
+    }
+  }
+
   async function bajarWord() {
     // ⚠️ **Primero, que la pantalla haya cargado.**
     //
@@ -1844,6 +1898,12 @@ export default function MonthEndPLPage() {
             es lo mismo que dibuja la fila de sub-tabs. */}
         <button onClick={bajarWord} title="Reporte de cierre en Word, con espacio para comentar cada cuadro"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Word</button>
+        {/* Owner, 2026-09-03: «que bajen todos es todos, en un solo archivo».
+            A diferencia del Word, éste NO respeta el panel de Vistas: el Word
+            es lo que ve el dueño; esto es el respaldo para trabajar. */}
+        <button onClick={bajarExcelTodo}
+          title="Un solo Excel con TODOS los sub-tabs, una hoja cada uno — incluidos los escondidos"
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Excel · todo</button>
       </div>
 
       {/* Cuatro ranuras libres. Cada una acepta CUALQUIER escenario de cualquier
