@@ -135,7 +135,8 @@
       "plDetailHotel": "P&L Detail Hotel",
       "plDetailClub": "P&L Detail Club",
       "monthEndDetailFull": "P&L Detail Full (consolidated)",
-      "monthEndCheckbooks": "Checkbooks (read-only)"
+      "monthEndCheckbooks": "Checkbooks (read-only)",
+      "monthEndRevenuePlan": "Revenue build-up (read-only)"
     },
     "groupsFull": {
       "financials": "Financial Statements",

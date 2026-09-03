@@ -184,6 +184,10 @@ export const NAV: NavGroup[] = [
       // obliga a entrar al cierre, elegir versiones y saber que está ahí
       // adentro.
       { key: "monthEndCheckbooks", href: "/month-end/checkbooks" },
+      // El armado de ingresos de Planning, también SÓLO PARA CONSULTAR
+      // (owner, 2026-09-03). Mismo motivo que los checkbooks: quien no tiene
+      // acceso a Planning igual necesita ver de qué está hecho el ingreso.
+      { key: "monthEndRevenuePlan", href: "/month-end/revenue-plan" },
     ],
   },
   {
