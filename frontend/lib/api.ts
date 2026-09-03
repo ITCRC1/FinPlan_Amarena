@@ -73,6 +73,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     try { clave = JSON.parse(text)?.clave; } catch { /* no era JSON */ }
     throw Object.assign(new Error(`API ${res.status}: ${text}`), { clave });
   }
+  // ⚠️ **Una respuesta SIN cuerpo no es JSON.**
+  //
+  // Owner, 2026-09-03, borrando un escenario: «json fallo, no se borro». Se
+  // habia borrado — el servidor contesta `204 No Content`, que por definicion
+  // no trae cuerpo, y `res.json()` sobre un cuerpo vacio tira «Unexpected end
+  // of JSON input». El borrado ya habia ocurrido y el error salia despues, al
+  // leer la respuesta: la pantalla mostraba un fallo de algo que funciono.
+  //
+  // Se mira el 204 y el `content-length: 0` porque no todos los servidores
+  // mandan los dos, y basta uno para saber que no hay que parsear.
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
   return res.json() as Promise<T>;
 }
 
