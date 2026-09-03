@@ -59,3 +59,32 @@ def test_la_tabla_vieja_solo_se_usa_para_los_NOMBRES():
         f"la tabla vieja se usa en más lugares de los esperados: {usos}")
     assert any("select(BelowGopAccountEntry)" in u for u in usos), (
         "el único uso que queda tiene que ser la consulta de NOMBRES")
+
+
+def test_las_DOS_tablas_tienen_proposito_distinto_y_eso_esta_bien():
+    """⚠️ No son un duplicado: son dos cosas distintas, y confundirlas fue el bug.
+
+    | tabla | qué es | ¿va al P&L? |
+    |---|---|---|
+    | `NonOpEntry` | el checkbook del propietario | **sí** |
+    | `BelowGopAccountEntry` | ajustes de reconciliación sobre el GL | **no, a propósito** |
+
+    Su único escritor es `POST /scenarios/{id}/belowgop-adjustment/`, que sirve
+    para «parkear diferencias de reconciliación sin re-importar» y dice en su
+    propio docstring que NO toca el P&L.
+
+    Por eso `consulta_api` y `revenue_api` la leen sin traducir —muestran los
+    ajustes, que es su trabajo— y `pl_full_detail` la lista y la revierte con
+    renglones negativos. Todo eso es correcto y **no hay que unificarlo**.
+
+    Lo que estaba mal era un solo cuadro: `/gasto-por-clase/` mezclaba las dos.
+    """
+    import inspect
+
+    from app.api import scenarios_api
+
+    fuente = inspect.getsource(scenarios_api.belowgop_adjustment)
+    # El docstring parte la frase en dos lineas; se busca lo que no se corta.
+    assert "snapshot del P&L" in fuente and "NO toca" in fuente, (
+        "si el ajuste empieza a tocar el P&L, hay que revisar TODO esto: la "
+        "separación entre las dos tablas dejaría de ser cierta")
