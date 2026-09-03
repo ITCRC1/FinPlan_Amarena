@@ -156,6 +156,12 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
     apertura por departamento (y por cuenta, para la clase 8)."""
     filas = []
 
+    # Se necesita el escenario, no sólo su id: el tipo y `actuals_through`
+    # deciden de dónde sale el gasto de cada mes — ver la mezcla más abajo.
+    escenario = await session.get(Scenario, scenario_id)
+    if escenario is None:
+        return filas
+
     # Clase 8 del presupuesto: vive en su propio checkbook, con la cuenta en la
     # fila. Se lee una vez y se reparte por mes, en vez de doce consultas.
     #
@@ -237,7 +243,31 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
         #
         # Manda el GL cuando el mes lo tiene, porque es el dato real; si no hay,
         # se cae a los checkbooks, que es lo proyectado.
-        filas_gl = await recalc.actual_rows_for_month(session, scenario_id, m)
+        # ⚠️ **En un mes CERRADO de un forecast, el gasto sale del ACTUAL.**
+        #
+        # Owner, 2026-09-03, comparando dos cuadros. Este endpoint leía siempre
+        # el mayor del PROPIO escenario, y un forecast no tiene mayor: caía
+        # siempre al checkbook. Resultado, en el FORECAST Working 2026 con
+        # corte en julio:
+        #
+        #     marzo, abril, mayo -> 0 en el cuadro y 12.189 / 25.851 / 56.027
+        #                           en el P&L (el forecast no tiene checkbook
+        #                           de esos meses; el ACTUAL sí tiene el mayor)
+        #     junio, julio       -> 42.658 y 12.370 DE MÁS: mostraba lo
+        #                           presupuestado sobre meses que ya cerraron
+        #
+        # Los dos cuadros salían de datos distintos y ninguno decía cuál. La
+        # mezcla es la misma que hace `compute_pl_month`: hasta
+        # `actuals_through` manda el ACTUAL enlazado, y de ahí en adelante el
+        # propio escenario. Rehacerla acá con otro criterio sería exactamente
+        # cómo el resumen y el P&L terminan contando dos historias.
+        origen_gl = scenario_id
+        if escenario.type == "FORECAST" and m <= (escenario.actuals_through or 0):
+            enlazado = await recalc.linked_actual_scenario(session, escenario)
+            if enlazado is not None:
+                origen_gl = enlazado.id
+
+        filas_gl = await recalc.actual_rows_for_month(session, origen_gl, m)
         if filas_gl:
             for r in filas_gl:
                 cuenta = str(r["account_code"] or "")
@@ -254,7 +284,30 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
                 # ⚠️ Solo del GASTO. La primera version cortaba antes de mirar la
                 # clase y se llevaba puesto el INGRESO de la lavanderia: la venta
                 # del año bajaba 3,450 sin que nada lo dijera.
-                if cuenta[:1] in ("5", "6", "7") and dept in EXCLUIR_DE_GASTO:
+                # ⚠️ El gasto de un departamento de REPARTO se cuenta, y su
+                # crédito de distribución lo netea. Antes se descartaba el
+                # departamento entero, y eso PERDÍA PLATA:
+                #
+                # el ACTUAL tiene el costo de Lavandería en el mayor —$1.121,36
+                # en julio 2026, entre planilla y suministros— pero **cero
+                # asientos de reparto**, porque un histórico no se reparte: se
+                # sube como vino. La exclusión se lo llevaba y nada lo devolvía.
+                #
+                # Resultado: este cuadro decía 119.032,01 de gasto donde el P&L
+                # dice 120.153,37. Y la diferencia iba contra el resultado, o
+                # sea que el mes se veía MEJOR de lo que fue.
+                #
+                # El motor no lo descarta: lo que no alcanzó a repartirse queda
+                # en overhead (`OH_LAUNDRY`), que es la regla del owner del
+                # 2026-08-28 —«si tiene saldo que aparezca esa diferencia en
+                # overhead»—. Acá se hace lo mismo por aritmética: el costo
+                # entra y el crédito 49xx lo saca, así que en un escenario CON
+                # reparto la cuenta da lo mismo que antes, y en uno sin reparto
+                # ya no desaparece el sobrante.
+                if cuenta in CUENTAS_DE_REPARTO:
+                    opex += monto
+                    if detalle is not None:
+                        _suma(detalle, "opex", _padre(dept), m, monto)
                     continue
                 if cuenta.startswith("5"):
                     cost += monto
@@ -302,14 +355,26 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
             pbd = await recalc.payroll_by_dept(session, scenario_id, m)
             cbd = await recalc.cos_by_dept(session, scenario_id, m)
             obd = await recalc.opex_by_dept(session, scenario_id, m)
-            pbd = {d: v for d, v in pbd.items() if d not in EXCLUIR_DE_GASTO}
-            cbd = {d: v for d, v in cbd.items() if d not in EXCLUIR_DE_GASTO}
-            obd = {d: v for d, v in obd.items() if d not in EXCLUIR_DE_GASTO}
+            # ⚠️ El gasto de los departamentos de reparto SE CUENTA, y su
+            # crédito de distribución lo netea. Sacarlos de un lado y no sumar
+            # el otro perdía el SOBRANTE: lo que no alcanzó a repartirse.
+            #
+            # Medido en el BUDGET 2026: entre 1.361 y 1.493 por mes, todos los
+            # meses. El motor lo pone en overhead (`OH_LAUNDRY`) —regla del
+            # owner del 2026-08-28: «si tiene saldo que aparezca esa diferencia
+            # en overhead»— y acá desaparecía, así que el mes se veía mejor de
+            # lo que era.
+            abd = await recalc.alloc_by_dept(session, scenario_id, m)
             payroll = sum(pbd.values(), ZERO)
             cost = sum(cbd.values(), ZERO)
-            opex = sum(obd.values(), ZERO)
+            opex = sum(obd.values(), ZERO) + sum(abd.values(), ZERO)
             prop = sum((Decimal(str(getattr(e, col) or 0)) for e in below), ZERO)
             if detalle is not None:
+                # El reparto entra en la apertura de opex, igual que en el
+                # total: si saliera sólo del total, el renglón TOTAL del cuadro
+                # no sumaría sus propias filas.
+                obd = {**obd, **{d: obd.get(d, ZERO) + v for d, v in abd.items()}}
+
                 def _abrir(clase, datos):
                     for d, v in datos.items():
                         # ⚠️ **El sub-departamento se sube a su padre.**
