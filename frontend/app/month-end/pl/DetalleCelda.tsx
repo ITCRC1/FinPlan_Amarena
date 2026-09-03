@@ -114,34 +114,45 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
   const [nota, setNota] = useState("");
   const [notaCargada, setNotaCargada] = useState(false);
   const [guardando, setGuardando] = useState(false);
-  const [guardada, setGuardada] = useState(false);
+  /** Lo que está guardado en la base. Comparar contra esto es lo que dice si
+   *  hay algo pendiente — y evita guardar de nuevo lo mismo cuando el botón
+   *  roba el foco del campo y dispara el `onBlur`. */
+  const [guardado, setGuardado] = useState("");
 
   useEffect(() => {
     if (!escNota) return;
     let vivo = true;
-    setNotaCargada(false); setGuardada(false);
+    setNotaCargada(false);
     getComentariosPL(escNota, mes)
-      .then(r => { if (vivo) { setNota(r.comentarios?.[ref] ?? ""); setNotaCargada(true); } })
-      .catch(() => { if (vivo) { setNota(""); setNotaCargada(true); } });
+      .then(r => {
+        if (!vivo) return;
+        const t = r.comentarios?.[ref] ?? "";
+        setNota(t); setGuardado(t); setNotaCargada(true);
+      })
+      .catch(() => { if (vivo) { setNota(""); setGuardado(""); setNotaCargada(true); } });
     return () => { vivo = false; };
   }, [escNota, mes, ref]);
 
   /** Guarda al salir del campo, no en cada tecla: por tecla serían treinta
    *  llamadas por nota, y una carrera entre ellas donde gana la que conteste
    *  última — que no es la última que se escribió. */
+  const sucio = notaCargada && nota.trim() !== guardado.trim();
+
   const guardarNota = useCallback(async () => {
     if (!escNota || !notaCargada) return;
-    setGuardando(true); setGuardada(false);
+    const texto = nota.trim();
+    if (texto === guardado.trim()) return;   // nada que guardar
+    setGuardando(true);
     try {
-      await guardarComentarioPL(escNota, ref, mes, nota.trim());
-      setGuardada(true);
+      await guardarComentarioPL(escNota, ref, mes, texto);
+      setGuardado(texto);
     } catch {
-      // Lo escrito queda en el campo y se reintenta al volver a salir de él:
-      // perderlo por un fallo de red sería lo peor que puede hacer una nota.
+      // Lo escrito queda en el campo y el botón sigue en «Guardar»: perderlo
+      // por un fallo de red sería lo peor que puede hacer una nota.
     } finally {
       setGuardando(false);
     }
-  }, [escNota, notaCargada, ref, mes, nota]);
+  }, [escNota, notaCargada, ref, mes, nota, guardado]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onCerrar(); };
@@ -418,22 +429,60 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
                                color: "var(--text-secondary)" }}>
                   Nota · {MESES[mes - 1]}
                 </span>
-                <span style={{ fontSize: 11, color: "var(--text-disabled)" }}>
-                  {guardando ? "guardando…" : guardada ? "guardada" : ""}
+                {/* ⚠️ El estado se DICE siempre, no sólo mientras guarda.
+                    Owner, 2026-09-03: «y que guarda… no sé si se necesita un
+                    botón de guardar ahí mismo». El problema no era que no
+                    guardara —guarda al salir del campo— sino que no había
+                    forma de saberlo, y en una reunión eso es escribir la
+                    explicación y quedarse con la duda. */}
+                <span style={{ fontSize: 11,
+                               color: sucio ? "var(--negative)" : "var(--text-disabled)" }}>
+                  {guardando ? "guardando…" : sucio ? "sin guardar" : "guardada"}
                 </span>
               </div>
               <textarea
                 value={nota}
-                onChange={e => { setNota(e.target.value); setGuardada(false); }}
+                // `sucio` se deduce comparando con lo guardado, así que
+                // escribir no necesita tocar ninguna otra bandera.
+                onChange={e => setNota(e.target.value)}
                 onBlur={guardarNota}
                 placeholder={`Explicá acá qué pasó en ${MESES[mes - 1]}. Se guarda al salir del campo, y baja con el Word.`}
+                onKeyDown={e => {
+                  // Ctrl/Cmd + Enter guarda sin sacar la mano del teclado.
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    e.preventDefault(); guardarNota();
+                  }
+                }}
                 style={{
                   width: "100%", minHeight: 96, resize: "vertical",
                   padding: "9px 11px", fontSize: 12.5, lineHeight: 1.55,
-                  borderRadius: 8, border: "1px solid var(--border-medium)",
+                  borderRadius: 8,
+                  border: `1px solid ${sucio ? "var(--negative)" : "var(--border-medium)"}`,
                   background: "var(--bg-surface)", color: "var(--text-primary)",
                   fontFamily: "inherit",
                 }} />
+
+              {/* El botón NO reemplaza al guardado automático: lo confirma.
+                  Guardar sólo con el botón haría que salirse del campo sin
+                  tocarlo pierda lo escrito, que es peor que la duda. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10,
+                            marginTop: 7 }}>
+                <button
+                  onClick={guardarNota}
+                  disabled={!sucio || guardando}
+                  style={{
+                    padding: "6px 15px", fontSize: 12.5, fontWeight: 600,
+                    borderRadius: 6, border: "none",
+                    cursor: sucio && !guardando ? "pointer" : "default",
+                    background: sucio ? "var(--brand)" : "var(--bg-elevated, #EDF1F5)",
+                    color: sucio ? "#fff" : "var(--text-disabled)",
+                  }}>
+                  {guardando ? "Guardando…" : sucio ? "Guardar" : "Guardada"}
+                </button>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Se guarda sola al salir del campo. Ctrl+Enter también.
+                </span>
+              </div>
             </div>
 
             {versiones.some(v => v.agregado) && (

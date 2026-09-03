@@ -176,3 +176,46 @@ def test_las_dos_consultas_del_backend_filtran_por_MES():
     julio aparezca en agosto o para que se pisen entre meses."""
     assert "Annotation.month == mes" in inspect.getsource(api.listar)
     assert "Annotation.month == cuerpo.mes" in inspect.getsource(api.guardar)
+
+
+def test_hay_boton_de_guardar_Y_guardado_automatico():
+    """Owner, 2026-09-03: «y que guarda… no sé si se necesita un botón de
+    guardar ahí mismo».
+
+    Las dos cosas, y no una:
+
+    * el guardado al salir del campo es lo que impide PERDER lo escrito —
+      guardar sólo con el botón haría que salirse sin tocarlo pierda la nota;
+    * el botón es lo que quita la DUDA, que era el problema real. En una
+      reunión, escribir la explicación y quedarse sin saber si quedó es tan
+      malo como que no quede.
+    """
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "onBlur={guardarNota}" in pantalla
+    assert "onClick={guardarNota}" in pantalla
+
+
+def test_el_estado_de_la_nota_se_DICE_siempre():
+    """No sólo mientras guarda: «sin guardar», «guardando…» o «guardada»."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    for estado in ('"sin guardar"', '"guardando…"', '"guardada"'):
+        assert estado in pantalla, f"falta el estado {estado}"
+
+
+def test_pendiente_se_deduce_comparando_con_lo_GUARDADO():
+    """⚠️ Y no con una bandera aparte. El botón le roba el foco al campo y
+    dispara el `onBlur`; con una bandera, esa carrera guarda dos veces o deja
+    el botón diciendo «Guardar» sobre algo ya guardado."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "nota.trim() !== guardado.trim()" in pantalla
+    assert "if (texto === guardado.trim()) return;" in pantalla
+
+
+def test_si_falla_la_red_el_boton_SIGUE_ofreciendo_guardar():
+    """Marcarla como guardada cuando el guardado falló es la peor mentira que
+    puede decir esta pantalla."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    cuerpo = pantalla[pantalla.index("const guardarNota"):]
+    cuerpo = cuerpo[:cuerpo.index("}, [escNota")]
+    # `setGuardado` sólo dentro del `try`, después de que el servidor contestó.
+    assert cuerpo.index("setGuardado(texto)") < cuerpo.index("} catch {")
