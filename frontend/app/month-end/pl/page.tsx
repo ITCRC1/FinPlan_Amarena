@@ -24,7 +24,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTranslations } from "next-intl";
 import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
-  getConsultaCatalogo, correrConsulta, bajarConsultaExcel,
+  getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
   type ConsultaFila, type ConsultaCatalogo, type FbDetalle, type FbMes, type IngresoDetalle,
   type Scenario, type PLCompareVersion, type PLColumn, type GastoEscenario,
 } from "@/lib/api";
@@ -38,7 +38,8 @@ import Formato from "./Formato";
 import Auditoria from "./Auditoria";
 import Estadisticas from "./Estadisticas";
 import VistasVisibles from "./VistasVisibles";
-import ResumenDoceMeses from "./ResumenDoceMeses";
+import ResumenDoceMeses, { armar as armarResumen, filasResumen }
+  from "./ResumenDoceMeses";
 import { getTabsApagados } from "@/lib/tabsVisibles";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
@@ -747,6 +748,214 @@ export default function MonthEndPLPage() {
   const periodo = horizonte === "month" ? MESES[mes - 1]
     : t("periodoRango", { ini: MESES[0], fin: MESES[horizonte === "ytd" ? mes - 1 : 11] });
 
+
+  // ── El P&L Statement, calculado UNA vez ─────────────────────────────────
+  //
+  // ⚠️ Vivia adentro del `vista === "estado"`, asi que el Word no podia
+  // armarlo sin copiarlo — y una copia es una segunda verdad en un reporte
+  // que ven los duenos. Se sube al componente: la vista y el documento leen
+  // el mismo calculo.
+  const idA = ranuras[varA], idB = ranuras[varB];
+  const vA = datos.find(d => d.scenario_id === idA);
+  const vB = datos.find(d => d.scenario_id === idB);
+  const gA = gastos.find(g => g.scenario_id === idA);
+  const gB = gastos.find(g => g.scenario_id === idB);
+
+  const mesesDe = (h: "month" | "ytd") =>
+    h === "month" ? [mes] : Array.from({ length: mes }, (_, i) => i + 1);
+
+  /** El gasto de una clase, para un escenario y horizonte. */
+  const clase = (g: GastoEscenario | null | undefined,
+                 k: typeof CLASES[number]["key"], h: "month" | "ytd") => {
+    if (!g) return null;
+    const ms = mesesDe(h);
+    return g.meses.filter(m => ms.includes(m.month))
+      .reduce((s, m) => s + Number(m[k]), 0);
+  };
+
+  /** El valor de una línea. Los subtotales se DERIVAN — ver `ESTADO`. */
+  const dato = (v: PLCompareVersion | null | undefined,
+                g: GastoEscenario | null | undefined,
+                code: string, h: "month" | "ytd"): number | null => {
+    const c = v?.[h];
+    const rev = c ? valor(c, "TOTAL_REVENUES") : null;
+    const fb = c ? LINEAS_FB.reduce((s, l) => s + valor(c, l), 0) : null;
+    const rooms = c ? LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0) : null;
+    const pay = clase(g, "payroll", h), cos = clase(g, "cost", h);
+    const ope = clase(g, "opex", h), pro = clase(g, "property", h);
+    const totExp = pay === null || cos === null || ope === null
+      ? null : pay + cos + ope;
+    switch (code) {
+      case "X_ROOMS": return rooms;
+      case "X_FB":    return fb;
+      case "X_OTHER": return c && rev !== null && fb !== null && rooms !== null
+                           ? rev - rooms - fb : null;
+      case "C_PAYROLL":  return pay;
+      case "C_COST":     return cos;
+      case "C_OPEX":     return ope;
+      case "C_PROPERTY": return pro;
+      case "X_TOTEXP":   return totExp;
+      case "X_GOP":      return rev === null || totExp === null ? null : rev - totExp;
+      case "X_EBITDA": {
+        if (rev === null || totExp === null || pro === null) return null;
+        return rev - totExp - pro;
+      }
+      default: return c ? valor(c, code) : null;
+    }
+  };
+
+  /** De qué clase de gasto —o de ingreso— se abre cada concepto. */
+  const CLASE_DE: Record<string, string> = {
+    C_PAYROLL: "payroll", C_COST: "cost", C_OPEX: "opex",
+    C_PROPERTY: "property",
+    X_ROOMS: "revenue", X_FB: "revenue", X_OTHER: "revenue",
+  };
+
+  /** Qué claves de ingreso le corresponden a cada renglón de arriba. El
+   *  «Other» es el resto, igual que en el total: se calcula por descarte
+   *  para que no se pierda una línea nueva. */
+  const clavesIngreso = (code: string, todas: string[]) =>
+    code === "X_ROOMS" ? todas.filter(k => LINEAS_ROOMS.includes(k))
+      : code === "X_FB" ? todas.filter(k => LINEAS_FB.includes(k))
+        : todas.filter(k => !LINEAS_ROOMS.includes(k)
+                            && !LINEAS_FB.includes(k));
+
+  /** El valor de UNA clave (departamento o línea) para un escenario. */
+  const detalleDe = (g: GastoEscenario | null | undefined, cl: string,
+                     k: string, h: "month" | "ytd") => {
+    const serie = g?.detalle?.[cl]?.[k];
+    if (!serie) return 0;
+    return mesesDe(h).reduce((s2, m) => s2 + Number(serie[m - 1] ?? 0), 0);
+  };
+
+  /**
+   * Las sub-filas de un concepto.
+   *
+   * ⚠️ **Siempre suman su total**, y esa es la única razón por la que
+   * este desglose se puede mostrar. Cuando el detalle no llega al valor
+   * del renglón —el ingreso sale del P&L y el detalle de otra consulta—
+   * se agrega una fila «(sin asignar)» con la diferencia. Sub-filas que
+   * no cierran contra su total es el defecto más caro de un cuadro
+   * contable: se ve bien y no dice la verdad.
+   */
+  const desglose = (code: string) => {
+    const cl = CLASE_DE[code];
+    if (!cl) return [];
+    const todas = new Set<string>();
+    for (const g of [gA, gB]) {
+      Object.keys(g?.detalle?.[cl] ?? {}).forEach(k => todas.add(k));
+    }
+    let claves = Array.from(todas);
+    if (cl === "revenue") claves = clavesIngreso(code, claves);
+    claves.sort((x, y) =>
+      Math.abs(detalleDe(gA, cl, y, "ytd")) - Math.abs(detalleDe(gA, cl, x, "ytd")));
+
+    const filas = claves
+      .filter(k => ["month", "ytd"].some(h =>
+        Math.abs(detalleDe(gA, cl, k, h as "month" | "ytd")) >= 0.005
+        || Math.abs(detalleDe(gB, cl, k, h as "month" | "ytd")) >= 0.005))
+      .map(k => ({
+        clave: k,
+        label: deptos[k] ? `${k} · ${deptos[k]}` : k,
+        valor: (g: GastoEscenario | null | undefined, h: "month" | "ytd") =>
+          detalleDe(g, cl, k, h),
+      }));
+
+    // El residuo, si lo hay, para que las sub-filas cierren.
+    const resto = (g: GastoEscenario | null | undefined,
+                   v: PLCompareVersion | null | undefined,
+                   h: "month" | "ytd") => {
+      const tot = dato(v, g, code, h);
+      if (tot === null) return 0;
+      return tot - filas.reduce((s2, f) => s2 + f.valor(g, h), 0);
+    };
+    const hayResto = (["month", "ytd"] as const).some(h =>
+      Math.abs(resto(gA, vA, h)) >= 0.005 || Math.abs(resto(gB, vB, h)) >= 0.005);
+    if (hayResto) {
+      filas.push({
+        clave: "__resto__", label: "(sin asignar)",
+        valor: (g, h) => resto(g, g === gA ? vA : vB, h),
+      });
+    }
+    return filas;
+  };
+
+  const pctRev = (v: PLCompareVersion | null | undefined,
+                  g: GastoEscenario | null | undefined,
+                  code: string, h: "month" | "ytd"): number | null => {
+    const rev = v?.[h] ? valor(v[h]!, "TOTAL_REVENUES") : null;
+    const x = dato(v, g, code, h);
+    return rev && x !== null ? x / rev : null;
+  };
+
+  /** Los dos bloques del P&L Statement: el mes y el YTD. */
+  const bloques = [
+    { titulo: `${MESES[mes - 1]} ${year}`, h: "month" as const },
+    { titulo: t("ytdA", { mes: MESES[mes - 1], year: String(year) }), h: "ytd" as const },
+  ];
+
+  /** El cuadro del P&L Statement — lo usa la pantalla para su Excel y el Word
+   *  para su capitulo. Uno solo, para que no puedan diferir. */
+  function cuadroEstado(): Cuadro {
+    const idA = ranuras[varA], idB = ranuras[varB];
+
+    const columnas: ColumnaCuadro[] = [
+      { label: "Line Item", ancho: 26, formato: "texto" },
+      ...bloques.flatMap(bl => ([
+    { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
+    { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
+    { label: "Var $", ancho: 15, formato: "usd2" as const },
+    { label: "Var %", ancho: 10, formato: "pct" as const },
+    { label: `% Rev ${bl.titulo}`, ancho: 12, formato: "pct" as const },
+    { label: `% Rev Budget ${bl.titulo}`, ancho: 13, formato: "pct" as const },
+      ])),
+      { label: prevScn ? `% Rev ${prevScn.year}` : `% Rev ${t("anioAnt")}`, ancho: 12, formato: "pct" as const },
+      { label: "Commentary", ancho: 34, formato: "texto" as const },
+    ];
+    // ⚠️ El Excel baja lo que se ESTA VIENDO, sub-filas incluidas. Este
+    // proyecto ya pago una vez por un Excel que no era la pantalla
+    // (owner, 2026-08-27: «el excel no baja lo que esta viendo»).
+    const filas: FilaCuadro[] = ESTADO.flatMap(f => [
+      {
+    label: f.label, es_total: !!f.fuerte,
+    valores: [
+      ...bloques.flatMap(bl => {
+        const a = dato(vA, gA, f.code, bl.h);
+        const b = dato(vB, gB, f.code, bl.h);
+        const d = a === null || b === null ? null : a - b;
+        const p = d === null || !b ? null : d / Math.abs(b);
+        return [a, b, d, p, pctRev(vA, gA, f.code, bl.h),
+                pctRev(vB, gB, f.code, bl.h)];
+      }),
+      pctRev(prevPL, prevGasto, f.code, "ytd"),
+      null,
+    ],
+      },
+      ...(deptEstado ? desglose(f.code) : []).map(sub => ({
+    label: "    " + sub.label, es_total: false,
+    valores: [
+      ...bloques.flatMap(bl => {
+        const a = sub.valor(gA, bl.h);
+        const b = sub.valor(gB, bl.h);
+        const d = a - b;
+        const p = !b ? null : d / Math.abs(b);
+        const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
+        const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
+        return [a, b, d, p, rA ? a / rA : null, rB ? b / rB : null];
+      }),
+      null,
+      null,
+    ],
+      })),
+    ]);
+    return {
+      titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`,
+      subtitulo: `${etiqueta(idA)} vs ${etiqueta(idB)} · USD`,
+      hoja: `P&L ${MESES[mes - 1]}`,
+      columnas, filas,
+    };
+  }
+
   function cuadroPL(): Cuadro {
     const columnas: ColumnaCuadro[] = [
       { label: "ACCOUNT DESCRIPTION", ancho: 38, formato: "texto" },
@@ -872,10 +1081,61 @@ export default function MonthEndPLPage() {
     const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
     const cuadros: Cuadro[] = [];
     if (activos.includes("pl")) cuadros.push(cuadroPL());
+    // El P&L Statement usa el MISMO `cuadroEstado` que su boton de Excel: su
+    // calculo se subio al componente justamente para que el documento no
+    // tuviera que copiarlo.
+    if (activos.includes("estado") && ranuras[varA] && ranuras[varB]) {
+      cuadros.push(cuadroEstado());
+    }
     const CLASES_DEPTO = ["revenue", "payroll", "cost", "opex", "property"] as const;
     for (const clase of CLASES_DEPTO) {
       if (activos.includes(clase)) cuadros.push(cuadroClase(clase));
     }
+    // ── Resumen 12m ───────────────────────────────────────────────────────
+    //
+    // Se piden sus datos aca porque el sub-tab los carga al abrirse y puede no
+    // haberse abierto nunca. Las siete lineas y el armado salen de su propio
+    // modulo (`filasResumen`, `armar`), no de una copia: el documento y la
+    // pantalla no pueden decir cosas distintas.
+    if (activos.includes("resumen12")) {
+      const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
+                    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+      for (const [rot, id] of [["ACTUAL", ranuras[varA]],
+                               ["BUDGET", ranuras[varB]]] as const) {
+        if (!id) continue;
+        try {
+          const [pl, gc] = await Promise.all([
+            getPLDoceMeses(id), getGastoPorClase([id], false),
+          ]);
+          const rev = Array(12).fill(0);
+          for (const m of pl.meses) {
+            const l = m.lines.find(x => x.line_code === "TOTAL_REVENUES");
+            rev[m.month - 1] = l ? l.amount_usd : 0;
+          }
+          const d = armarResumen(rev, gc.escenarios[0] ?? null);
+          const vivos = Array.from({ length: 12 }, (_, i) => i).filter(i =>
+            Math.abs(d.ingreso[i]) >= 0.005 || Math.abs(d.totalGasto[i]) >= 0.005);
+          const cols = vivos.length ? vivos : Array.from({ length: 12 }, (_, i) => i);
+          cuadros.push({
+            titulo: `${t("tab_resumen12")} · ${rot}`,
+            subtitulo: `${etiqueta(id)} · USD`,
+            columnas: [
+              { label: "Line Item", ancho: 30, formato: "texto" },
+              ...cols.map(i => ({ label: MES3[i], ancho: 15,
+                                  formato: "usd2" as const })),
+              { label: "Total", ancho: 16, formato: "usd2" as const },
+            ],
+            filas: filasResumen(d).map(f => ({
+              label: f.sangria ? `    ${f.label}` : f.label,
+              es_total: !!f.fuerte,
+              valores: [...cols.map(i => f.serie[i]),
+                        cols.reduce((a, i) => a + f.serie[i], 0)],
+            })),
+          });
+        } catch { /* si un escenario falla, el resto del documento sale igual */ }
+      }
+    }
+
     if (!cuadros.length) {
       alert("No hay ningun sub-tab activo que se pueda incluir todavia.");
       return;
@@ -1518,138 +1778,6 @@ export default function MonthEndPLPage() {
       {vista === "estado" && (() => {
         /* Profit & Loss Statement: mes y YTD, con el % sobre ingreso de cada
          * columna y la estructura del año anterior. Ver `ESTADO`. */
-        const idA = ranuras[varA], idB = ranuras[varB];
-        const vA = datos.find(d => d.scenario_id === idA);
-        const vB = datos.find(d => d.scenario_id === idB);
-        const gA = gastos.find(g => g.scenario_id === idA);
-        const gB = gastos.find(g => g.scenario_id === idB);
-
-        const mesesDe = (h: "month" | "ytd") =>
-          h === "month" ? [mes] : Array.from({ length: mes }, (_, i) => i + 1);
-
-        /** El gasto de una clase, para un escenario y horizonte. */
-        const clase = (g: GastoEscenario | null | undefined,
-                       k: typeof CLASES[number]["key"], h: "month" | "ytd") => {
-          if (!g) return null;
-          const ms = mesesDe(h);
-          return g.meses.filter(m => ms.includes(m.month))
-            .reduce((s, m) => s + Number(m[k]), 0);
-        };
-
-        /** El valor de una línea. Los subtotales se DERIVAN — ver `ESTADO`. */
-        const dato = (v: PLCompareVersion | null | undefined,
-                      g: GastoEscenario | null | undefined,
-                      code: string, h: "month" | "ytd"): number | null => {
-          const c = v?.[h];
-          const rev = c ? valor(c, "TOTAL_REVENUES") : null;
-          const fb = c ? LINEAS_FB.reduce((s, l) => s + valor(c, l), 0) : null;
-          const rooms = c ? LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0) : null;
-          const pay = clase(g, "payroll", h), cos = clase(g, "cost", h);
-          const ope = clase(g, "opex", h), pro = clase(g, "property", h);
-          const totExp = pay === null || cos === null || ope === null
-            ? null : pay + cos + ope;
-          switch (code) {
-            case "X_ROOMS": return rooms;
-            case "X_FB":    return fb;
-            case "X_OTHER": return c && rev !== null && fb !== null && rooms !== null
-                                 ? rev - rooms - fb : null;
-            case "C_PAYROLL":  return pay;
-            case "C_COST":     return cos;
-            case "C_OPEX":     return ope;
-            case "C_PROPERTY": return pro;
-            case "X_TOTEXP":   return totExp;
-            case "X_GOP":      return rev === null || totExp === null ? null : rev - totExp;
-            case "X_EBITDA": {
-              if (rev === null || totExp === null || pro === null) return null;
-              return rev - totExp - pro;
-            }
-            default: return c ? valor(c, code) : null;
-          }
-        };
-
-        /** De qué clase de gasto —o de ingreso— se abre cada concepto. */
-        const CLASE_DE: Record<string, string> = {
-          C_PAYROLL: "payroll", C_COST: "cost", C_OPEX: "opex",
-          C_PROPERTY: "property",
-          X_ROOMS: "revenue", X_FB: "revenue", X_OTHER: "revenue",
-        };
-
-        /** Qué claves de ingreso le corresponden a cada renglón de arriba. El
-         *  «Other» es el resto, igual que en el total: se calcula por descarte
-         *  para que no se pierda una línea nueva. */
-        const clavesIngreso = (code: string, todas: string[]) =>
-          code === "X_ROOMS" ? todas.filter(k => LINEAS_ROOMS.includes(k))
-            : code === "X_FB" ? todas.filter(k => LINEAS_FB.includes(k))
-              : todas.filter(k => !LINEAS_ROOMS.includes(k)
-                                  && !LINEAS_FB.includes(k));
-
-        /** El valor de UNA clave (departamento o línea) para un escenario. */
-        const detalleDe = (g: GastoEscenario | null | undefined, cl: string,
-                           k: string, h: "month" | "ytd") => {
-          const serie = g?.detalle?.[cl]?.[k];
-          if (!serie) return 0;
-          return mesesDe(h).reduce((s2, m) => s2 + Number(serie[m - 1] ?? 0), 0);
-        };
-
-        /**
-         * Las sub-filas de un concepto.
-         *
-         * ⚠️ **Siempre suman su total**, y esa es la única razón por la que
-         * este desglose se puede mostrar. Cuando el detalle no llega al valor
-         * del renglón —el ingreso sale del P&L y el detalle de otra consulta—
-         * se agrega una fila «(sin asignar)» con la diferencia. Sub-filas que
-         * no cierran contra su total es el defecto más caro de un cuadro
-         * contable: se ve bien y no dice la verdad.
-         */
-        const desglose = (code: string) => {
-          const cl = CLASE_DE[code];
-          if (!cl) return [];
-          const todas = new Set<string>();
-          for (const g of [gA, gB]) {
-            Object.keys(g?.detalle?.[cl] ?? {}).forEach(k => todas.add(k));
-          }
-          let claves = Array.from(todas);
-          if (cl === "revenue") claves = clavesIngreso(code, claves);
-          claves.sort((x, y) =>
-            Math.abs(detalleDe(gA, cl, y, "ytd")) - Math.abs(detalleDe(gA, cl, x, "ytd")));
-
-          const filas = claves
-            .filter(k => ["month", "ytd"].some(h =>
-              Math.abs(detalleDe(gA, cl, k, h as "month" | "ytd")) >= 0.005
-              || Math.abs(detalleDe(gB, cl, k, h as "month" | "ytd")) >= 0.005))
-            .map(k => ({
-              clave: k,
-              label: deptos[k] ? `${k} · ${deptos[k]}` : k,
-              valor: (g: GastoEscenario | null | undefined, h: "month" | "ytd") =>
-                detalleDe(g, cl, k, h),
-            }));
-
-          // El residuo, si lo hay, para que las sub-filas cierren.
-          const resto = (g: GastoEscenario | null | undefined,
-                         v: PLCompareVersion | null | undefined,
-                         h: "month" | "ytd") => {
-            const tot = dato(v, g, code, h);
-            if (tot === null) return 0;
-            return tot - filas.reduce((s2, f) => s2 + f.valor(g, h), 0);
-          };
-          const hayResto = (["month", "ytd"] as const).some(h =>
-            Math.abs(resto(gA, vA, h)) >= 0.005 || Math.abs(resto(gB, vB, h)) >= 0.005);
-          if (hayResto) {
-            filas.push({
-              clave: "__resto__", label: "(sin asignar)",
-              valor: (g, h) => resto(g, g === gA ? vA : vB, h),
-            });
-          }
-          return filas;
-        };
-
-        const pctRev = (v: PLCompareVersion | null | undefined,
-                        g: GastoEscenario | null | undefined,
-                        code: string, h: "month" | "ytd"): number | null => {
-          const rev = v?.[h] ? valor(v[h]!, "TOTAL_REVENUES") : null;
-          const x = dato(v, g, code, h);
-          return rev && x !== null ? x / rev : null;
-        };
 
         /* ⚠️ El GOP derivado (ingreso − clases 5/6/7) contra el del motor
          * (suma de las líneas por departamento). Son dos caminos distintos y
@@ -1661,10 +1789,6 @@ export default function MonthEndPLPage() {
           ? gopDerivado - gopMotor : null;
         const hayBrecha = brecha !== null && Math.abs(brecha) > 1;
 
-        const bloques = [
-          { titulo: `${MESES[mes - 1]} ${year}`, h: "month" as const },
-          { titulo: t("ytdA", { mes: MESES[mes - 1], year: String(year) }), h: "ytd" as const },
-        ];
         const TH2: React.CSSProperties = { ...TH, fontSize: 11.5 };
         const BL = "2px solid var(--border-medium)";
 
@@ -1675,62 +1799,10 @@ export default function MonthEndPLPage() {
         );
 
         function bajarEstado() {
-          const columnas: ColumnaCuadro[] = [
-            { label: "Line Item", ancho: 26, formato: "texto" },
-            ...bloques.flatMap(bl => ([
-              { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
-              { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const },
-              { label: "Var $", ancho: 15, formato: "usd2" as const },
-              { label: "Var %", ancho: 10, formato: "pct" as const },
-              { label: `% Rev ${bl.titulo}`, ancho: 12, formato: "pct" as const },
-              { label: `% Rev Budget ${bl.titulo}`, ancho: 13, formato: "pct" as const },
-            ])),
-            { label: prevScn ? `% Rev ${prevScn.year}` : `% Rev ${t("anioAnt")}`, ancho: 12, formato: "pct" as const },
-            { label: "Commentary", ancho: 34, formato: "texto" as const },
-          ];
-          // ⚠️ El Excel baja lo que se ESTA VIENDO, sub-filas incluidas. Este
-          // proyecto ya pago una vez por un Excel que no era la pantalla
-          // (owner, 2026-08-27: «el excel no baja lo que esta viendo»).
-          const filas: FilaCuadro[] = ESTADO.flatMap(f => [
-            {
-              label: f.label, es_total: !!f.fuerte,
-              valores: [
-                ...bloques.flatMap(bl => {
-                  const a = dato(vA, gA, f.code, bl.h);
-                  const b = dato(vB, gB, f.code, bl.h);
-                  const d = a === null || b === null ? null : a - b;
-                  const p = d === null || !b ? null : d / Math.abs(b);
-                  return [a, b, d, p, pctRev(vA, gA, f.code, bl.h),
-                          pctRev(vB, gB, f.code, bl.h)];
-                }),
-                pctRev(prevPL, prevGasto, f.code, "ytd"),
-                null,
-              ],
-            },
-            ...(deptEstado ? desglose(f.code) : []).map(sub => ({
-              label: "    " + sub.label, es_total: false,
-              valores: [
-                ...bloques.flatMap(bl => {
-                  const a = sub.valor(gA, bl.h);
-                  const b = sub.valor(gB, bl.h);
-                  const d = a - b;
-                  const p = !b ? null : d / Math.abs(b);
-                  const rA = vA?.[bl.h] ? valor(vA[bl.h]!, "TOTAL_REVENUES") : null;
-                  const rB = vB?.[bl.h] ? valor(vB[bl.h]!, "TOTAL_REVENUES") : null;
-                  return [a, b, d, p, rA ? a / rA : null, rB ? b / rB : null];
-                }),
-                null,
-                null,
-              ],
-            })),
-          ]);
-          bajarCuadros(`PL_Statement_${MESES[mes - 1]}_${year}`, [{
-            titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`,
-            subtitulo: `${etiqueta(idA)} vs ${etiqueta(idB)} · USD`,
-            hoja: `P&L ${MESES[mes - 1]}`,
-            columnas, filas,
-          }]).catch(e => alert(e instanceof Error ? e.message : t("errExcel")));
+          bajarCuadros(`PL_Statement_${MESES[mes - 1]}_${year}`, [cuadroEstado()])
+            .catch(e => alert(e instanceof Error ? e.message : t("errExcel")));
         }
+
 
         return (
           <div>

@@ -61,7 +61,7 @@ function primeroDe(escenarios: Scenario[], tipo: string): string {
 }
 
 /** Lo que se dibuja de un escenario: siete series de doce meses. */
-type Datos = {
+export type Datos = {
   ingreso: number[];
   payroll: number[]; cost: number[]; opex: number[]; property: number[];
   totalGasto: number[]; neto: number[];
@@ -74,7 +74,7 @@ const VACIO: Datos = {
   neto: Array(12).fill(0),
 };
 
-function armar(rev: number[], g: GastoEscenario | null): Datos {
+export function armar(rev: number[], g: GastoEscenario | null): Datos {
   const d: Datos = {
     ingreso: rev,
     payroll: Array(12).fill(0), cost: Array(12).fill(0),
@@ -124,9 +124,15 @@ function useResumen(scenarioId: string) {
   return { datos, error };
 }
 
-function Tabla({ datos, columnas }: { datos: Datos; columnas: number[] }) {
-  const FILAS: { label: string; serie: number[]; fuerte?: boolean;
-                 sangria?: boolean; borde?: boolean }[] = [
+/** Las siete lineas, declaradas UNA vez.
+ *
+ *  ⚠️ Las usan la tabla de la pantalla y el capitulo del Word. Escribirlas dos
+ *  veces seria que un dia el documento diga algo que la pantalla no dice. */
+export function filasResumen(datos: Datos): {
+  label: string; serie: number[]; fuerte?: boolean;
+  sangria?: boolean; borde?: boolean;
+}[] {
+  return [
     { label: "Total Revenue", serie: datos.ingreso, fuerte: true, borde: true },
     { label: "Payroll and Benefits", serie: datos.payroll, sangria: true },
     { label: "Cost of Sales", serie: datos.cost, sangria: true },
@@ -135,6 +141,10 @@ function Tabla({ datos, columnas }: { datos: Datos; columnas: number[] }) {
     { label: "Total Expenses", serie: datos.totalGasto, fuerte: true },
     { label: "Net", serie: datos.neto, fuerte: true, borde: true },
   ];
+}
+
+function Tabla({ datos, columnas }: { datos: Datos; columnas: number[] }) {
+  const FILAS = filasResumen(datos);
   return (
     <div className="fin-scroll-x">
       <table style={{ borderCollapse: "collapse", minWidth: 560 }}>

@@ -668,15 +668,24 @@ def test_el_interruptor_NO_cambia_ninguna_fila_ni_ningun_numero():
         "que el owner ya aprobó")
 
 
-def test_el_EXCEL_baja_lo_que_se_esta_viendo():
+def test_el_EXCEL_y_el_WORD_bajan_lo_que_se_esta_viendo():
     """Este proyecto ya pagó una vez por un Excel que no era la pantalla —owner,
-    2026-08-27: «el excel no baja lo que está viendo, abre cualquier cosa»."""
+    2026-08-27: «el excel no baja lo que está viendo, abre cualquier cosa».
+
+    Se mira `cuadroEstado`, que es donde vive el armado desde que se subió al
+    componente para que el Word pudiera usarlo. Los dos formatos salen de ahí,
+    así que con una comprobación quedan cubiertos los dos — y ninguno puede
+    quedarse atrás del otro.
+    """
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    i = pagina.index("function bajarEstado")
-    bloque = pagina[i:i + 3000]
+    i = pagina.index("function cuadroEstado")
+    bloque = pagina[i:i + 3500]
     assert "deptEstado ? desglose(f.code) : []" in bloque, (
-        "el Excel del P&L Statement dejó de incluir el desglose departamental "
+        "el cuadro del P&L Statement dejó de incluir el desglose departamental "
         "que se ve en pantalla")
+    # Y los dos formatos lo usan.
+    assert "bajarCuadros(`PL_Statement_${MESES[mes - 1]}_${year}`, [cuadroEstado()])" in pagina
+    assert "cuadros.push(cuadroEstado())" in pagina
 
 
 def test_el_sub_departamento_del_checkbook_sube_a_su_PADRE():

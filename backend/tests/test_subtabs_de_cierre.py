@@ -178,3 +178,46 @@ def test_el_NET_no_se_confunde_con_el_GOP():
         "se fue el aviso de que Net no es GOP: son dos totales distintos con "
         "aspecto de ser el mismo")
     assert "d.payroll[i] + d.cost[i] + d.opex[i] + d.property[i]" in fuente
+
+
+# ── El Word (owner, 2026-09-02) ──────────────────────────────────────────────
+
+def test_el_Word_no_copia_ningun_calculo():
+    """⚠️ Cada capítulo sale del MISMO constructor que usa la pantalla.
+
+    El P&L Statement calculaba dentro de su vista, así que el documento no
+    podía armarlo sin copiarlo: se subió `cuadroEstado` al componente. El
+    Resumen 12m exporta `armar` y `filasResumen` desde su propio módulo. Una
+    copia sería una segunda verdad en un reporte que ven los dueños.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "cuadros.push(cuadroEstado())" in pagina, (
+        "el capítulo del P&L Statement dejó de usar el constructor de la "
+        "pantalla")
+    assert "armar as armarResumen, filasResumen" in pagina, (
+        "el Resumen 12m se está rearmando en el Word en vez de importar su "
+        "propio constructor")
+
+    resumen = (CIERRE / "ResumenDoceMeses.tsx").read_text(encoding="utf-8")
+    assert "export function filasResumen" in resumen
+    assert "const FILAS = filasResumen(datos);" in resumen, (
+        "la tabla dejó de usar `filasResumen`: la pantalla y el documento "
+        "podrían dibujar líneas distintas")
+
+
+def test_los_capitulos_salen_de_los_tabs_ACTIVOS():
+    """«Siempre deben salir los tabs que estén activos en la vista.»
+
+    ⚠️ No se relee `tab_enablement`: se filtra `VISTAS` por `subOcultos`, que
+    es lo mismo que dibuja la fila de sub-tabs. Una segunda lectura de la misma
+    decisión es una segunda oportunidad de que difieran.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k))" in pagina
+
+
+def test_un_escenario_que_falla_no_se_lleva_el_documento():
+    """El Resumen pide datos aparte: si un escenario falla, el resto de los
+    capítulos tiene que salir igual. Un documento a medias sirve; ninguno, no."""
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "el resto del documento sale igual" in pagina
