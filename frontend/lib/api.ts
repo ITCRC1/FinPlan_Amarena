@@ -2679,6 +2679,16 @@ export interface AuditoriaFila {
   /** La línea del P&L a la que cae. `null` = huérfana: NO suma en ningún lado. */
   linea: string | null;
   monto: number;
+  /** ¿Tuvo movimiento este mes?
+   *
+   *  `false` = es una OPCIÓN del catálogo GL del departamento que este mes no
+   *  se usó, y viene en cero. Owner, 2026-09-03: «todas las opciones que tiene
+   *  cada departamento en cuanto a GL».
+   *
+   *  ⚠️ No es lo mismo que un cero: una cuenta que debería tener monto y no lo
+   *  tiene es invisible si sólo se muestran las que se movieron — el error más
+   *  difícil de encontrar, porque no se ve nada raro, se ve menos. */
+  movimiento: boolean;
 }
 export interface AuditoriaCuadre {
   linea: string; nombre: string; seccion: string;
@@ -2701,6 +2711,14 @@ export interface Auditoria {
   columnas: string[];
   avisos: string[];
   nota_cuenta_local: string;
+  /** La prueba de que no se descartó nada. Owner: «que haya el 100% de los
+   *  datos siempre». Sin esto, un reporte al que le falta media hoja se ve
+   *  exactamente igual que uno completo. */
+  cobertura: {
+    asientos: number; con_monto: number; en_cero: number;
+    estadisticos: number; monto_estadistico: number;
+    opciones_gl: number; suma_detalle: number;
+  };
 }
 export async function getAuditoria(
   scenarioId: string, mes: number,

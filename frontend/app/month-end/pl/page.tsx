@@ -29,7 +29,7 @@ import {
   type Scenario, type PLCompareVersion, type PLColumn, type GastoEscenario,
 } from "@/lib/api";
 import { HOTEL_ID } from "@/lib/hotel";
-import { elegir } from "@/lib/escenarioPreferido";
+import { elegir, limpiarSiEsDeOtraGeneracion } from "@/lib/escenarioPreferido";
 import { bajarCuadros, bajarCierreWord, type Cuadro, type FilaCuadro,
          type ColumnaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
@@ -456,6 +456,11 @@ export default function MonthEndPLPage() {
 
   useEffect(() => {
     try {
+      // ⚠️ ANTES de leer. Esta pantalla guardaba sus ranuras por su cuenta y
+      // nunca pasaba por la limpieza de generación, así que un `Working 2035`
+      // elegido una vez se quedaba para siempre — aunque la regla ya dijera
+      // otra cosa. Lo guardado le gana al default.
+      limpiarSiEsDeOtraGeneracion();
       const crudo = window.localStorage.getItem(MEMORIA);
       if (!crudo) return;
       const g = JSON.parse(crudo) as Record<string, unknown>;
@@ -1389,23 +1394,6 @@ export default function MonthEndPLPage() {
         </select>
       </div>
 
-      {/* ── La franja de estadisticas ────────────────────────────────────────
-          Owner, 2026-09-02: «ponlo en todos los sub tabs, ya que es informacion
-          basica».
-
-          Va ACA, una sola vez y arriba de los sub-tabs, no copiada adentro de
-          cada uno: quince copias serian quince lugares donde arreglar el dia
-          que cambie un calculo, y basta olvidar uno para que dos sub-tabs
-          muestren ocupaciones distintas del mismo mes. Ademas queda pegada al
-          selector de version y de periodo, que es de donde saca su corte. */}
-      <Estadisticas
-        scenarioIds={ranuras}
-        etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
-        desde={horizonte === "month" ? mes : 1}
-        hasta={horizonte === "full" ? 12 : mes}
-        rotuloCorte={horizonte === "month" ? MESES[mes - 1]
-          : horizonte === "ytd" ? `YTD ${MESES[mes - 1]}` : "Año completo"} />
-
       {panelVistas && (
         <VistasVisibles
           vistas={VISTAS.map(v => v.key)}
@@ -1477,6 +1465,31 @@ export default function MonthEndPLPage() {
       )}
 
       {error && <div style={{ color: "var(--negative)", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+      {/* ── La franja de estadisticas ────────────────────────────────────────
+          Owner, 2026-09-02: «ponlo en todos los sub tabs, ya que es informacion
+          basica» y «agrega como head del reporte».
+
+          Va ACA —debajo de la fila de sub-tabs y pegada al cuadro— y no arriba
+          de todo. Owner, 2026-09-03: «se ve enganchada arriba; deberia moverse
+          con los reportes y las versiones».
+
+          ⚠️ Arriba de los sub-tabs quedaba separada del reporte por la fila de
+          botones, asi que al cambiar de sub-tab parecia un cuadro aparte que no
+          se movia. Es la CABECERA del reporte, no un panel del encabezado de la
+          pantalla: tiene que verse pegada a lo que describe.
+
+          Sigue dibujandose UNA sola vez, no una copia adentro de cada sub-tab:
+          quince copias serian quince lugares donde arreglar el dia que cambie
+          un calculo, y basta olvidar uno para que dos sub-tabs muestren
+          ocupaciones distintas del mismo mes. */}
+      <Estadisticas
+        scenarioIds={ranuras}
+        etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
+        desde={horizonte === "month" ? mes : 1}
+        hasta={horizonte === "full" ? 12 : mes}
+        rotuloCorte={horizonte === "month" ? MESES[mes - 1]
+          : horizonte === "ytd" ? `YTD ${MESES[mes - 1]}` : "Año completo"} />
 
       {vista === "fb" && (() => {
         /* Total F&B Cost Detail. Único cuadro que no sale del P&L — ver

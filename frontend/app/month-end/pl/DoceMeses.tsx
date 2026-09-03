@@ -15,6 +15,7 @@
  * el ADR y el impuesto no son aditivos, así que sumar o restar columnas ya
  * armadas daría un número que no es de nadie.
  */
+import { sembrarTres } from "@/lib/escenarioPreferido";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getPLDoceMeses, getPLManualInputs, savePLManualInput,
@@ -63,8 +64,21 @@ const TDL: React.CSSProperties = { padding: "3px 10px", fontSize: 12 };
 /** El primero de un tipo, para arrancar en lo obvio sin quitarle la opción de
  *  cambiar. Owner, 2026-08-28: «siempre aparece actual y el otro budget, pero
  *  con opción a cambiar». */
+/** El escenario con el que abrir, para un papel.
+ *
+ *  ⚠️ Usa `sembrarTres` —la regla del owner— y NO `escenarios.find(...)`.
+ *  Esa era la versión anterior, copiada en los cuatro sub-tabs: devolvía el
+ *  PRIMERO de ese tipo, y `GET /scenarios/` ordena por año descendente, así
+ *  que el primer BUDGET de la lista es el Working **2035**. Cada sub-tab abría
+ *  en un presupuesto real, vacío y de otro año — sin que nada fallara. */
 function primeroDe(escenarios: Scenario[], tipo: string): string {
-  return escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
+  const tres = sembrarTres(escenarios);
+  const id = tipo === "ACTUAL" ? tres.actual
+    : tipo === "BUDGET" ? tres.budget
+    : tipo === "FORECAST" ? tres.forecast : "";
+  // El respaldo se queda: si NO hay ninguno de ese tipo, mejor mostrar algo
+  // que un selector en blanco sin explicación.
+  return id || escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
 }
 
 export default function DoceMeses({ escenarios, inicial, compacto = true }: {

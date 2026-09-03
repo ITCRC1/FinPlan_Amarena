@@ -34,6 +34,7 @@
  * aprobó —sus rótulos, su orden y hasta sus erratas—, así que acá sólo se
  * cambia la forma de leerla: en vez de un corte, una columna por mes.
  */
+import { sembrarTres } from "@/lib/escenarioPreferido";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getPLDetail, getPLDoceMeses, getEstadisticasCierre,
@@ -69,8 +70,21 @@ const AMBITOS = [
   { id: "club", rotulo: "Club Madresal" },
 ];
 
+/** El escenario con el que abrir, para un papel.
+ *
+ *  ⚠️ Usa `sembrarTres` —la regla del owner— y NO `escenarios.find(...)`.
+ *  Esa era la versión anterior, copiada en los cuatro sub-tabs: devolvía el
+ *  PRIMERO de ese tipo, y `GET /scenarios/` ordena por año descendente, así
+ *  que el primer BUDGET de la lista es el Working **2035**. Cada sub-tab abría
+ *  en un presupuesto real, vacío y de otro año — sin que nada fallara. */
 function primeroDe(escenarios: Scenario[], tipo: string): string {
-  return escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
+  const tres = sembrarTres(escenarios);
+  const id = tipo === "ACTUAL" ? tres.actual
+    : tipo === "BUDGET" ? tres.budget
+    : tipo === "FORECAST" ? tres.forecast : "";
+  // El respaldo se queda: si NO hay ninguno de ese tipo, mejor mostrar algo
+  // que un selector en blanco sin explicación.
+  return id || escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
 }
 
 export default function Formato({ escenarios, inicial, compacto = true }: {

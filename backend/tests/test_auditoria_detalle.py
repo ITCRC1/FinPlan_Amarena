@@ -454,8 +454,15 @@ def test_la_franja_se_dibuja_UNA_vez_para_todos_los_sub_tabs():
     assert pagina.count("<Estadisticas") == 1, (
         "la franja aparece más de una vez: se copió adentro de los sub-tabs en "
         "vez de dibujarse una sola vez arriba")
-    # Y arriba de la fila de sub-tabs, no debajo de uno.
-    assert pagina.index("<Estadisticas") < pagina.index("{VISTAS.map(v =>")
+    # Y DEBAJO de la fila de sub-tabs, pegada al reporte.
+    #
+    # ⚠️ Esto era al revés hasta el 2026-09-03. Owner: «se ve enganchada
+    # arriba; debería moverse con los reportes y las versiones». Arriba de los
+    # botones quedaba separada del cuadro que describe, así que al cambiar de
+    # sub-tab parecía un panel aparte. Es la CABECERA del reporte.
+    assert pagina.index("<Estadisticas") > pagina.index("{VISTAS.filter(v =>"), (
+        "la franja volvió a quedar arriba de la fila de sub-tabs, separada del "
+        "reporte que describe")
 
 
 def test_la_franja_NO_calcula_el_corte_en_la_pantalla():
@@ -740,3 +747,110 @@ def test_la_consolidacion_NO_cambia_ningun_total():
         juntado[_padre(d)] = juntado.get(_padre(d), 0.0) + v
     assert sum(juntado.values()) == sum(datos.values())
     assert juntado["0110"] == 175.0
+
+
+# ─── La reorganización del 2026-09-03 ────────────────────────────────────────
+#
+# Owner: «en el tab auditoría necesito organizar mejor este tab; en los
+# departamentos que se lea bien con subtítulos ingresos, costos, payroll y
+# opex, que quede bien subdividido y que la vista sea atractiva. Que todas las
+# cuentas lleven nombre. … me gustaría todas las opciones que tiene cada
+# departamento en cuanto a GL … pero que haya el 100% de los datos siempre.»
+
+def test_ninguna_cuenta_queda_SIN_NOMBRE():
+    """⚠️ En producción, 13 códigos de planilla (60xx) vienen sin nombre: no se
+    importan del GL cuenta por cuenta, vienen del bloque de nómina.
+
+    Una fila con monto y sin nombre obliga a buscar el código en otro lado para
+    saber qué se está auditando — y auditar es justamente leer.
+    """
+    src = (Path(__file__).resolve().parents[1] / "app/api/auditoria_api.py"
+           ).read_text(encoding="utf-8")
+    assert 'f"Cuenta {cuenta}"' in src, (
+        "se quitó el último respaldo del nombre; una cuenta puede volver a "
+        "salir en blanco")
+
+
+def test_los_nombres_NO_se_escriben_a_mano_en_la_auditoria():
+    """Salen de `account_mapping` (la tabla) y de `consulta_api.CONCEPTOS`.
+
+    Una segunda lista sería la garantía de que un día el mismo 6023 se llame
+    «Vacation Provision» en un reporte y otra cosa en el de al lado.
+    """
+    src = (Path(__file__).resolve().parents[1] / "app/api/auditoria_api.py"
+           ).read_text(encoding="utf-8")
+    assert "from app.api.consulta_api import CONCEPTOS" in src
+    assert "AccountMapping" in src
+    # Sólo el CÓDIGO: un comentario puede nombrar un rótulo para explicar de
+    # dónde sale, y eso no es una segunda lista.
+    codigo = chr(10).join(l for l in src.splitlines()
+                           if not l.lstrip().startswith("#"))
+    for inventado in ("Salary and Wages", "Social Security", "Vacation Provision"):
+        assert inventado not in codigo, (
+            f"«{inventado}» se escribió a mano en la auditoría en vez de leerse "
+            f"del catálogo")
+
+
+def test_solo_ofrece_reglas_de_mapeo_ACTIVAS():
+    """Una regla dada de baja describe cómo se clasificaba ANTES. Ofrecerla
+    como opción vigente invita a usarla de nuevo."""
+    src = (Path(__file__).resolve().parents[1] / "app/api/auditoria_api.py"
+           ).read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def _catalogo_gl"):]
+    cuerpo = cuerpo[:cuerpo.index("\ndef ")] if "\ndef " in cuerpo else cuerpo
+    assert 'active_status == "YES"' in cuerpo
+
+
+def test_la_cobertura_PRUEBA_que_no_se_descarto_nada():
+    """Owner: «que haya el 100% de los datos siempre».
+
+    ⚠️ El reporte esconde filas a propósito —las que están en cero, las 9xxx
+    estadísticas—. Sin estos números, un reporte al que le falta media hoja se
+    ve exactamente igual que uno completo.
+    """
+    src = (Path(__file__).resolve().parents[1] / "app/api/auditoria_api.py"
+           ).read_text(encoding="utf-8")
+    for clave in ("asientos", "con_monto", "en_cero", "estadisticos",
+                  "opciones_gl", "suma_detalle"):
+        assert f'"{clave}"' in src, f"la cobertura ya no informa «{clave}»"
+
+
+def test_las_opciones_SIN_movimiento_no_se_cuentan_como_huerfanas():
+    """Una opción del catálogo en cero que no cae en ninguna línea no es plata
+    perdida: es una opción que no se usó. Contarla inventaría un problema."""
+    src = (Path(__file__).resolve().parents[1] / "app/api/auditoria_api.py"
+           ).read_text(encoding="utf-8")
+    assert 'not r["linea"] and r["movimiento"]' in src
+
+
+def test_el_detalle_se_subdivide_por_NATURALEZA():
+    """Owner: «que se lea bien con subtítulos ingresos, costos, payroll y opex».
+
+    Antes la naturaleza era una COLUMNA — el peor lugar para algo que agrupa:
+    se repite en cada fila y no separa nada.
+    """
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "const NATURALEZA" in src
+    for tipo in ("Ingresos", "Costo de ventas", "Payroll", "Opex"):
+        assert f'"{tipo}"' in src, f"falta el subtítulo «{tipo}»"
+    assert "grupos" in src
+
+
+def test_las_naturalezas_van_en_orden_de_PL_y_no_alfabetico():
+    """Un P&L se lee ingreso primero y gasto después."""
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    bloque = src[src.index("const NATURALEZA"):src.index("const orden")]
+    for antes, despues in (("Ingresos", "Costo de ventas"),
+                           ("Costo de ventas", "Payroll"),
+                           ("Payroll", "Opex"),
+                           ("Opex", "Bajo GOP")):
+        assert bloque.index(f'"{antes}"') < bloque.index(f'"{despues}"'), (
+            f"«{despues}» quedó antes que «{antes}»")
+
+
+def test_una_naturaleza_NUEVA_del_motor_no_desaparece():
+    """⚠️ Si el motor agrega una naturaleza y la pantalla no la conoce, tiene
+    que ir al final — no filtrarse. Perder plata en silencio es peor que
+    mostrarla sin título."""
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert "i < 0 ? NATURALEZA.length : i" in src

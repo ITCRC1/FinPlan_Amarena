@@ -21,6 +21,7 @@
  * auditoría que clasifica distinto que el motor **cuadra consigo misma** y da
  * el visto bueno justo cuando algo está mal.
  */
+import { sembrarTres } from "@/lib/escenarioPreferido";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { getAuditoria, type Auditoria as Datos, type AuditoriaFila,
@@ -48,8 +49,48 @@ const SEL: React.CSSProperties = {
   background: "var(--bg-surface)", color: "var(--text-primary)",
 };
 
+/** El orden en que se leen las naturalezas, y cómo se ve cada una.
+ *
+ *  ⚠️ Los nombres son EXACTAMENTE los que manda el backend
+ *  (`pl_engine.TIPO_*`). Traducirlos acá haría que un renombre en el motor
+ *  dejara el subtítulo en el grupo equivocado sin que nada falle: las filas
+ *  seguirían apareciendo, sólo que bajo el título de al lado.
+ *
+ *  El orden es el del P&L —ingreso, costo, planilla, opex, y lo que va después
+ *  del GOP—, no el alfabético. */
+const NATURALEZA: { tipo: string; color: string }[] = [
+  { tipo: "Ingresos",        color: "var(--positive)" },
+  { tipo: "Costo de ventas", color: "var(--brand)" },
+  { tipo: "Payroll",         color: "var(--brand)" },
+  { tipo: "Opex",            color: "var(--brand)" },
+  { tipo: "Reparto",         color: "var(--text-secondary)" },
+  { tipo: "Bajo GOP",        color: "var(--text-secondary)" },
+];
+
+/** Dónde va una naturaleza. Una que el backend agregue y acá no esté va al
+ *  FINAL —no se pierde—, que es lo contrario de filtrarla. */
+const orden = (tipo: string) => {
+  const i = NATURALEZA.findIndex(n => n.tipo === tipo);
+  return i < 0 ? NATURALEZA.length : i;
+};
+const colorDe = (tipo: string) =>
+  NATURALEZA.find(n => n.tipo === tipo)?.color ?? "var(--text-secondary)";
+
+/** El escenario con el que abrir, para un papel.
+ *
+ *  ⚠️ Usa `sembrarTres` —la regla del owner— y NO `escenarios.find(...)`.
+ *  Esa era la versión anterior, copiada en los cuatro sub-tabs: devolvía el
+ *  PRIMERO de ese tipo, y `GET /scenarios/` ordena por año descendente, así
+ *  que el primer BUDGET de la lista es el Working **2035**. Cada sub-tab abría
+ *  en un presupuesto real, vacío y de otro año — sin que nada fallara. */
 function primeroDe(escenarios: Scenario[], tipo: string): string {
-  return escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
+  const tres = sembrarTres(escenarios);
+  const id = tipo === "ACTUAL" ? tres.actual
+    : tipo === "BUDGET" ? tres.budget
+    : tipo === "FORECAST" ? tres.forecast : "";
+  // El respaldo se queda: si NO hay ninguno de ese tipo, mejor mostrar algo
+  // que un selector en blanco sin explicación.
+  return id || escenarios.find(s => s.type === tipo)?.id || escenarios[0]?.id || "";
 }
 
 export default function Auditoria({ escenarios, inicial, mesInicial = 12, compacto = true }: {
@@ -97,16 +138,46 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
       : filas;
   }, [datos, soloDif, compacto]);
 
-  /** El detalle agrupado por departamento, para poder poner subtotales. */
+  /** El detalle en DOS niveles: departamento → naturaleza → cuentas.
+   *
+   *  Owner, 2026-09-03: *«en los departamentos que se lea bien con subtítulos
+   *  ingresos, costos, payroll y opex; que quede bien subdividido»*.
+   *
+   *  ⚠️ Antes era una lista plana por departamento, ordenada por naturaleza
+   *  pero sin decirlo: las cuentas de payroll y las de opex se veían iguales y
+   *  había que reconocer el 60xx del 70xx para saber qué se estaba mirando. La
+   *  naturaleza estaba en una columna, que es el peor lugar para algo que
+   *  agrupa — se repite en cada fila y no separa nada.
+   *
+   *  El orden lo fija ORDEN_NATURALEZA y NO el alfabeto: un P&L se lee ingreso
+   *  primero y gasto después. */
   const porDepto = useMemo(() => {
-    const out = new Map<string, { nombre: string; filas: AuditoriaFila[] }>();
+    const out = new Map<string, {
+      nombre: string;
+      grupos: Map<string, AuditoriaFila[]>;
+      total: number;
+    }>();
     for (const f of datos?.detalle ?? []) {
-      const g = out.get(f.dept_code) || { nombre: f.dept_name, filas: [] };
-      g.filas.push(f);
+      // ⚠️ `Compacto` esconde las OPCIONES del catálogo que no se movieron.
+      // Es el mismo interruptor que ya gobierna los sub-tabs, y el pedido
+      // original: «las líneas que no tienen saldo que no se vean
+      // temporalmente». Apagándolo se ven las 51 cuentas que el departamento
+      // puede usar, no sólo las 12 que usó.
+      if (compacto && !f.movimiento) continue;
+      const g = out.get(f.dept_code)
+        || { nombre: f.dept_name, grupos: new Map<string, AuditoriaFila[]>(), total: 0 };
+      const bolsa = g.grupos.get(f.tipo) || [];
+      bolsa.push(f);
+      g.grupos.set(f.tipo, bolsa);
+      g.total += f.monto;
       out.set(f.dept_code, g);
     }
-    return [...out.entries()];
-  }, [datos]);
+    return [...out.entries()].map(([code, g]) => ({
+      code, nombre: g.nombre, total: g.total,
+      grupos: [...g.grupos.entries()].sort(
+        (a, b) => orden(a[0]) - orden(b[0])),
+    }));
+  }, [datos, compacto]);
 
   const columnas = datos?.columnas ?? [];
   const descuadres = (datos?.cuadre ?? []).filter(f => Math.abs(f.dif) >= 0.005);
@@ -151,6 +222,38 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
           {datos.avisos.map((a, i) => (
             <div key={i} style={{ marginTop: 5 }}>· {a}</div>
           ))}
+
+          {/* ── El 100%, dicho con números ────────────────────────────────
+              Owner, 2026-09-03: «que haya el 100% de los datos siempre».
+
+              ⚠️ Sin esto no hay forma de distinguir «no hay más» de «hay más
+              y no lo estoy mostrando». El reporte esconde filas a propósito
+              —las que están en cero, las estadísticas 9xxx—, y un reporte al
+              que le falta media hoja se ve igual que uno completo. */}
+          <div style={{
+            marginTop: 9, paddingTop: 8, fontSize: 11.5,
+            borderTop: "1px solid var(--border)",
+            display: "flex", gap: 16, flexWrap: "wrap",
+          }}>
+            <span><b>{datos.cobertura.asientos}</b> asientos en el mes</span>
+            <span><b>{datos.cobertura.con_monto}</b> con monto</span>
+            <span>{datos.cobertura.en_cero} en cero</span>
+            {datos.cobertura.estadisticos > 0 && (
+              <span title="Cuentas 9xxx: son estadística, no plata. No entran en el P&L.">
+                {datos.cobertura.estadisticos} estadísticas (no son plata)
+              </span>
+            )}
+            <span style={{ marginLeft: "auto", fontWeight: 700 }}>
+              Suma del detalle: {usd(datos.cobertura.suma_detalle)}
+            </span>
+          </div>
+          {!compacto && datos.cobertura.opciones_gl > 0 && (
+            <div style={{ marginTop: 5, fontSize: 11.5 }}>
+              Y <b>{datos.cobertura.opciones_gl}</b> cuentas más que estos
+              departamentos pueden usar y este mes no usaron — en gris, para
+              ver qué hay disponible. Se esconden con «Compacto».
+            </div>
+          )}
         </div>
       )}
 
@@ -210,40 +313,88 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
           <thead><tr>
             <th style={{ ...TH, textAlign: "left", minWidth: 70 }}>Cuenta</th>
             <th style={{ ...TH, textAlign: "left", minWidth: 210 }}>Nombre</th>
-            <th style={{ ...TH, textAlign: "left", minWidth: 110 }}>Naturaleza</th>
-            <th style={{ ...TH, textAlign: "left", minWidth: 150 }}>Renglón del P&L</th>
+            <th colSpan={2} style={{ ...TH, textAlign: "left", minWidth: 200 }}>
+              Renglón del P&L
+            </th>
             <th style={{ ...TH, minWidth: 110 }}>Monto US$</th>
           </tr></thead>
           <tbody>
-            {porDepto.map(([code, g]) => (
+            {porDepto.map(d => (
               // ⚠️ `Fragment` con `key` y no `<>`: un arreglo de fragmentos sin
               // llave hace que React reordene mal las filas al cambiar de mes,
               // y se ven subtotales pegados al departamento equivocado.
-              <Fragment key={code}>
-                <tr style={{ background: "var(--bg-surface)" }}>
-                  <td colSpan={5} style={{ ...TDL, fontWeight: 800 }}>
-                    {code} · {g.nombre}
+              <Fragment key={d.code}>
+                {/* El departamento: barra completa, para que se lea como corte
+                    y no como una fila más. */}
+                <tr>
+                  <td colSpan={5} style={{
+                    ...TDL, fontWeight: 800, fontSize: 12.5,
+                    padding: "7px 10px",
+                    background: "var(--bg-elevated, #EDF1F5)",
+                    borderTop: "2px solid var(--border-medium)",
+                  }}>
+                    <span style={{ color: "var(--text-secondary)",
+                                   fontVariantNumeric: "tabular-nums" }}>
+                      {d.code}
+                    </span>{" · "}{d.nombre}
                   </td>
                 </tr>
-                {g.filas.map((f, i) => (
-                  <tr key={`${code}-${i}`}>
-                    <td style={{ ...TDL, paddingLeft: 22 }}>{f.account_code}</td>
-                    <td style={TDL}>{f.account_name}{f.outlet ? ` · ${f.outlet}` : ""}</td>
-                    <td style={TDL}>{f.tipo}</td>
-                    <td style={{ ...TDL, color: f.linea ? undefined : "var(--negative)",
-                                 fontWeight: f.linea ? 400 : 700 }}>
-                      {f.linea || "⚠ no cae en ninguna línea"}
-                    </td>
-                    <td style={TD}>{usd(f.monto)}</td>
-                  </tr>
+
+                {d.grupos.map(([tipo, filas]) => (
+                  <Fragment key={`${d.code}-${tipo}`}>
+                    {/* El subtítulo de naturaleza. Owner: «que se lea bien con
+                        subtítulos ingresos, costos, payroll y opex». */}
+                    <tr>
+                      <td colSpan={4} style={{
+                        ...TDL, paddingLeft: 22, paddingTop: 7, paddingBottom: 2,
+                        fontSize: 10.5, fontWeight: 800, letterSpacing: .6,
+                        textTransform: "uppercase", color: colorDe(tipo),
+                      }}>
+                        {tipo}
+                      </td>
+                      <td style={{ ...TD, fontSize: 10.5, fontWeight: 800,
+                                   paddingTop: 7, paddingBottom: 2,
+                                   color: colorDe(tipo) }}>
+                        {usd(filas.reduce((x, f) => x + f.monto, 0))}
+                      </td>
+                    </tr>
+                    {filas.map((f, i) => (
+                      <tr key={`${d.code}-${tipo}-${i}`}
+                          title={f.movimiento ? undefined
+                            : "Opción del catálogo GL de este departamento. Este mes no se usó."}
+                          style={f.movimiento ? undefined
+                            : { color: "var(--text-disabled)" }}>
+                        <td style={{ ...TDL, paddingLeft: 34,
+                                     fontVariantNumeric: "tabular-nums",
+                                     color: "var(--text-secondary)" }}>
+                          {f.account_code}
+                        </td>
+                        <td style={TDL}>
+                          {f.account_name}{f.outlet ? ` · ${f.outlet}` : ""}
+                        </td>
+                        {/* La naturaleza YA está en el subtítulo; acá iba
+                            repetida en cada fila sin agrupar nada. En su lugar
+                            va el renglón del P&L, que es lo que se audita. */}
+                        <td colSpan={2} style={{
+                          ...TDL, color: f.linea ? "var(--text-secondary)" : "var(--negative)",
+                          fontWeight: f.linea ? 400 : 700,
+                        }}>
+                          {f.linea || "⚠ no cae en ninguna línea"}
+                        </td>
+                        <td style={TD}>{usd(f.monto)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
+
                 <tr>
-                  <td colSpan={4} style={{ ...TDL, textAlign: "right", fontWeight: 700 }}>
-                    Subtotal {code}
+                  <td colSpan={4} style={{ ...TDL, textAlign: "right", fontWeight: 800,
+                                           paddingTop: 5 }}>
+                    Subtotal {d.code} · {d.nombre}
                   </td>
-                  <td style={{ ...TD, fontWeight: 700,
+                  <td style={{ ...TD, fontWeight: 800, paddingTop: 5,
                                borderTop: "1px solid var(--border-medium)" }}>
-                    {usd(g.filas.reduce((s, f) => s + f.monto, 0))}
+                    {usd(d.total)}
                   </td>
                 </tr>
               </Fragment>

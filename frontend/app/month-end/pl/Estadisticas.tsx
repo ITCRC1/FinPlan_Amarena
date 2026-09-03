@@ -41,6 +41,14 @@ const TD: React.CSSProperties = {
   padding: "4px 14px", textAlign: "right", fontSize: 12.5,
   whiteSpace: "nowrap", fontWeight: 600,
 };
+/** ⚠️ `position: static` pisa el `thead th { position: sticky }` que
+ *  `globals.css` le pone a TODA tabla de la app.
+ *
+ *  Ese sticky existe para los cuadros largos —que la fila de meses siga
+ *  visible al bajar cien líneas—. Acá son NUEVE filas: no hay nada que
+ *  seguir, y en cambio el encabezado se despegaba y quedaba flotando sobre
+ *  el reporte de abajo. Owner, 2026-09-03: «se ve enganchada arriba». */
+const TH_ESTATICO: React.CSSProperties = { position: "static" };
 const TDL: React.CSSProperties = {
   padding: "4px 12px", fontSize: 12.5, whiteSpace: "nowrap",
   color: "var(--text-secondary)",
@@ -144,12 +152,12 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
         <table style={{ borderCollapse: "collapse", minWidth: 420 }}>
           <thead>
             <tr>
-              <th style={{ ...TDL, textAlign: "left", fontWeight: 800,
+              <th style={{ ...TDL, ...TH_ESTATICO, textAlign: "left", fontWeight: 800,
                            color: "var(--brand)", minWidth: 220 }}>
                 {rotuloCorte}
               </th>
               {usadas.map((u, i) => (
-                <th key={u.id + i} style={{ ...TD, fontWeight: 800,
+                <th key={u.id + i} style={{ ...TD, ...TH_ESTATICO, fontWeight: 800,
                                             color: "var(--brand)", minWidth: 150 }}>
                   {u.rotulo}
                 </th>
