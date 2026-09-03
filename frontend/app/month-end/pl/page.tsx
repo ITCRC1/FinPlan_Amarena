@@ -1060,7 +1060,11 @@ export default function MonthEndPLPage() {
       titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`
         + (conDepto ? " — Departamental" : " — Totales"),
       subtitulo: `${usadas.map(u => etiqueta(u.id)).join(" · ")} · USD`,
-      hoja: `P&L ${MESES[mes - 1]}`,
+      // ⚠️ El nombre de la pestaña, corto y DISTINTO entre las dos vistas.
+      // Excel corta en 31 caracteres: con el título largo, las dos salían como
+      // «Profit & Loss Statement YTD JUL» y «Profit & Loss Statement YTD (2)»
+      // — imposible saber cuál es la departamental sin abrirlas.
+      hoja: conDepto ? "P&L Departamental" : "P&L Totales",
       columnas, filas,
     };
   }
@@ -1696,7 +1700,9 @@ export default function MonthEndPLPage() {
         for (const c of await armar()) {
           // La hoja se nombra con el cuadro; Excel corta en 31 caracteres y el
           // libro resuelve los repetidos.
-          cuadros.push({ ...c, hoja: c.titulo });
+          // El capítulo manda su nombre de pestaña si lo tiene; si no, el
+          // título. Excel lo corta a 31 y el libro resuelve los repetidos.
+          cuadros.push({ ...c, hoja: c.hoja || c.titulo });
         }
       } catch {
         fallaron.push(t(`tab_${v.key}`));

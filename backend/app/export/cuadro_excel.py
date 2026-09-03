@@ -159,13 +159,54 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     return ws
 
 
+def _indice(wb: Workbook, cuadros: list[dict], nombres: list[str]) -> None:
+    """La portada del libro: qué trae y en qué hoja está cada cosa.
+
+    Owner, 2026-09-03: *«que baje bien profesional y claro»*, pidiendo que el
+    Excel traiga todos los sub-tabs «tal como Word».
+
+    ⚠️ El Word tiene su página de CONTENIDO; un libro de doce hojas sin índice
+    obliga a recorrer las pestañas de abajo una por una, y los nombres van
+    cortados a 31 caracteres —«Profit & Loss Statement YTD JU»—, así que ni
+    siquiera se leen enteros. El índice es donde el título completo cabe.
+
+    Va PRIMERO y con los nombres tal como quedaron, no como se pidieron: si dos
+    cuadros se llamaban parecido, el libro los desambiguó y el índice tiene que
+    mostrar el nombre real de la pestaña o no sirve para encontrarla.
+    """
+    ws = wb.create_sheet("Índice", 0)
+    merged_header(ws, 1, 1, 3, "CONTENIDO", C["navy"], sz=13)
+    for i, rotulo in enumerate(("#", "Hoja", "Cuadro"), start=1):
+        c = ws.cell(3, i, rotulo)
+        c.fill = fill(C["navy_mid"])
+        c.font = font(bold=True, color=C["white"], size=10)
+        c.alignment = align("left")
+        c.border = border()
+    for j, (cuadro, hoja) in enumerate(zip(cuadros, nombres)):
+        fila = 4 + j
+        titulo = (cuadro.get("titulo") or "Cuadro").strip()
+        sub = (cuadro.get("subtitulo") or "").strip()
+        for i, valor in enumerate((j + 1, hoja, titulo + (f"  ·  {sub}" if sub else "")),
+                                  start=1):
+            c = ws.cell(fila, i, valor)
+            c.alignment = align("left")
+            c.border = border()
+    set_col_widths(ws, {1: 5, 2: 34, 3: 88})
+    ws.freeze_panes = ws.cell(4, 1)
+
+
 def build_cuadros_workbook(cuadros: list[dict]) -> bytes:
-    """Un libro con una hoja por cuadro."""
+    """Un libro con una hoja por cuadro, y un índice adelante."""
     wb = Workbook()
     wb.remove(wb.active)
     usados: set[str] = set()
+    nombres: list[str] = []
     for cuadro in cuadros or []:
-        _hoja(wb, cuadro, usados)
+        nombres.append(_hoja(wb, cuadro, usados).title)
+    # ⚠️ El índice sólo cuando hay VARIAS hojas. En un libro de una, una portada
+    # que dice «1. esa hoja» es un clic de más para llegar al único cuadro.
+    if len(nombres) > 1:
+        _indice(wb, cuadros or [], nombres)
     if not wb.sheetnames:            # nunca devolver un libro sin hojas
         wb.create_sheet("Sin datos")
     return workbook_to_bytes(wb)

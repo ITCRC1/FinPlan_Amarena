@@ -45,7 +45,8 @@ def test_INCLUYE_los_cuadros_sin_datos():
 
 
 def test_cada_cuadro_va_a_su_HOJA():
-    assert "hoja: c.titulo" in _cuerpo()
+    """El capítulo manda su nombre de pestaña si lo tiene; si no, el título."""
+    assert "hoja: c.hoja || c.titulo" in _cuerpo()
 
 
 def test_no_se_baja_con_la_pantalla_a_medio_cargar():
@@ -99,3 +100,65 @@ def test_el_PL_Statement_aporta_sus_DOS_vistas_tambien_al_Excel():
     cuadro = src[src.index("function cuadroEstado("):src.index("function cuadroSummary")]
     assert "conDepto ? desglose(f.code) : []" in cuadro
     assert '" — Departamental" : " — Totales"' in cuadro
+
+
+# ─── Que el libro se pueda LEER (owner: «bien profesional y claro») ─────────
+
+def test_el_libro_trae_un_INDICE_adelante():
+    """⚠️ El Word tiene su página de CONTENIDO; un libro de doce hojas sin
+    índice obliga a recorrer las pestañas de abajo una por una — y los nombres
+    van cortados a 31 caracteres, así que ni se leen enteros. El índice es
+    donde el título completo cabe."""
+    import io as _io
+
+    import openpyxl
+
+    from app.export.cuadro_excel import build_cuadros_workbook
+    cuadro = lambda t: {
+        "titulo": t, "subtitulo": "Julio 2026 · USD",
+        "columnas": [{"label": "Line Item", "ancho": 30, "formato": "texto"},
+                     {"label": "ACTUAL", "ancho": 16, "formato": "usd2"}],
+        "filas": [{"label": "Rooms", "es_total": False, "valores": [1.0]}]}
+    b = build_cuadros_workbook([cuadro("Uno"), cuadro("Dos")])
+    wb = openpyxl.load_workbook(_io.BytesIO(b))
+    assert wb.sheetnames[0] == "Índice"
+    texto = " ".join(str(c.value) for r in wb["Índice"].iter_rows(values_only=True)
+                     for c in [type("X", (), {"value": v})() for v in r] if c.value)
+    assert "Uno" in texto and "Dos" in texto
+
+
+def test_con_UNA_sola_hoja_no_hay_indice():
+    """Una portada que dice «1. esa hoja» es un clic de más para llegar al
+    único cuadro."""
+    import io as _io
+
+    import openpyxl
+
+    from app.export.cuadro_excel import build_cuadros_workbook
+    b = build_cuadros_workbook([{
+        "titulo": "Solo", "columnas": [{"label": "A", "ancho": 20, "formato": "texto"}],
+        "filas": [{"label": "x", "es_total": False, "valores": []}]}])
+    wb = openpyxl.load_workbook(_io.BytesIO(b))
+    assert "Índice" not in wb.sheetnames
+
+
+def test_el_indice_muestra_el_nombre_REAL_de_la_pestana():
+    """Si dos cuadros se llamaban parecido, el libro los desambiguó: el índice
+    tiene que mostrar el nombre con el que quedó la pestaña o no sirve para
+    encontrarla."""
+    import inspect
+
+    from app.export import cuadro_excel
+    fuente = inspect.getsource(cuadro_excel.build_cuadros_workbook)
+    assert "nombres.append(_hoja(wb, cuadro, usados).title)" in fuente
+
+
+def test_las_dos_hojas_del_Statement_se_DISTINGUEN():
+    """⚠️ Excel corta el nombre de pestaña en 31 caracteres. Con el título
+    largo, las dos salían «Profit & Loss Statement YTD JUL» y «…YTD (2)»:
+    imposible saber cuál es la departamental sin abrirlas."""
+    src = _src()
+    assert 'hoja: conDepto ? "P&L Departamental" : "P&L Totales"' in src
+    assert "c.hoja || c.titulo" in _cuerpo(), (
+        "el Excel dejó de respetar el nombre de pestaña que manda cada "
+        "capítulo y volvió a cortar títulos largos")
