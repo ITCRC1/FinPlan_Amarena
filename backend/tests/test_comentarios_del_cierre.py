@@ -137,3 +137,42 @@ def test_el_comentario_BAJA_con_el_Excel():
     viendo» (2026-08-27)."""
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
     assert "comentarios[f.code] ?? null," in pagina
+
+
+def test_NINGUN_punto_puede_olvidarse_el_mes():
+    """Owner, 2026-09-03: «que las notas queden ligadas al mes actual, para que
+    viajen con el mes actual».
+
+    ⚠️ La llave es (escenario, "pl", renglón, mes) y el mes NO tiene valor por
+    defecto: una lectura sin mes traería las notas de todos los cierres
+    mezcladas, y una escritura sin mes las dejaría pegadas al mes 0 —donde
+    ninguna pantalla las volvería a encontrar—.
+
+    Se cuentan los puntos de llamada: son cinco —la columna del P&L, la nota
+    del desplegable, sus dos guardados y el Word— y los cinco tienen que pasar
+    el mes. Uno solo que se lo olvide devuelve el defecto en una pantalla, que
+    es como no se nota.
+    """
+    puntos = 0
+    for archivo in ("page.tsx", "DetalleCelda.tsx"):
+        src = (CIERRE / archivo).read_text(encoding="utf-8")
+        for linea in src.splitlines():
+            if "getComentariosPL(" in linea or "guardarComentarioPL(" in linea:
+                puntos += 1
+                assert "mes" in linea, f"sin el mes: {archivo} → {linea.strip()}"
+    assert puntos >= 5, f"quedaron {puntos} puntos de llamada, se esperaban 5"
+
+
+def test_el_backend_EXIGE_el_mes_al_leer():
+    """Sin valor por defecto: una lectura sin mes es un error, no «todos»."""
+    fuente = inspect.getsource(api.listar)
+    assert "mes: int = Query(..., ge=1, le=12)" in fuente, (
+        "el mes dejó de ser obligatorio al leer: las notas de todos los "
+        "cierres saldrían mezcladas")
+
+
+def test_las_dos_consultas_del_backend_filtran_por_MES():
+    """Leer y guardar. Que una sola se lo saltee alcanza para que una nota de
+    julio aparezca en agosto o para que se pisen entre meses."""
+    assert "Annotation.month == mes" in inspect.getsource(api.listar)
+    assert "Annotation.month == cuerpo.mes" in inspect.getsource(api.guardar)
