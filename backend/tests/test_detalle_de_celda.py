@@ -82,17 +82,68 @@ def test_el_corte_del_desplegable_es_el_del_CUADRO():
     no cerrarían con la celda que se tocó — y existe justamente para explicar
     esa celda."""
     pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
-    assert 'horizonte === "month"' in pantalla and 'horizonte === "ytd"' in pantalla
+    # El mes sigue al cuadro; el acumulado va de enero hasta ese mes. Los dos
+    # salen de `mes`, que es el del cuadro de atrás.
+    assert "MESES[mes - 1], meses: [mes - 1]" in pantalla
+    assert "Array.from({ length: mes }" in pantalla
 
 
-def test_se_cierra_con_ESCAPE_y_tocando_afuera():
+def test_se_cierra_con_ESCAPE():
     """Está pensado para presentar: buscar la X con el mouse se nota."""
     pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
     assert 'e.key === "Escape"' in pantalla
-    assert "onClick={onCerrar}" in pantalla
-    # ⚠️ Y tocar DENTRO no cierra: sin esto, seleccionar un número para
-    # copiarlo cerraría el cuadro.
-    assert "e.stopPropagation()" in pantalla
+
+
+def test_NO_hay_fondo_oscuro():
+    """Owner, 2026-09-03: «que la ventana que se abre se pueda mover para darle
+    visibilidad al número que se quiere presentar».
+
+    ⚠️ La primera versión era un modal con velo encima. Con eso, poder
+    arrastrarla NO SIRVE DE NADA: el cuadro de atrás queda igual de tapado,
+    sólo que por el velo en vez de por el panel. Sacar el velo es lo que hace
+    que moverla signifique algo.
+    """
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "rgba(15,20,28" not in pantalla, "volvió el velo del modal"
+    assert "position: \"fixed\", inset: 0" not in pantalla
+
+
+def test_la_ventana_SE_MUEVE():
+    """Y con eventos de PUNTERO, no de mouse: esto se presenta también desde
+    una pantalla táctil y `pointer*` cubre los dos con el mismo código."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "onPointerDown={alAgarrar}" in pantalla
+    assert "setPointerCapture" in pantalla, (
+        "sin capturar el puntero, mover rápido suelta la ventana a mitad de "
+        "camino cuando el cursor sale del encabezado")
+    assert 'touchAction: "none"' in pantalla
+
+
+def test_la_ventana_no_se_puede_perder_fuera_de_la_pantalla():
+    """Una ventana arrastrada más allá del borde no se recupera sin recargar."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "window.innerWidth - 120" in pantalla
+    assert "window.innerHeight - 44" in pantalla
+
+
+def test_salen_el_MES_y_el_ACUMULADO():
+    """Owner: «sólo sale el mes, pero no el acumulado; debés ponerlo, hay
+    espacio».
+
+    ⚠️ Los dos cortes se calculan sobre la MISMA serie de doce meses que manda
+    el backend —el mes es una posición y el acumulado la suma hasta ahí—, así
+    que no son dos consultas y no pueden diferir entre sí.
+    """
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "const cortes" in pantalla
+    assert "`YTD ${MESES[mes - 1]}`" in pantalla
+    assert "colSpan={cortes.length}" in pantalla
+
+
+def test_con_el_ano_completo_NO_se_repite_la_columna():
+    """Dos columnas iguales invitan a buscarles la diferencia."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert 'if (horizonte === "full")' in pantalla
 
 
 def test_solo_se_marca_lo_que_de_verdad_ABRE():
