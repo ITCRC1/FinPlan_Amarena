@@ -17,7 +17,7 @@ def _src() -> str:
 
 def _cuerpo() -> str:
     s = _src()
-    return s[s.index("async function bajarExcelTodo()"):s.index("async function bajarWord()")]
+    return s[s.index("async function bajarExcel()"):s.index("async function bajarWord()")]
 
 
 def test_sale_del_MISMO_registro_que_el_Word():
@@ -60,10 +60,28 @@ def test_avisa_cuales_no_se_pudieron_armar():
     assert "fallaron.push" in cuerpo and "fallaron.join" in cuerpo
 
 
-def test_hay_boton_y_dice_lo_que_hace():
+def test_es_EL_boton_de_Excel_y_no_uno_aparte():
+    """Owner, 2026-09-03: «necesito que el botón que está a la par de download
+    de Word, de Excel, ahí estén todos los tabs, en el mismo orden».
+
+    ⚠️ Antes ese botón bajaba UNA sola hoja —el P&L— y el intento anterior fue
+    agregar un segundo botón al lado. Dos descargas parecidas dejan al usuario
+    eligiendo entre ellas, que es una decisión que nadie quiere tomar.
+    """
     src = _src()
-    assert "onClick={bajarExcelTodo}" in src
-    assert "incluidos los escondidos" in src
+    assert "onClick={bajarExcel}" in src
+    assert "bajarExcelTodo" not in src, "quedó el segundo botón"
+    # Uno solo en la BARRA de arriba. Los otros «⬇ Excel» del archivo son los
+    # de cada sub-tab —bajan su propio cuadro— y ésos sí van.
+    assert src.count("onClick={bajarExcel}") == 1
+    # Y el viejo de una sola hoja no puede volver.
+    assert "[cuadroPL()]);" not in src
+
+
+def test_el_ORDEN_es_el_de_la_pantalla():
+    """«En el mismo orden»: se recorre `VISTAS`, la misma lista que dibuja la
+    fila de sub-tabs."""
+    assert "for (const v of VISTAS)" in _cuerpo()
 
 
 def test_el_PL_Statement_aporta_sus_DOS_vistas_tambien_al_Excel():

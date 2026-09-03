@@ -1225,16 +1225,6 @@ export default function MonthEndPLPage() {
     };
   }
 
-  function bajarExcel() {
-    bajarCuadros(`Cierre_${year}_${horizonte}_${String(mes).padStart(2, "0")}`,
-                 [cuadroPL()]);
-  }
-
-  /** El cuadro de un tab «x Depto», con las mismas columnas del de arriba.
-   *
-   *  ⚠️ Sale de `apertura`, que es lo MISMO que dibuja la pantalla. Rearmarlo
-   *  con otra consulta daria un documento que no es lo que el owner estaba
-   *  viendo cuando decidio exportarlo. */
   /** El Simplified P&L, para el Word. Mismas filas que el sub-tab. */
   function cuadroSimple(): Cuadro {
     const margen = (c: PLColumn | undefined, code: string) => {
@@ -1665,10 +1655,18 @@ export default function MonthEndPLPage() {
     return out.sort();
   }
 
-  /** Un solo Excel con TODOS los sub-tabs, una hoja cada uno.
+  /** El Excel del cierre: TODOS los sub-tabs, una hoja cada uno, en el orden
+   *  de la pantalla.
    *
    * Owner, 2026-09-03: *«se podrá bajar en Excel todos los tabs; que bajen
-   * todos es todos, en un solo archivo»*.
+   * todos es todos, en un solo archivo»* y, enseguida: *«necesito que el botón
+   * que está a la par de download de Word, de Excel, ahí estén todos los tabs,
+   * en el mismo orden»*.
+   *
+   * ⚠️ **Es EL botón de Excel, no uno aparte.** Antes bajaba una sola hoja —el
+   * P&L— y agregar un segundo botón al lado dejaba al usuario eligiendo entre
+   * dos descargas parecidas, que es una decisión que nadie quiere tomar. El
+   * orden es el de `VISTAS`, el mismo de la fila de sub-tabs.
    *
    * ⚠️ **Sale del MISMO registro de capítulos que el Word** (`CAPITULOS`). Un
    * segundo armado sería un segundo lugar donde olvidarse un sub-tab, que es
@@ -1683,7 +1681,7 @@ export default function MonthEndPLPage() {
    *   como «el mes no tuvo movimiento»; en Excel una hoja vacía se ve vacía, y
    *   sacarla dejaría la duda de si el tab existe.
    */
-  async function bajarExcelTodo() {
+  async function bajarExcel() {
     if (!datos.length || !gastos.length) {
       alert("Todavía se están cargando los datos de la pantalla. Esperá a que "
             + "se dibujen los cuadros y volvé a bajar el Excel.");
@@ -1892,18 +1890,15 @@ export default function MonthEndPLPage() {
             border: horizonte === k ? "none" : SEL.border,
           }}>{t(`horizonte_${k}`)}</button>
         ))}
-        <button onClick={bajarExcel} style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Excel</button>
+        <button onClick={bajarExcel}
+          title="Todos los sub-tabs en un solo Excel, una hoja cada uno y en el mismo orden de la pantalla"
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Excel</button>
         {/* Owner, 2026-09-02: «un documento Word con todos los tabs activos,
             con espacio para comentar». Los activos salen de `subOcultos`, que
             es lo mismo que dibuja la fila de sub-tabs. */}
         <button onClick={bajarWord} title="Reporte de cierre en Word, con espacio para comentar cada cuadro"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Word</button>
-        {/* Owner, 2026-09-03: «que bajen todos es todos, en un solo archivo».
-            A diferencia del Word, éste NO respeta el panel de Vistas: el Word
-            es lo que ve el dueño; esto es el respaldo para trabajar. */}
-        <button onClick={bajarExcelTodo}
-          title="Un solo Excel con TODOS los sub-tabs, una hoja cada uno — incluidos los escondidos"
-          style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Excel · todo</button>
+
       </div>
 
       {/* Cuatro ranuras libres. Cada una acepta CUALQUIER escenario de cualquier
