@@ -9,6 +9,10 @@ from app.perfiles import solo_lectura
 # ⚠️ El import ENGANCHA el listener del ORM: un mes cerrado no se edita.
 # Ver `app/candado_meses.py`.
 import app.candado_meses  # noqa: F401
+# Le devuelve el cero de adelante a los codigos de departamento que entran sin
+# el (`110` -> `0110`). Ver `app/departamentos.py`: hay cuatro caminos de
+# escritura y el ORM los ve a todos.
+import app.departamentos  # noqa: F401
 from app.errores import ErrorApi, manejador as _manejador_errores
 from app.models.scenario import ScenarioLockedError
 from app.api.accounts_api import router as accounts_router

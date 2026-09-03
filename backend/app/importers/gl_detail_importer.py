@@ -178,58 +178,38 @@ _POR_PALABRA: list[tuple[str, str]] = [
 #: lista de códigos válidos sería exactamente cómo se separan dos reglas que
 #: tienen que decir lo mismo.
 def _tres_digitos_reales() -> frozenset[str]:
-    from app.engine.pl_engine import _DEPT_TO_GROUP
-    # La UNIÓN de las dos, y hace falta que sean las dos:
-    #
-    # * `_POR_PALABRA` es la tabla de este mismo módulo, que ya declara cuáles
-    #   son de tres: Club (260), Área Recreativa (270) y Misceláneos (280).
-    # * `_DEPT_TO_GROUP` es la del motor.
-    #
-    # ⚠️ Ninguna alcanza sola, y el 280 explica por qué.
-    #
-    # Misceláneos NO está en `_DEPT_TO_GROUP` porque es un departamento de PURO
-    # INGRESO: sus diez reglas de `account_mapping` son las diez de tipo
-    # `Revenue` (48xx → `REV_MISC_OTHER`, y la 4880 → `REV_SUSTAINABILITY`), y
-    # no tiene una sola regla de gasto. `_DEPT_TO_GROUP` dice en qué grupo cae
-    # el GASTO de un departamento, así que un departamento sin gasto no aparece
-    # ahí — no es un olvido ni una clasificación.
-    #
-    # (Que `group_for_dept("280")` devuelva `OTHER_OVERHEAD` es el valor por
-    # descarte de esa tabla, y NUNCA se usa: el ingreso se atribuye por CUENTA,
-    # no por departamento.)
-    #
-    # O sea que mirando sólo al motor se lo rellenaría a `0280`, un
-    # departamento que no existe, y su ingreso se perdería. Y `_POR_PALABRA`
-    # sola tampoco alcanza: sólo cubre lo que tiene palabra clave.
-    return (frozenset(c for _kw, c in _POR_PALABRA if len(c) == 3)
-            | frozenset(d for d in _DEPT_TO_GROUP if len(d) == 3))
+    """Los departamentos que de verdad son de tres dígitos.
+
+    Se conserva porque lo usan las pruebas y `mapping_loader`; la regla vive en
+    `app/departamentos.py`, que además aprende del catálogo.
+    """
+    from app.departamentos import _tres_digitos
+    return _tres_digitos()
 
 
 def _normalizar_dept(code: str) -> str:
-    """Rellena el cero que el archivo no trae.
+    """`110` → `0110`; el Club (260) se queda como está.
 
     Owner, 2026-09-03: *«el upload tiene mismos departamentos sin 0»*.
 
-    ⚠️ **Este es el error más caro que puede entrar por acá, porque no falla.**
-    `_CODIGO_AL_INICIO` acepta tres o cuatro dígitos —el Club (260) y el Área
-    Recreativa (270) son de tres de verdad—, así que un «110 · Habitaciones»
-    pasa el filtro y se guarda como `110`. Y `110` no está en el catálogo:
+    ⚠️ **La cuenta no se hace acá: se delega.** `_CODIGO_AL_INICIO` acepta tres
+    o cuatro dígitos —el Club (260), el Área Recreativa (270) y Misceláneos
+    (280) son de tres de verdad—, así que un «110 · Habitaciones» pasaba el
+    filtro y se guardaba como `110`. Y `110` no está en el catálogo:
 
         pl_engine.group_for_dept("0110") -> ROOMS
         pl_engine.group_for_dept("110")  -> OTHER_OVERHEAD
 
-    No revienta, no se descarta, **no avisa**. El gasto de Habitaciones aparece
-    como Overhead y el P&L cuadra igual, porque la plata sigue estando: sólo que
-    en la línea de al lado. Es el mismo defecto que el `110` que rompió el
-    reparto de lavandería, entrando esta vez por el importador.
+    No revienta, no se descarta, no avisa: el gasto de Habitaciones sale como
+    Overhead y el P&L cuadra igual.
 
-    La regla es estructural y no una lista: tres dígitos que el motor NO conozca
-    como departamento de tres, es un cuatro dígitos al que le falta el cero.
+    La regla vive en `app/departamentos.py` porque este importador **no es la
+    única puerta** —hay al menos cuatro caminos que escriben un `dept_code`— y
+    dos copias de esta regla es cómo se separan dos cosas que tienen que decir
+    lo mismo.
     """
-    code = (code or "").strip()
-    if len(code) == 3 and code not in _tres_digitos_reales():
-        return code.zfill(4)
-    return code
+    from app.departamentos import normalizar_dept_code
+    return normalizar_dept_code(code)
 
 
 def dept_code_from_name(name: str) -> str | None:
