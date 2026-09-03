@@ -136,6 +136,90 @@ def _acct_code(v) -> str | None:
 _CODIGO_AL_INICIO = re.compile(r"^\s*(\d{3,4})\s*(?:[·\-–—:|]|\s|$)")
 
 
+_POR_PALABRA: list[tuple[str, str]] = [
+    ("habitaci", "0110"),
+    # Outlets de A&B. Los dos departamentos ya existen y cuelgan del 0120,
+    # así que la plata cae en A&B igual que hoy — lo que se gana es que el
+    # detalle por outlet NO se pierde. Hasta ahora un GL que dijera
+    # «Restaurante» caía en «sin departamento» y se omitía (la Vista previa
+    # lo avisa, pero omitido igual).
+    #
+    # Bar y Room Service NO están acá a propósito: todavía no existen como
+    # departamento. Apuntar una palabra clave a un código inexistente sería
+    # peor que omitir. Entran cuando se diseñe B2 — y ojo con «bar» como
+    # subcadena, que pega en cualquier palabra que la contenga.
+    ("restaurante", "0123"), ("restaurant", "0123"),
+    ("cocina", "0122"), ("kitchen", "0122"),
+    ("a&b", "0120"), ("alimentos", "0120"),
+    # ⚠️ El Gift Shop es el 0165 y la Tienda el 0151: son dos locales
+    # separados desde el 2026-08-13, con linea propia cada uno. Este
+    # importador mandaba «gift» al 0151 y el del resumen al 0165.
+    ("spa", "0140"), ("tours", "0150"), ("gift", "0165"), ("tienda", "0151"),
+    ("transport", "0152"), ("innocean", "0155"), ("crowther", "0156"),
+    ("crowler", "0156"), ("lavander", "0161"), ("administ", "0180"),
+    ("ventas", "0190"), ("mercadeo", "0190"), ("marketing", "0190"),
+    ("mantenim", "0200"), ("maintenance", "0200"), ("claro", "0205"),
+    ("utility", "0210"), ("utilit", "0210"), ("cafeter", "0220"),
+    # Employee Benefits es el 0181, no la Cafeteria. Ademas el 0220 se
+    # descarta entero en el camino legacy: el gasto desaparecia.
+    ("beneficios", "0181"),
+    ("property", "0250"), ("propiedad", "0250"),  # Property/below-GOP (8xxx)
+    ("miscel", "280"), ("sostenib", "280"),   # Miscelaneos (ingresos 48xx + Sustainability)
+    ("madresal", "260"),     # Club Madresal (operativo)
+    ("recreativa", "270"),   # Área Recreativa (operativo)
+]
+
+
+#: Los ÚNICOS departamentos que de verdad son de tres dígitos.
+#:
+#: ⚠️ **No es una lista nueva: se le pregunta al motor.** `_DEPT_TO_GROUP` es la
+#: tabla que decide en qué grupo del P&L cae cada departamento; si un código no
+#: está ahí, el motor lo manda a `OTHER_OVERHEAD`. Escribir acá una segunda
+#: lista de códigos válidos sería exactamente cómo se separan dos reglas que
+#: tienen que decir lo mismo.
+def _tres_digitos_reales() -> frozenset[str]:
+    from app.engine.pl_engine import _DEPT_TO_GROUP
+    # La UNIÓN de las dos, y hace falta que sean las dos:
+    #
+    # * `_POR_PALABRA` es la tabla de este mismo módulo, que ya declara cuáles
+    #   son de tres: Club (260), Área Recreativa (270) y Misceláneos (280).
+    # * `_DEPT_TO_GROUP` es la del motor.
+    #
+    # ⚠️ Ninguna alcanza sola. El 280 NO está en `_DEPT_TO_GROUP` —el motor lo
+    # manda a `OTHER_OVERHEAD` a propósito, que es lo que Misceláneos es— así
+    # que mirando sólo al motor se lo rellenaría a `0280`, un departamento que
+    # no existe. Y `_POR_PALABRA` sólo cubre lo que tiene palabra clave.
+    return (frozenset(c for _kw, c in _POR_PALABRA if len(c) == 3)
+            | frozenset(d for d in _DEPT_TO_GROUP if len(d) == 3))
+
+
+def _normalizar_dept(code: str) -> str:
+    """Rellena el cero que el archivo no trae.
+
+    Owner, 2026-09-03: *«el upload tiene mismos departamentos sin 0»*.
+
+    ⚠️ **Este es el error más caro que puede entrar por acá, porque no falla.**
+    `_CODIGO_AL_INICIO` acepta tres o cuatro dígitos —el Club (260) y el Área
+    Recreativa (270) son de tres de verdad—, así que un «110 · Habitaciones»
+    pasa el filtro y se guarda como `110`. Y `110` no está en el catálogo:
+
+        pl_engine.group_for_dept("0110") -> ROOMS
+        pl_engine.group_for_dept("110")  -> OTHER_OVERHEAD
+
+    No revienta, no se descarta, **no avisa**. El gasto de Habitaciones aparece
+    como Overhead y el P&L cuadra igual, porque la plata sigue estando: sólo que
+    en la línea de al lado. Es el mismo defecto que el `110` que rompió el
+    reparto de lavandería, entrando esta vez por el importador.
+
+    La regla es estructural y no una lista: tres dígitos que el motor NO conozca
+    como departamento de tres, es un cuatro dígitos al que le falta el cero.
+    """
+    code = (code or "").strip()
+    if len(code) == 3 and code not in _tres_digitos_reales():
+        return code.zfill(4)
+    return code
+
+
 def dept_code_from_name(name: str) -> str | None:
     """Departamento del archivo → código oficial.
 
@@ -154,42 +238,11 @@ def dept_code_from_name(name: str) -> str | None:
     """
     m = _CODIGO_AL_INICIO.match(str(name or ""))
     if m:
-        return m.group(1)
+        return _normalizar_dept(m.group(1))
     n = (name or "").lower()
     # ORDEN IMPORTANTE: gana la PRIMERA que pegue, así que lo específico va
     # antes que lo genérico. «Restaurante A&B» tiene que dar 0123, no 0120.
-    table = [
-        ("habitaci", "0110"),
-        # Outlets de A&B. Los dos departamentos ya existen y cuelgan del 0120,
-        # así que la plata cae en A&B igual que hoy — lo que se gana es que el
-        # detalle por outlet NO se pierde. Hasta ahora un GL que dijera
-        # «Restaurante» caía en «sin departamento» y se omitía (la Vista previa
-        # lo avisa, pero omitido igual).
-        #
-        # Bar y Room Service NO están acá a propósito: todavía no existen como
-        # departamento. Apuntar una palabra clave a un código inexistente sería
-        # peor que omitir. Entran cuando se diseñe B2 — y ojo con «bar» como
-        # subcadena, que pega en cualquier palabra que la contenga.
-        ("restaurante", "0123"), ("restaurant", "0123"),
-        ("cocina", "0122"), ("kitchen", "0122"),
-        ("a&b", "0120"), ("alimentos", "0120"),
-        # ⚠️ El Gift Shop es el 0165 y la Tienda el 0151: son dos locales
-        # separados desde el 2026-08-13, con linea propia cada uno. Este
-        # importador mandaba «gift» al 0151 y el del resumen al 0165.
-        ("spa", "0140"), ("tours", "0150"), ("gift", "0165"), ("tienda", "0151"),
-        ("transport", "0152"), ("innocean", "0155"), ("crowther", "0156"),
-        ("crowler", "0156"), ("lavander", "0161"), ("administ", "0180"),
-        ("ventas", "0190"), ("mercadeo", "0190"), ("marketing", "0190"),
-        ("mantenim", "0200"), ("maintenance", "0200"), ("claro", "0205"),
-        ("utility", "0210"), ("utilit", "0210"), ("cafeter", "0220"),
-        # Employee Benefits es el 0181, no la Cafeteria. Ademas el 0220 se
-        # descarta entero en el camino legacy: el gasto desaparecia.
-        ("beneficios", "0181"),
-        ("property", "0250"), ("propiedad", "0250"),  # Property/below-GOP (8xxx)
-        ("miscel", "280"), ("sostenib", "280"),   # Miscelaneos (ingresos 48xx + Sustainability)
-        ("madresal", "260"),     # Club Madresal (operativo)
-        ("recreativa", "270"),   # Área Recreativa (operativo)
-    ]
+    table = _POR_PALABRA
     for kw, code in table:
         if kw in n:
             return code
