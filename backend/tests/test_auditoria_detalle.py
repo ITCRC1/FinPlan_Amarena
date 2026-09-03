@@ -382,9 +382,18 @@ def test_el_cuadre_es_por_RENGLON_y_no_por_codigo_suelto():
     assert "from app.api.pl_detail_api import CONSOLIDADO" in fuente, (
         "la auditoría dejó de usar la plantilla del reporte: volvería a "
         "comparar totales contra un detalle que no existe")
-    assert 'if tipo != "det"' in fuente, (
-        "el cuadre dejó de filtrar a los renglones de DETALLE: los totales no "
-        "tienen detalle propio y saldrían todos como descuadre")
+    # ⚠️ Desde el 2026-09-03 los totales SÍ se dibujan —el owner pidió «un P&L
+    # formal, con ingresos, gastos operativos y overhead»— pero siguen sin
+    # auditarse: van con `detalle=None` y `dif=None`.
+    #
+    # Poner cero ahí sería exactamente el defecto viejo con otra cara: un total
+    # contra un detalle inexistente da un descuadre por el monto entero.
+    assert '"tot"' in fuente and '"detalle": None' in fuente, (
+        "un total volvió a compararse contra un detalle que no existe: los "
+        "totales son suma de otros renglones y no se componen de asientos")
+    assert "if not any(c in atribuibles for c in codigos)" in fuente, (
+        "los renglones DERIVADOS (Operating Profit) volvieron a auditarse; no "
+        "se componen de asientos y su detalle siempre daría cero")
 
 
 def test_la_plantilla_agrupa_el_costo_con_su_gasto():
@@ -854,3 +863,46 @@ def test_una_naturaleza_NUEVA_del_motor_no_desaparece():
     mostrarla sin título."""
     src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
     assert "i < 0 ? NATURALEZA.length : i" in src
+
+
+# ─── El Cuadre como P&L formal (owner, 2026-09-03) ──────────────────────────
+#
+# «Esto es un resumen, pero favor que tenga un formato de P&L, donde hay
+# ingresos, gastos operativos, overhead; un P&L formal.»
+
+def test_el_cuadre_trae_SECCIONES_y_no_una_lista_plana():
+    """⚠️ El defecto: salía plano y **«Rooms» aparecía dos veces** —una por el
+    ingreso ($36.218,36) y otra por el gasto ($17.847,68)— sin nada que dijera
+    cuál era cuál. Se leían como dos versiones del mismo número.
+    """
+    import inspect
+
+    from app.api import auditoria_api
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    for clase in ('"sec"', '"det"', '"tot"', '"esp"', '"der"'):
+        assert clase in fuente, f"el cuadre ya no distingue {clase}"
+
+
+def test_la_estructura_sale_de_la_MISMA_plantilla_que_el_reporte():
+    """Escribir las secciones a mano en la auditoría sería garantizar que un
+    día audite un P&L distinto del que se imprime."""
+    import inspect
+
+    from app.api import auditoria_api
+    fuente = inspect.getsource(auditoria_api.auditoria_del_mes)
+    assert "for tipo, rotulo, codigos in CONSOLIDADO:" in fuente
+
+
+def test_contar_descuadres_no_revienta_con_los_None():
+    """`dif` es None en secciones, blancos, totales y derivados. Sin el
+    `is not None`, el conteo tira TypeError y se cae la pantalla entera."""
+    src = (Path(__file__).resolve().parents[1]
+           / "app/api/auditoria_api.py").read_text(encoding="utf-8")
+    assert 'c["dif"] is not None and abs(c["dif"])' in src
+
+
+def test_la_pantalla_no_deja_secciones_HUERFANAS_al_esconder_filas():
+    """Con «Compacto», una sección cuyos renglones se escondieron todos sería
+    un título sobre la nada, y dos blancos seguidos un agujero."""
+    src = (CIERRE / "Auditoria.tsx").read_text(encoding="utf-8")
+    assert 'f.tipo === "sec"' in src and "visibles.slice(i + 1)" in src

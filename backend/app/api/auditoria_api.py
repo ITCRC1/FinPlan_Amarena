@@ -271,20 +271,63 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         # siempre daría cero. En julio 2026 eran seis descuadres inventados.
         atribuibles = pl_engine.codigos_atribuibles()
 
+        # ⚠️ Se recorre la plantilla ENTERA —secciones, renglones, totales y
+        # blancos—, no sólo los renglones con detalle.
+        #
+        # Owner, 2026-09-03: *«esto es un resumen, pero favor que tenga un
+        # formato de P&L, donde hay ingresos, gastos operativos, overhead; un
+        # P&L formal»*.
+        #
+        # Antes se filtraba `tipo != "det"` y salía una lista plana en la que
+        # **«Rooms» aparecía dos veces** —una por el ingreso y otra por el
+        # gasto— sin nada que dijera cuál era cuál. Los $36.218,36 y los
+        # $17.847,68 se leían como dos versiones del mismo número.
+        #
+        # La estructura la pone la MISMA plantilla que dibuja el reporte: si
+        # cambia el P&L, cambia la auditoría con él.
         cuadre = []
         atribuidos: set[str] = set()
         for tipo, rotulo, codigos in CONSOLIDADO:
-            if tipo != "det" or not codigos:
+            if tipo == "esp":
+                cuadre.append({"tipo": "esp", "linea": "", "nombre": "",
+                               "seccion": "", "motor": None,
+                               "detalle": None, "dif": None})
                 continue
-            if not any(c in atribuibles for c in codigos):
+            if tipo == "sec":
+                cuadre.append({"tipo": "sec", "linea": "", "nombre": rotulo,
+                               "seccion": "", "motor": None,
+                               "detalle": None, "dif": None})
                 continue
+
             motor = sum((Decimal(str(lineas_motor[c].amount_usd))
                          for c in codigos if c in lineas_motor), CERO)
+
+            # Un TOTAL no tiene detalle propio: es la suma de otros renglones.
+            # Comparar su «detalle» daría cero contra el total y sería un
+            # descuadre inventado — los seis del primer intento.
+            if tipo == "tot":
+                cuadre.append({"tipo": "tot", "linea": " · ".join(codigos),
+                               "nombre": rotulo, "seccion": "",
+                               "motor": _f(motor), "detalle": None, "dif": None})
+                continue
+
+            # Y un renglón DERIVADO —el bloque de Operating Profit es ingreso
+            # menos gasto— tampoco se compone de asientos. Se muestra, porque
+            # es parte del P&L, pero sin columnas de auditoría.
+            if not any(c in atribuibles for c in codigos):
+                if motor != CERO:
+                    cuadre.append({"tipo": "der", "linea": " · ".join(codigos),
+                                   "nombre": rotulo, "seccion": "",
+                                   "motor": _f(motor), "detalle": None,
+                                   "dif": None})
+                continue
+
             det = sum((por_linea.get(c, CERO) for c in codigos), CERO)
             atribuidos.update(codigos)
             if motor == CERO and det == CERO:
                 continue
             cuadre.append({
+                "tipo": "det",
                 "linea": " · ".join(codigos),
                 "nombre": rotulo,
                 "seccion": "",
@@ -296,13 +339,20 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
         # Lo que el detalle atribuye a un código que NINGÚN renglón dibuja. No
         # debería pasar; si pasa, es exactamente lo que hay que ver, porque esa
         # plata está en los totales y en ninguna fila.
-        for code, det in sorted(por_linea.items()):
-            if code in atribuidos or det == CERO:
-                continue
-            cuadre.append({
-                "linea": code, "nombre": "(ningún renglón lo dibuja)",
-                "seccion": "HUERFANO", "motor": 0.0,
-                "detalle": _f(det), "dif": _f(-det)})
+        huerfanas = [(c, d) for c, d in sorted(por_linea.items())
+                     if c not in atribuidos and d != CERO]
+        if huerfanas:
+            cuadre.append({"tipo": "esp", "linea": "", "nombre": "",
+                           "seccion": "", "motor": None, "detalle": None,
+                           "dif": None})
+            cuadre.append({"tipo": "sec", "linea": "",
+                           "nombre": "NO CAEN EN NINGÚN RENGLÓN", "seccion": "",
+                           "motor": None, "detalle": None, "dif": None})
+            for code, det in huerfanas:
+                cuadre.append({
+                    "tipo": "det", "linea": code,
+                    "nombre": "(ningún renglón lo dibuja)", "seccion": "HUERFANO",
+                    "motor": 0.0, "detalle": _f(det), "dif": _f(-det)})
 
         # ── 3. La matriz por departamento ─────────────────────────────────────
         departamentos = []
@@ -356,7 +406,11 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
             avisos.append(
                 f"{len(huerfanos)} fila(s) no caen en ninguna línea del P&L y "
                 f"por eso NO suman: revisá su departamento y su cuenta.")
-        descuadres = [c for c in cuadre if abs(c["dif"]) >= 0.005]
+        # ⚠️ `dif` es None en las secciones, los blancos, los totales y los
+        # renglones derivados: esos no tienen detalle contra qué compararse.
+        # Sin el `is not None`, contar descuadres revienta con un TypeError.
+        descuadres = [c for c in cuadre
+                      if c["dif"] is not None and abs(c["dif"]) >= 0.005]
         if descuadres:
             avisos.append(
                 f"{len(descuadres)} línea(s) no cuadran contra su detalle.")

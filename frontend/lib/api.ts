@@ -2691,12 +2691,25 @@ export interface AuditoriaFila {
   movimiento: boolean;
 }
 export interface AuditoriaCuadre {
+  /** Qué clase de renglón es, para dibujarlo como un P&L de verdad:
+   *
+   *  - `sec` encabezado de sección (REVENUES, Operating Expenses, OVERHEAD…)
+   *  - `det` un renglón con detalle: es el único que se audita
+   *  - `tot` un total o subtotal
+   *  - `der` derivado (el bloque de Operating Profit): se muestra porque es
+   *    parte del P&L, pero no se compone de asientos
+   *  - `esp` una línea en blanco, para que respire
+   *
+   *  ⚠️ Sin esto salía una lista plana donde **«Rooms» aparecía dos veces**
+   *  —el ingreso y el gasto— sin nada que dijera cuál era cuál. */
+  tipo: "sec" | "det" | "tot" | "der" | "esp";
   linea: string; nombre: string; seccion: string;
-  /** Lo que dice el motor. */
-  motor: number;
-  /** Lo que suma el detalle atribuido a esa línea. */
-  detalle: number;
-  dif: number;
+  /** Lo que dice el motor. `null` en secciones y blancos. */
+  motor: number | null;
+  /** Lo que suma el detalle atribuido. `null` cuando no hay nada que auditar:
+   *  un total es suma de otros renglones y un derivado no tiene asientos. */
+  detalle: number | null;
+  dif: number | null;
 }
 export interface AuditoriaDepto {
   dept_code: string; dept_name: string; total_gasto: number;

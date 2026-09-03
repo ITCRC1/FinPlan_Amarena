@@ -24,8 +24,8 @@
 import { sembrarTres } from "@/lib/escenarioPreferido";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
-import { getAuditoria, type Auditoria as Datos, type AuditoriaFila,
-         type Scenario } from "@/lib/api";
+import { getAuditoria, type Auditoria as Datos, type AuditoriaCuadre,
+         type AuditoriaFila, type Scenario } from "@/lib/api";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -130,12 +130,37 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
 
   const cuadre = useMemo(() => {
     const filas = datos?.cuadre ?? [];
-    if (soloDif) return filas.filter(f => Math.abs(f.dif) >= 0.005);
+
+    // «Sólo lo que no cuadra» deja los renglones con diferencia y NADA más:
+    // acá el cuadro deja de ser un P&L y pasa a ser una lista de problemas,
+    // que es justo lo que se quiere ver en ese modo.
+    if (soloDif) {
+      return filas.filter(f => f.dif !== null && Math.abs(f.dif) >= 0.005);
+    }
+
     // Compacto esconde lo que está en cero por los dos lados: un renglón sin
     // motor y sin detalle no dice nada.
-    return compacto
-      ? filas.filter(f => Math.abs(f.motor) >= 0.005 || Math.abs(f.detalle) >= 0.005)
+    const vivo = (f: AuditoriaCuadre) =>
+      Math.abs(f.motor ?? 0) >= 0.005 || Math.abs(f.detalle ?? 0) >= 0.005;
+    const visibles = compacto
+      ? filas.filter(f => f.tipo === "sec" || f.tipo === "esp" || vivo(f))
       : filas;
+
+    // ⚠️ Y se limpia la estructura que quedó colgando: una sección cuyos
+    // renglones se escondieron todos es un título sobre la nada, y dos blancos
+    // seguidos son un agujero en el medio del reporte.
+    return visibles.filter((f, i) => {
+      if (f.tipo === "sec") {
+        const sigue = visibles.slice(i + 1).find(x => x.tipo !== "esp");
+        return !!sigue && sigue.tipo !== "sec";
+      }
+      if (f.tipo === "esp") {
+        const antes = visibles[i - 1];
+        const despues = visibles.slice(i + 1).find(x => x.tipo !== "esp");
+        return !!antes && antes.tipo !== "esp" && antes.tipo !== "sec" && !!despues;
+      }
+      return true;
+    });
   }, [datos, soloDif, compacto]);
 
   /** El detalle en DOS niveles: departamento → naturaleza → cuentas.
@@ -180,7 +205,8 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
   }, [datos, compacto]);
 
   const columnas = datos?.columnas ?? [];
-  const descuadres = (datos?.cuadre ?? []).filter(f => Math.abs(f.dif) >= 0.005);
+  const descuadres = (datos?.cuadre ?? [])
+    .filter(f => f.dif !== null && Math.abs(f.dif) >= 0.005);
 
   return (
     <div>
@@ -270,11 +296,43 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
             <th style={{ ...TH, minWidth: 110 }}>Dif.</th>
           </tr></thead>
           <tbody>
-            {cuadre.map(f => {
-              const mal = Math.abs(f.dif) >= 0.005;
+            {cuadre.map((f, i) => {
+              // ── Un blanco, para que el cuadro respire entre bloques ──
+              if (f.tipo === "esp") {
+                return <tr key={`esp-${i}`}><td colSpan={4} style={{ height: 9 }} /></tr>;
+              }
+
+              // ── El encabezado de sección: REVENUES, Operating Expenses… ──
+              //
+              // ⚠️ Es lo que faltaba. Sin secciones, «Rooms» salía dos veces
+              // —el ingreso y el gasto— y los $36.218 y los $17.847 se leían
+              // como dos versiones del mismo número.
+              if (f.tipo === "sec") {
+                return (
+                  <tr key={`sec-${i}`}>
+                    <td colSpan={4} style={{
+                      ...TDL, paddingTop: 10, paddingBottom: 3,
+                      fontSize: 11, fontWeight: 800, letterSpacing: .7,
+                      textTransform: "uppercase", color: "var(--brand)",
+                      borderBottom: "1px solid var(--border-medium)",
+                    }}>
+                      {f.nombre}
+                    </td>
+                  </tr>
+                );
+              }
+
+              const total = f.tipo === "tot";
+              const derivado = f.tipo === "der";
+              const mal = f.dif !== null && Math.abs(f.dif) >= 0.005;
               return (
-                <tr key={f.linea + f.nombre} style={mal ? { background: "var(--bg-surface)" } : undefined}>
-                  <td style={TDL}>
+                <tr key={`${f.tipo}-${f.linea}-${i}`} style={{
+                  background: mal ? "rgba(230,168,23,0.10)"
+                    : total ? "var(--bg-surface)" : undefined,
+                  borderTop: total ? "1px solid var(--border-medium)" : undefined,
+                }}>
+                  <td style={{ ...TDL, fontWeight: total ? 800 : 400,
+                               paddingLeft: total ? 10 : 22 }}>
                     {f.nombre}
                     {/* Los códigos sólo cuando hay algo que investigar: en un
                         renglón que cuadra son ruido, y ahora son varios por
@@ -286,11 +344,24 @@ export default function Auditoria({ escenarios, inicial, mesInicial = 12, compac
                       </span>
                     )}
                   </td>
-                  <td style={TD}>{usd(f.motor)}</td>
-                  <td style={TD}>{usd(f.detalle)}</td>
+                  <td style={{ ...TD, fontWeight: total ? 800 : 400,
+                               color: (f.motor ?? 0) < 0 ? "var(--negative)" : undefined }}>
+                    {usd(f.motor ?? 0)}
+                  </td>
+                  {/* Un TOTAL es suma de otros renglones y un DERIVADO es
+                      ingreso menos gasto: ninguno se compone de asientos, así
+                      que no tienen detalle contra qué cuadrar. Poner cero ahí
+                      inventaría un descuadre — eran seis en el primer
+                      intento. */}
+                  <td style={{ ...TD, color: "var(--text-disabled)" }}
+                      title={f.detalle === null
+                        ? "No se compone de asientos: es una suma de otros renglones."
+                        : undefined}>
+                    {f.detalle === null ? "—" : usd(f.detalle)}
+                  </td>
                   <td style={{ ...TD, fontWeight: mal ? 800 : 400,
                                color: mal ? "var(--negative)" : "var(--text-disabled)" }}>
-                    {usd(f.dif)}
+                    {f.dif === null ? "" : usd(f.dif)}
                   </td>
                 </tr>
               );
