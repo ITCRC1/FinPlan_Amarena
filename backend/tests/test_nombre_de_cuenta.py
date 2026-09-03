@@ -83,8 +83,10 @@ def test_el_rotulo_NO_puede_salirse_de_su_celda():
     """
     src = (FRONT / "app/month-end/pl/page.tsx").read_text(encoding="utf-8")
     i = src.index('{k === null ? "TOTAL" : rotulo(k)}')
-    celda = src[max(0, i - 700):i]
+    # ⚠️ La ventana creció al 2026-09-03: la celda pasó a ser clicable —abre el
+    # detalle por cuenta— y el `onClick` empujó el estilo hacia arriba.
+    celda = src[max(0, i - 1100):i]
     assert "overflowWrap" in celda, (
         "la celda del rótulo volvió a no contener su texto: en una tabla fija "
         "se monta sobre los montos")
-    assert 'title={k === null ? undefined : rotulo(k)}' in celda
+    assert "title={k === null ? undefined" in celda

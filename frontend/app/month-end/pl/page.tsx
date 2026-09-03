@@ -38,6 +38,7 @@ import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import Auditoria from "./Auditoria";
+import DetalleCelda, { type Celda } from "./DetalleCelda";
 import Estadisticas from "./Estadisticas";
 import VistasVisibles from "./VistasVisibles";
 import ResumenDoceMeses, { armar as armarResumen, filasResumen }
@@ -411,6 +412,12 @@ export default function MonthEndPLPage() {
    *  donde están y con los mismos números; abajo de cada una aparece de qué
    *  está hecha. */
   const [deptEstado, setDeptEstado] = useState(false);
+
+  /** La celda que se está mirando de cerca, o `null`.
+   *
+   *  Owner, 2026-09-03: «toco la línea de Rooms Revenue y me abre el detalle,
+   *  sin ir… así voy presentando y puedo ver los detalles de una vez». */
+  const [celda, setCelda] = useState<Celda | null>(null);
   /** Los sub-tabs escondidos para quien esta mirando, y el panel que los
    *  administra. Owner, 2026-09-02: «poder quitar y poner tabs sin borrarlas,
    *  solo para dejar lo importante para el dueño».
@@ -825,6 +832,18 @@ export default function MonthEndPLPage() {
   };
 
   /** De qué clase de gasto —o de ingreso— se abre cada concepto. */
+  /** Cómo se ve un renglón que se puede abrir.
+   *
+   *  ⚠️ Subrayado punteado y no un enlace azul: en un estado de resultados el
+   *  color ya significa otra cosa —rojo es negativo— y un renglón azul se
+   *  leería como un dato distinto de los de al lado. El puntito dice «hay más
+   *  abajo» sin competir con los números. */
+  const ABRIBLE: React.CSSProperties = {
+    cursor: "pointer",
+    textDecoration: "underline dotted var(--text-disabled)",
+    textUnderlineOffset: 3,
+  };
+
   const CLASE_DE: Record<string, string> = {
     C_PAYROLL: "payroll", C_COST: "cost", C_OPEX: "opex",
     C_PROPERTY: "property",
@@ -1759,6 +1778,15 @@ export default function MonthEndPLPage() {
         </select>
       </div>
 
+      {celda && (
+        <DetalleCelda
+          celda={celda}
+          scenarioIds={usadas.map(u => u.id)}
+          mes={mes}
+          horizonte={horizonte}
+          onCerrar={() => setCelda(null)} />
+      )}
+
       {panelVistas && (
         <VistasVisibles
           vistas={VISTAS.map(v => v.key)}
@@ -2372,7 +2400,21 @@ export default function MonthEndPLPage() {
                     background: f.fuerte ? "var(--bg-elevated)" : undefined,
                     borderTop: f.borde ? BL : undefined,
                   }}>
-                    <td style={{ ...TDL, fontWeight: f.fuerte ? 700 : 500 }}>{f.label}</td>
+                    {/* El renglón del concepto abre TODA su clase; su
+                        sub-fila abre un departamento. Los renglones que no
+                        tienen detalle por cuenta —los totales y los
+                        derivados— no se pueden abrir, y por eso no llevan el
+                        subrayado: un adorno que no hace nada al tocarlo es
+                        peor que no tenerlo. */}
+                    <td onClick={CLASE_DE[f.code]
+                          ? () => setCelda({ clase: CLASE_DE[f.code], clave: "",
+                                             titulo: f.label })
+                          : undefined}
+                        title={CLASE_DE[f.code] ? "Ver las cuentas que suman esta línea" : undefined}
+                        style={{ ...TDL, fontWeight: f.fuerte ? 700 : 500,
+                                 ...(CLASE_DE[f.code] ? ABRIBLE : {}) }}>
+                      {f.label}
+                    </td>
                     {bloques.map(bl => {
                       const a = dato(vA, gA, f.code, bl.h);
                       const b = dato(vB, gB, f.code, bl.h);
@@ -2436,8 +2478,14 @@ export default function MonthEndPLPage() {
                 ...(deptEstado ? desglose(f.code) : []).map(sub => (
                   <tr key={f.code + ":" + sub.clave}
                       style={{ background: "var(--bg-surface)" }}>
-                    <td style={{ ...TDL, paddingLeft: 26, fontSize: 11.5,
-                                 color: "var(--text-secondary)" }}>
+                    <td onClick={() => setCelda({
+                          clase: CLASE_DE[f.code] || "opex",
+                          clave: sub.clave,
+                          titulo: `${f.label} · ${sub.label}`,
+                        })}
+                        title="Ver las cuentas que suman este departamento"
+                        style={{ ...TDL, paddingLeft: 26, fontSize: 11.5,
+                                 color: "var(--text-secondary)", ...ABRIBLE }}>
                       {sub.label}
                     </td>
                     {bloques.map(bl => {
@@ -2987,10 +3035,14 @@ export default function MonthEndPLPage() {
                   nombre de cuenta a medias obliga a pasar el mouse por encima
                   para leerlo, y esto es un reporte que se imprime. La fila
                   crece un renglón y no se pierde nada. */}
-              <td title={k === null ? undefined : rotulo(k)}
+              <td onClick={k === null ? undefined
+                    : () => setCelda({ clase, clave: k, titulo: rotulo(k) })}
+                  title={k === null ? undefined
+                    : `${rotulo(k)} — ver las cuentas que lo suman`}
                   style={{ ...TDL, fontWeight: k === null ? 700 : 500,
                            whiteSpace: "normal", overflowWrap: "anywhere",
-                           lineHeight: 1.35 }}>
+                           lineHeight: 1.35,
+                           ...(k === null ? {} : ABRIBLE) }}>
                 {k === null ? "TOTAL" : rotulo(k)}
               </td>
               {usadas.slice(0, trasVariacion).map(u => celda(u.i))}

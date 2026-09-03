@@ -4989,3 +4989,41 @@ export async function correrRondaGuillermo(): Promise<{
 }> {
   return api.post(`/guillermo/ronda/`, {});
 }
+
+
+// ── El detalle de UNA celda del cuadro ───────────────────────────────────────
+//
+// Owner, 2026-09-03: «toco la línea de Rooms Revenue y me abre el detalle, sin
+// ir… si abro payroll de Rooms se me despliegan los GL que suman eso, como un
+// cuadro sin salir a la otra ventana».
+export interface DetalleCeldaVersion {
+  scenario_id: string;
+  escenario: string;
+  /** «Mayor (GL)» o «Auxiliar (checkbook)». Un presupuesto no tiene mayor
+   *  cargado: su detalle —igual de profundo, y con la misma cuenta— vive en
+   *  sus auxiliares. Se dice de dónde sale en vez de mezclarlos. */
+  fuente: string;
+  /** El ingreso presupuestado de una línea que agrega VARIAS cuentas del mayor
+   *  (`ROOMS` = 4000 + 4001 + 4002) se muestra como línea, no como cuenta:
+   *  elegir una de las que agrupa sería inventar. */
+  agregado?: boolean;
+}
+export interface DetalleCeldaFila {
+  cuenta: string;
+  nombre: string;
+  /** Los doce meses, por escenario. */
+  series: Record<string, number[]>;
+}
+export interface DetalleCelda {
+  clase: string; clave: string; rotulo: string;
+  versiones: DetalleCeldaVersion[];
+  filas: DetalleCeldaFila[];
+}
+export async function getDetalleDeCelda(
+  scenarioIds: string[], clase: string, clave: string,
+): Promise<DetalleCelda> {
+  const ids = scenarioIds.filter(Boolean).join(",");
+  return api.get<DetalleCelda>(
+    `/gasto-por-clase/detalle-de-celda/?scenarios=${encodeURIComponent(ids)}`
+    + `&clase=${encodeURIComponent(clase)}&clave=${encodeURIComponent(clave)}`);
+}

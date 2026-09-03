@@ -31,6 +31,7 @@ from app.api.actuals_api import router as actuals_router
 from app.api.mapping_api import router as mapping_router
 from app.api.audit_api import router as audit_router
 from app.api.auditoria_api import router as auditoria_router
+from app.api.detalle_celda_api import router as detalle_celda_router
 from app.api.auth_api import router as auth_router
 from app.api.collab_api import router as collab_router
 from app.api.cashflow_directo_api import router as cashflow_directo_router
@@ -152,6 +153,7 @@ app.include_router(actuals_router, prefix="/api", dependencies=_guard)
 app.include_router(mapping_router, prefix="/api", dependencies=_guard)
 app.include_router(audit_router, prefix="/api", dependencies=_guard)
 app.include_router(auditoria_router, prefix="/api", dependencies=_guard)
+app.include_router(detalle_celda_router, prefix="/api", dependencies=_guard)
 app.include_router(collab_router, prefix="/api", dependencies=_guard)
 app.include_router(cashflow_directo_router, prefix="/api", dependencies=_guard)
 app.include_router(rooms_sets_router, prefix="/api", dependencies=_guard)

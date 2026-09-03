@@ -353,6 +353,13 @@ MENSAJES: dict[str, dict[str, str]] = {
     "fte.archivo_sin_bloques": {
         "es": "El archivo no trae bloques mensuales de FTE.",
         "en": "The file has no monthly FTE blocks."},
+    # El desplegable de detalle de una celda (`detalle_celda_api`).
+    "escenario.falta": {
+        "es": "Hay que decir al menos un escenario",
+        "en": "At least one scenario is required"},
+    "clase.desconocida": {
+        "es": "Clase inválida: se espera revenue, cost, payroll, opex o property",
+        "en": "Invalid class: expected revenue, cost, payroll, opex or property"},
     "mes.rango_invalido": {
         "es": "from_month/to_month tienen que estar entre 1 y 12, y from ≤ to",
         "en": "from_month/to_month must be between 1 and 12, with from ≤ to"},
