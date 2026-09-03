@@ -126,3 +126,47 @@ def test_la_ruta_tiene_su_propia_pantalla_de_error():
     assert "está guardado" in fuente, (
         "se fue el aviso de que lo guardado se guardó — es lo primero que el "
         "usuario necesita saber cuando la pantalla se cae")
+
+
+def test_el_endpoint_de_calculate_NO_manda_monthly_y_la_pantalla_lo_sabe():
+    """⚠️ El bug que dejaba la pantalla en blanco al apretar Recalcular.
+
+    `POST /allocations/{id}/calculate/` devolvía `monthly` cuando tenía su
+    propia implementación. Al pasar a delegar en `_recalc_allocations` —el mismo
+    paso del recálculo completo, para que las dos rutas protejan igual los meses
+    cerrados— la clave dejó de viajar. **La pantalla siguió leyéndola**, y de
+    ahí salía «Cannot read properties of undefined (reading 'laundry')».
+
+    El tipo la marca opcional a propósito: así el compilador obliga a preguntar
+    antes de usarla, y el mismo error no puede volver en silencio.
+    """
+    import inspect
+    from pathlib import Path
+
+    from app.api import allocation_api
+
+    fuente = inspect.getsource(allocation_api.calculate_allocations)
+    assert '"monthly"' not in fuente, (
+        "si el endpoint volvió a mandar `monthly`, actualizá el tipo del "
+        "front: hoy está marcado opcional porque no viaja")
+
+    raiz = Path(__file__).resolve().parents[2] / "frontend"
+    api = (raiz / "lib/api.ts").read_text(encoding="utf-8")
+    assert "monthly?: {" in api, (
+        "`monthly` dejó de ser opcional: el compilador ya no obliga a "
+        "preguntar y el crash puede volver")
+
+    # Cada uso tiene que estar guardado: o con `?.`, o detrás de un `if` en la
+    # misma línea. Se mira línea por línea porque prohibir la cadena a secas
+    # daría un falso positivo justo en el uso correcto.
+    pagina = (raiz / "app/allocations/config/page.tsx").read_text(encoding="utf-8")
+    sueltos = [
+        ln.strip() for ln in pagina.splitlines()
+        if "calcResult.monthly." in ln
+        and "calcResult?.monthly" not in ln
+        and "calcResult.monthly?" not in ln
+        and "calcResult.monthly &&" not in ln
+    ]
+    assert not sueltos, (
+        "estos usos de `monthly` no están guardados y volverían a dejar la "
+        f"pantalla en blanco: {sueltos}")

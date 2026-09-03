@@ -484,7 +484,9 @@ export default function AllocationsConfigPage() {
 
       const repCaf = cuadroReparto("CAFETERIA", t("xlsSheetCafSplit"));
       if (repCaf) cuadros.push(repCaf);
-      if (calcResult) cuadros.push(cuadroMensual(calcResult.monthly.cafeteria,
+      // El desglose mes a mes solo viaja si el endpoint lo manda; hoy no lo
+      // hace. Lo que el reparto hizo de verdad esta en los cuadros de arriba.
+      if (calcResult?.monthly) cuadros.push(cuadroMensual(calcResult.monthly.cafeteria,
         `${t("xlsCalcResult")} — ${t("cafeteria")}`, t("xlsSheetCafMonthly")));
 
       // Validación: el reparto de cafetería tiene que netear $0 cada mes.
@@ -586,7 +588,7 @@ export default function AllocationsConfigPage() {
 
       const repLau = cuadroReparto("LAUNDRY", t("xlsSheetLauSplit"));
       if (repLau) cuadros.push(repLau);
-      if (calcResult) cuadros.push(cuadroMensual(calcResult.monthly.laundry,
+      if (calcResult?.monthly) cuadros.push(cuadroMensual(calcResult.monthly.laundry,
         `${t("xlsCalcResult")} — ${t("laundry")}`, t("xlsSheetLauMonthly")));
 
       if (breakdown?.total_cost?.some(v => Math.abs(v) > 0.5)) {
@@ -1426,7 +1428,8 @@ export default function AllocationsConfigPage() {
               })}
             </div>
           )}
-          {calcResult.total_entries > 0 && calcResult.monthly.laundry.every(m => m.rows === 0) && (
+          {calcResult.total_entries > 0
+            && calcResult.monthly?.laundry?.every(m => m.rows === 0) && (
             <div style={{
               marginBottom: 16, padding: "10px 14px", borderRadius: 4, fontSize: 12,
               background: "rgba(255,193,7,0.08)", color: "var(--warning, #FFC107)",
@@ -1438,9 +1441,23 @@ export default function AllocationsConfigPage() {
               })}
             </div>
           )}
+          {/* ⚠️ El desglose mes a mes SOLO se dibuja si el endpoint lo mando.
+              `POST /calculate/` dejo de mandarlo cuando paso a delegar en
+              `_recalc_allocations`, y la pantalla lo seguia leyendo: de ahi
+              salia el «Cannot read properties of undefined (reading
+              'laundry')» que dejaba la pantalla en blanco al recalcular.
+              Sin el, lo que el reparto hizo se lee igual en los cuadros de
+              validacion de mas abajo, que salen de `/summary/`. */}
+          {!calcResult.monthly && calcResult.total_entries > 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-secondary)",
+                          marginBottom: 14 }}>
+              Se generaron <b>{calcResult.total_entries}</b> asientos de reparto.
+              El detalle está en los cuadros de validación de abajo.
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, maxWidth: 620 }}>
             {/* Cafetería monthly */}
-            {tab === "cafeteria" && (
+            {calcResult.monthly && tab === "cafeteria" && (
             <div style={{ background: "var(--bg-surface)", borderRadius: 6, padding: 14 }}>
               <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
                 {t("cafeteria")}
@@ -1454,7 +1471,7 @@ export default function AllocationsConfigPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {calcResult.monthly.cafeteria.map(m => (
+                  {(calcResult.monthly?.cafeteria ?? []).map(m => (
                     <tr key={m.month}>
                       <td>{MONTHS[m.month - 1]}</td>
                       <td className="mono" style={{ textAlign: "right" }}>
@@ -1472,7 +1489,7 @@ export default function AllocationsConfigPage() {
             )}
 
             {/* Lavandería monthly */}
-            {tab === "laundry" && (
+            {calcResult.monthly && tab === "laundry" && (
             <div style={{ background: "var(--bg-surface)", borderRadius: 6, padding: 14 }}>
               <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
                 {t("laundry")}
@@ -1486,7 +1503,7 @@ export default function AllocationsConfigPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {calcResult.monthly.laundry.map(m => (
+                  {(calcResult.monthly?.laundry ?? []).map(m => (
                     <tr key={m.month}>
                       <td>{MONTHS[m.month - 1]}</td>
                       <td className="mono" style={{ textAlign: "right" }}>

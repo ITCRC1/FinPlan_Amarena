@@ -2213,7 +2213,22 @@ export interface AllocationSummary {
 export interface CalculateResult {
   ok: boolean;
   total_entries: number;
-  monthly: {
+  /** Avisos del recálculo — meses cerrados que no se tocaron, y demás. */
+  avisos?: string[];
+  /**
+   * El desglose mes a mes.
+   *
+   * ⚠️ **OPCIONAL, y no es un descuido.** `POST /allocations/{id}/calculate/`
+   * dejó de mandarlo cuando pasó a delegar en `_recalc_allocations` —el mismo
+   * paso del recálculo completo—, y la pantalla lo seguía leyendo: de ahí salía
+   * el «Cannot read properties of undefined (reading 'laundry')» que dejaba la
+   * pantalla en blanco al apretar Recalcular.
+   *
+   * Se marca opcional para que el compilador OBLIGUE a preguntar antes de
+   * usarlo. Lo que el reparto realmente hizo se lee en `/summary/` y
+   * `/laundry-breakdown/`, que la pantalla vuelve a pedir enseguida.
+   */
+  monthly?: {
     cafeteria: { month: number; total_cost: number; rows: number; nets_zero: boolean }[];
     laundry: {
       month: number; total_cost: number; rows: number; nets_zero: boolean;
