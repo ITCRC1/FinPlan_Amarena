@@ -80,10 +80,14 @@ def test_TODO_lo_que_resuelve_el_importador_lo_conoce_el_motor():
 def test_la_lista_de_TRES_digitos_no_se_escribe_a_mano():
     """Se deriva de la tabla del módulo y de la del motor.
 
-    ⚠️ Hacen falta las DOS. El 280 no está en `_DEPT_TO_GROUP` —el motor lo
-    manda a `OTHER_OVERHEAD` a propósito, que es lo que Misceláneos es—, así que
-    mirando sólo al motor se lo rellenaría a `0280`, que no existe. Y la tabla
-    de palabras sólo cubre lo que tiene palabra clave.
+    ⚠️ Hacen falta las DOS, y el 280 explica por qué. Misceláneos no está en
+    `_DEPT_TO_GROUP` porque es un departamento de PURO INGRESO: sus diez reglas
+    de mapeo son las diez `Revenue`, y esa tabla dice dónde cae el GASTO. Un
+    departamento sin gasto no aparece ahí.
+
+    Mirando sólo al motor se lo rellenaría a `0280` —que no existe— y su
+    ingreso se perdería. Y la tabla de palabras sólo cubre lo que tiene palabra
+    clave.
     """
     assert _tres_digitos_reales() == frozenset({"260", "270", "280"})
     # Y que salga de las dos tablas y no de literales en la función.

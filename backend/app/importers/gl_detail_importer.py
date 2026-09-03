@@ -185,10 +185,22 @@ def _tres_digitos_reales() -> frozenset[str]:
     #   son de tres: Club (260), Área Recreativa (270) y Misceláneos (280).
     # * `_DEPT_TO_GROUP` es la del motor.
     #
-    # ⚠️ Ninguna alcanza sola. El 280 NO está en `_DEPT_TO_GROUP` —el motor lo
-    # manda a `OTHER_OVERHEAD` a propósito, que es lo que Misceláneos es— así
-    # que mirando sólo al motor se lo rellenaría a `0280`, un departamento que
-    # no existe. Y `_POR_PALABRA` sólo cubre lo que tiene palabra clave.
+    # ⚠️ Ninguna alcanza sola, y el 280 explica por qué.
+    #
+    # Misceláneos NO está en `_DEPT_TO_GROUP` porque es un departamento de PURO
+    # INGRESO: sus diez reglas de `account_mapping` son las diez de tipo
+    # `Revenue` (48xx → `REV_MISC_OTHER`, y la 4880 → `REV_SUSTAINABILITY`), y
+    # no tiene una sola regla de gasto. `_DEPT_TO_GROUP` dice en qué grupo cae
+    # el GASTO de un departamento, así que un departamento sin gasto no aparece
+    # ahí — no es un olvido ni una clasificación.
+    #
+    # (Que `group_for_dept("280")` devuelva `OTHER_OVERHEAD` es el valor por
+    # descarte de esa tabla, y NUNCA se usa: el ingreso se atribuye por CUENTA,
+    # no por departamento.)
+    #
+    # O sea que mirando sólo al motor se lo rellenaría a `0280`, un
+    # departamento que no existe, y su ingreso se perdería. Y `_POR_PALABRA`
+    # sola tampoco alcanza: sólo cubre lo que tiene palabra clave.
     return (frozenset(c for _kw, c in _POR_PALABRA if len(c) == 3)
             | frozenset(d for d in _DEPT_TO_GROUP if len(d) == 3))
 
