@@ -48,7 +48,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Emu, Pt, RGBColor
 
 DOCX = ("application/vnd.openxmlformats-officedocument"
         ".wordprocessingml.document")
@@ -102,6 +102,96 @@ def _sombra(celda, hex_color: str) -> None:
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:fill"), hex_color)
     tc.append(shd)
+
+
+
+def _vaciar(celda):
+    """Deja la celda con UN párrafo y sin runs, y lo devuelve.
+
+    ⚠️ `celda.text = ""` no vacía: deja un run vacío que hereda el estilo
+    Normal —10 pt—, y ese run invisible fija la altura de la fila. Con letra de
+    7,5 pt eso son casi tres milímetros de aire por fila que nadie pidió, y en
+    un cuadro de sesenta filas se nota. Owner, 2026-09-03: «los cuadros deben
+    ser más pequeños».
+    """
+    p = celda.paragraphs[0]
+    for r in list(p.runs):
+        r._r.getparent().remove(r._r)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    return p
+
+
+def _sin_rejilla(tabla) -> None:
+    """Le quita TODOS los bordes a la tabla.
+
+    ⚠️ La versión anterior usaba el estilo `Table Grid`, que dibuja una caja
+    negra alrededor de cada celda. Owner, 2026-09-03: *«los cuadros deben ser
+    más pequeños, y que se vean más estéticos y profesional»*.
+
+    Un estado financiero impreso NO lleva rejilla: lleva **reglas
+    horizontales** —una bajo el encabezado, una sobre cada total— y ninguna
+    vertical. La rejilla completa hace que cada celda pese lo mismo, que es lo
+    contrario de lo que un estado necesita: ahí el ojo tiene que caer en los
+    totales.
+    """
+    tbl_pr = tabla._tbl.tblPr
+    borders = OxmlElement("w:tblBorders")
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{lado}")
+        el.set(qn("w:val"), "none")
+        el.set(qn("w:sz"), "0")
+        borders.append(el)
+    tbl_pr.append(borders)
+
+
+def _regla(celda, lado: str, grosor: int, color: str) -> None:
+    """Una regla horizontal en una celda. `grosor` va en octavos de punto."""
+    tc_pr = celda._tc.get_or_add_tcPr()
+    borders = tc_pr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tc_pr.append(borders)
+    el = OxmlElement(f"w:{lado}")
+    el.set(qn("w:val"), "single")
+    el.set(qn("w:sz"), str(grosor))
+    el.set(qn("w:color"), color)
+    borders.append(el)
+
+
+def _apretar(tabla, arriba: int = 14, abajo: int = 14,
+             izq: int = 60, der: int = 60) -> None:
+    """Márgenes internos de celda, en vigésimos de punto (twips).
+
+    Word deja 108 twips a cada lado por defecto —más de medio centímetro por
+    columna—, y con ocho columnas eso solo son casi cinco centímetros de aire.
+    Apretarlos es lo que de verdad achica el cuadro; bajar la letra sin esto
+    solo lo hace ilegible.
+    """
+    tbl_pr = tabla._tbl.tblPr
+    mar = OxmlElement("w:tblCellMar")
+    for lado, val in (("top", arriba), ("bottom", abajo),
+                      ("left", izq), ("right", der)):
+        el = OxmlElement(f"w:{lado}")
+        el.set(qn("w:w"), str(val))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
+    tbl_pr.append(mar)
+
+
+def _anchos(tabla, columnas, ancho_total) -> None:
+    """Reparte el ancho de la página segun el `ancho` que declara cada columna.
+
+    ⚠️ Antes la tabla iba con `autofit`, y Word repartía por el CONTENIDO: una
+    columna con «TOTAL RENT AND MANAGEMENT FEES» se comía el espacio de los
+    números. Los `ancho` ya viajaban en el payload y no los miraba nadie.
+    """
+    pesos = [max(1, int(c.get("ancho") or 12)) for c in columnas]
+    total = sum(pesos)
+    tabla.autofit = False
+    for fila in tabla.rows:
+        for i, celda in enumerate(fila.cells):
+            celda.width = Emu(int(ancho_total * pesos[i] / total))
 
 
 def _borde_caja(tabla) -> None:
@@ -213,24 +303,25 @@ def _tabla(doc, cuadro: dict) -> None:
         return
 
     tabla = doc.add_table(rows=1, cols=len(columnas))
-    tabla.style = "Table Grid"
     tabla.alignment = WD_TABLE_ALIGNMENT.CENTER
-    tabla.autofit = True
+    _sin_rejilla(tabla)
+    _apretar(tabla)
 
     # ── Encabezado ────────────────────────────────────────────────────────────
     encabezado = tabla.rows[0]
     encabezado.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
     for i, col in enumerate(columnas):
         celda = encabezado.cells[i]
-        celda.text = ""
-        p = celda.paragraphs[0]
+        p = _vaciar(celda)
         p.alignment = (WD_ALIGN_PARAGRAPH.LEFT if i == 0
                        else WD_ALIGN_PARAGRAPH.RIGHT)
         r = p.add_run(str(col.get("label") or ""))
-        r.font.size = Pt(8)
+        r.font.size = Pt(7.5)
         r.font.bold = True
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
         _sombra(celda, "1B3A5C")
+        # La banda del encabezado ya separa; la regla la cierra por abajo.
+        _regla(celda, "bottom", 8, "1B3A5C")
     # Que el encabezado se repita si la tabla parte de página.
     trPr = encabezado._tr.get_or_add_trPr()
     th = OxmlElement("w:tblHeader"); th.set(qn("w:val"), "true")
@@ -244,10 +335,9 @@ def _tabla(doc, cuadro: dict) -> None:
         nivel = int(fila.get("nivel") or 0)
 
         c0 = celdas[0]
-        c0.text = ""
-        p0 = c0.paragraphs[0]
+        p0 = _vaciar(c0)
         r0 = p0.add_run("    " * nivel + str(fila.get("label") or ""))
-        r0.font.size = Pt(8.5)
+        r0.font.size = Pt(7.5)
         r0.font.bold = es_total
         r0.font.color.rgb = NEGRO
 
@@ -256,19 +346,31 @@ def _tabla(doc, cuadro: dict) -> None:
             v = valores[i - 1] if i - 1 < len(valores) else None
             formato = formato_fila or (columnas[i].get("formato") or "usd")
             celda = celdas[i]
-            celda.text = ""
-            p = celda.paragraphs[0]
+            p = _vaciar(celda)
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             r = p.add_run(_texto(v, formato))
-            r.font.size = Pt(8.5)
+            r.font.size = Pt(7.5)
             r.font.bold = es_total
             r.font.color.rgb = ROJO if _negativo(v) else NEGRO
 
-        # Filas alternadas y totales resaltados: se lee sin seguir con el dedo.
-        relleno = "EDF1F5" if es_total else ("F7F8FA" if n % 2 else None)
-        if relleno:
+        # ── Cómo se separa una fila de la siguiente ───────────────────────
+        #
+        # Un TOTAL lleva regla arriba —la convención del estado impreso: la
+        # línea dice «acá se cierra algo»— y fondo suave. Las demás no llevan
+        # nada: la cebra sola alcanza, y una regla bajo cada fila devuelve la
+        # rejilla que se acaba de sacar.
+        if es_total:
             for celda in celdas:
-                _sombra(celda, relleno)
+                _sombra(celda, "E8EDF2")
+                _regla(celda, "top", 8, "1B3A5C")
+        elif n % 2:
+            for celda in celdas:
+                _sombra(celda, "F7F8FA")
+
+    # El ancho, al final: hay que repartirlo sobre las filas ya creadas.
+    seccion = doc.sections[-1]
+    _anchos(tabla, columnas,
+            seccion.page_width - seccion.left_margin - seccion.right_margin)
 
 
 def _comentarios(doc) -> None:

@@ -1546,17 +1546,52 @@ export default function MonthEndPLPage() {
    * Y el ORDEN es el de `VISTAS`, la misma lista que la fila de botones: el
    * documento se lee en el mismo orden en que se miró la pantalla.
    */
+  /** ¿Este cuadro tiene algún número? */
+  function tieneDatos(c: Cuadro): boolean {
+    return c.filas.some(f => f.valores.some(
+      v => typeof v === "number" && Math.abs(v) >= 0.005));
+  }
+
   async function bajarWord() {
+    // ⚠️ **Primero, que la pantalla haya cargado.**
+    //
+    // Owner, 2026-09-03, mirando el documento: «hay cuadros que no tienen
+    // datos». En ese Word faltaban el P&L Statement y el P&L, y los cinco
+    // cuadros por departamento salieron con un TOTAL de 0,00.
+    //
+    // La causa no es cada capítulo: es que la mitad de ellos leen el ESTADO de
+    // la pantalla (`datos`, `gastos`) y la otra mitad pide lo suyo con `await`.
+    // Generado antes de que `cargar()` termine, los que piden esperan y salen
+    // bien, y los que leen el estado salen en cero — un documento a medias que
+    // se ve completo.
+    //
+    // Y un cuadro en cero no se lee como «faltó el dato»: se lee como «el mes
+    // no tuvo movimiento», que es una afirmación.
+    if (!datos.length || !gastos.length) {
+      alert("Todavía se están cargando los datos de la pantalla. Esperá a que "
+            + "se dibujen los cuadros y volvé a bajar el Word.");
+      return;
+    }
+
     const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
     const cuadros: Cuadro[] = [];
+    const afuera: string[] = [];
     for (const clave of activos) {
       const armar = CAPITULOS[clave];
       if (!armar) continue;
+      let hechos: Cuadro[] = [];
       try {
-        cuadros.push(...await armar());
-      } catch {
+        hechos = await armar();
+      } catch (e) {
         // Un capítulo que falla no puede llevarse el documento entero: se cae
-        // ése y los demás salen igual.
+        // ése y los demás salen igual. Pero SE DICE cuál — un capítulo que
+        // desaparece en silencio es un dato que falta sin aviso.
+        afuera.push(`${t(`tab_${clave}`)} (no se pudo armar)`);
+        continue;
+      }
+      for (const c of hechos) {
+        if (tieneDatos(c)) cuadros.push(c);
+        else afuera.push(`${c.titulo} (sin datos)`);
       }
     }
 
@@ -1578,6 +1613,13 @@ export default function MonthEndPLPage() {
       a.download = `Cierre_${year}_${String(mes).padStart(2, "0")}.docx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
+      if (afuera.length) {
+        alert(
+          "El documento salió, pero estos cuadros quedaron afuera:\n\n· "
+          + afuera.join("\n· ")
+          + "\n\nUn cuadro vacío se lee como «no hubo movimiento», así que "
+          + "es mejor que no salga a que salga en cero.");
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "No se pudo generar el Word");
     }

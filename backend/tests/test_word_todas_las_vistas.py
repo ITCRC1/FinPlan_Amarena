@@ -102,4 +102,34 @@ def test_un_capitulo_que_falla_no_se_lleva_el_DOCUMENTO():
     cierre entero por un cuadro."""
     src = _fuente()
     cuerpo = src[src.index("for (const clave of activos)"):]
-    assert "} catch {" in cuerpo[:400]
+    assert "} catch (e) {" in cuerpo[:600]
+    # ⚠️ Y SE DICE cuál se cayó. Un capítulo que desaparece en silencio es un
+    # dato que falta sin aviso — que es cómo el owner terminó con un documento
+    # sin el P&L Statement y sin saberlo.
+    assert "afuera.push" in cuerpo[:900]
+
+
+def test_un_cuadro_SIN_DATOS_no_entra_al_documento():
+    """Owner, 2026-09-03: «hay cuadros que no tienen datos».
+
+    ⚠️ Un cuadro en cero no se lee como «faltó el dato»: se lee como «el mes no
+    tuvo movimiento», que es una afirmación. En el Word de julio los cinco
+    cuadros por departamento salieron con un TOTAL de 0,00.
+    """
+    src = _fuente()
+    assert "function tieneDatos(c: Cuadro): boolean" in src
+    cuerpo = src[src.index("for (const clave of activos)"):]
+    assert "if (tieneDatos(c)) cuadros.push(c);" in cuerpo
+
+
+def test_el_Word_no_se_baja_con_la_pantalla_A_MEDIO_CARGAR():
+    """La causa de fondo de aquel documento a medias.
+
+    ⚠️ La mitad de los capítulos leen el ESTADO de la pantalla (`datos`,
+    `gastos`) y la otra mitad pide lo suyo con `await`. Generado antes de que
+    termine la carga, los que piden esperan y salen bien, y los que leen el
+    estado salen en cero: un documento incompleto que se ve completo.
+    """
+    src = _fuente()
+    cuerpo = src[src.index("async function bajarWord()"):]
+    assert "if (!datos.length || !gastos.length)" in cuerpo[:1500]
