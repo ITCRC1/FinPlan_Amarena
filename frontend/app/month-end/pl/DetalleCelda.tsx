@@ -31,7 +31,8 @@
  * backend: el mes es una posición y el acumulado la suma hasta ahí. No son dos
  * consultas, así que no pueden diferir entre sí.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
+         useState } from "react";
 
 import { getDetalleDeCelda, type DetalleCelda as Datos } from "@/lib/api";
 
@@ -54,6 +55,14 @@ export interface Celda {
   /** Departamento, cuenta o línea. Vacío = la clase entera. */
   clave: string;
   titulo: string;
+  /** Dónde se tocó, en coordenadas de la ventana.
+   *
+   *  ⚠️ La ventana abre AHÍ y no arriba de todo. Owner, 2026-09-03: «se queda
+   *  arriba… si estás muy abajo debés ir hasta arriba a buscarlo; debe salir
+   *  muy cercano de donde está la fuente». Un cuadro de sesenta filas se
+   *  recorre hasta el final, y una ventana que aparece fuera de la vista se
+   *  lee como que no pasó nada. */
+  origen?: { x: number; y: number };
 }
 
 export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCerrar }: {
@@ -92,7 +101,8 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
    * corte si el cursor sale del encabezado — sin eso, mover rápido la suelta a
    * mitad de camino.
    */
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(
+    celda.origen ? { x: celda.origen.x + 14, y: celda.origen.y + 16 } : null);
   const panel = useRef<HTMLDivElement | null>(null);
   const agarre = useRef<{ dx: number; dy: number } | null>(null);
 
@@ -115,6 +125,35 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
     setPos({ x, y });
   };
   const alSoltar = () => { agarre.current = null; };
+
+  /** Que entre en la pantalla, ya dibujada.
+   *
+   *  ⚠️ Abrir junto al clic no alcanza: si se tocó una línea del final, la
+   *  ventana nace medio metro por debajo del borde y no se ve. El alto real no
+   *  se sabe hasta que está dibujada, así que se mide y se sube — en un efecto
+   *  DE DISEÑO (`useLayoutEffect`), que corre antes de pintar: con
+   *  `useEffect` se vería el salto.
+   *
+   *  Corre una sola vez, al abrir. Después manda el usuario: reacomodarla
+   *  cuando ya la movió a mano sería quitársela de donde la puso. */
+  const acomodada = useRef(false);
+  useLayoutEffect(() => {
+    if (acomodada.current || !celda.origen) return;
+    const caja = panel.current?.getBoundingClientRect();
+    if (!caja || !caja.height) return;
+    acomodada.current = true;
+    const margen = 12;
+    let { x, y } = { x: celda.origen.x + 14, y: celda.origen.y + 16 };
+    if (y + caja.height > window.innerHeight - margen) {
+      // No entra abajo: se prueba ARRIBA del punto tocado, que deja el número
+      // a la vista; y si tampoco entra, se pega al borde de arriba.
+      y = Math.max(margen, celda.origen.y - caja.height - 10);
+    }
+    if (x + caja.width > window.innerWidth - margen) {
+      x = Math.max(margen, window.innerWidth - caja.width - margen);
+    }
+    setPos({ x, y });
+  }, [celda.origen, datos]);
 
   /** Los dos cortes, sobre la misma serie de doce meses.
    *

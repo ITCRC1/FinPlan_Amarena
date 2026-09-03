@@ -2406,8 +2406,9 @@ export default function MonthEndPLPage() {
                         subrayado: un adorno que no hace nada al tocarlo es
                         peor que no tenerlo. */}
                     <td onClick={CLASE_DE[f.code]
-                          ? () => setCelda({ clase: CLASE_DE[f.code], clave: "",
-                                             titulo: f.label })
+                          ? e => setCelda({ clase: CLASE_DE[f.code], clave: "",
+                                            titulo: f.label,
+                                            origen: { x: e.clientX, y: e.clientY } })
                           : undefined}
                         className={CLASE_DE[f.code] ? ABRIBLE : undefined}
                         title={CLASE_DE[f.code] ? "Ver las cuentas que suman esta línea" : undefined}
@@ -2477,10 +2478,11 @@ export default function MonthEndPLPage() {
                 ...(deptEstado ? desglose(f.code) : []).map(sub => (
                   <tr key={f.code + ":" + sub.clave}
                       style={{ background: "var(--bg-surface)" }}>
-                    <td onClick={() => setCelda({
+                    <td onClick={e => setCelda({
                           clase: CLASE_DE[f.code] || "opex",
                           clave: sub.clave,
                           titulo: `${f.label} · ${sub.label}`,
+                          origen: { x: e.clientX, y: e.clientY },
                         })}
                         className={ABRIBLE}
                         title="Ver las cuentas que suman este departamento"
@@ -3036,7 +3038,8 @@ export default function MonthEndPLPage() {
                   para leerlo, y esto es un reporte que se imprime. La fila
                   crece un renglón y no se pierde nada. */}
               <td onClick={k === null ? undefined
-                    : () => setCelda({ clase, clave: k, titulo: rotulo(k) })}
+                    : e => setCelda({ clase, clave: k, titulo: rotulo(k),
+                                      origen: { x: e.clientX, y: e.clientY } })}
                   className={k === null ? undefined : ABRIBLE}
                   title={k === null ? undefined
                     : `${rotulo(k)} — ver las cuentas que lo suman`}

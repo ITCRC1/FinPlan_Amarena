@@ -175,3 +175,42 @@ def test_el_total_del_desplegable_se_dibuja():
     está explicando otra cosa — y sin el renglón no hay forma de notarlo."""
     pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
     assert ">TOTAL<" in pantalla.replace("\n", "").replace(" ", "")
+
+
+def test_la_ventana_ABRE_JUNTO_a_la_linea_que_se_toco():
+    """Owner, 2026-09-03: «se queda arriba… si estás muy abajo debés ir hasta
+    arriba a buscarlo; creo que debe salir muy cercano de donde está la
+    fuente».
+
+    ⚠️ Un cuadro de sesenta filas se recorre hasta el final, y una ventana que
+    aparece fuera de la vista se lee como que **no pasó nada** — no como que se
+    abrió en otro lado.
+    """
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert pagina.count("origen: { x: e.clientX, y: e.clientY }") >= 3, (
+        "algún punto de entrada dejó de mandar dónde se tocó, y esa ventana "
+        "vuelve a abrir arriba de todo")
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "celda.origen ? { x: celda.origen.x + 14" in pantalla
+
+
+def test_y_si_no_entra_abajo_se_ACOMODA_sola():
+    """Abrir junto al clic no alcanza: tocando una línea del final, la ventana
+    nace por debajo del borde. El alto real no se sabe hasta que está dibujada,
+    así que se mide y se sube.
+
+    ⚠️ En `useLayoutEffect` y no en `useEffect`: el de diseño corre ANTES de
+    pintar, así que no se ve el salto.
+    """
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "useLayoutEffect" in pantalla
+    assert "y + caja.height > window.innerHeight - margen" in pantalla
+    assert "x + caja.width > window.innerWidth - margen" in pantalla
+
+
+def test_acomodarla_NO_le_gana_al_usuario():
+    """Reacomodarla cuando ya la movió a mano sería quitársela de donde la
+    puso. Corre una sola vez, al abrir."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "const acomodada = useRef(false);" in pantalla
+    assert "if (acomodada.current" in pantalla
