@@ -176,6 +176,14 @@ export const NAV: NavGroup[] = [
       // reporte», despues de que la primera vuelta fuera solo una segunda
       // entrada al mismo archivo). El original se queda en Reportes.
       { key: "monthEndDetailFull", href: "/month-end/pl-detail?ambito=consolidado" },
+      // Los checkbooks, SÓLO PARA CONSULTAR. Owner, 2026-09-03: «favor mueve
+      // el checkbook afuera, donde está Full P&L Ejecutivo».
+      //
+      // ⚠️ Va en el MENÚ y no en un sub-tab del cierre: el que no tiene acceso
+      // a Planning viene justamente a mirar un checkbook, y un sub-tab lo
+      // obliga a entrar al cierre, elegir versiones y saber que está ahí
+      // adentro.
+      { key: "monthEndCheckbooks", href: "/month-end/checkbooks" },
     ],
   },
   {

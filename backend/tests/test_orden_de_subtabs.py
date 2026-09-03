@@ -40,9 +40,6 @@ def test_no_se_perdio_ningun_sub_tab_al_reordenar():
         "pl", "revenue", "payroll", "cost", "opex", "property", "consulta",
         "flow", "simple", "summary", "estado", "revdet", "fb", "doce",
         "formato", "auditoria", "resumen12",
-        # Los cuatro checkbooks, para CONSULTAR sin entrar a Planning
-        # (owner, 2026-09-03).
-        "checkbooks",
     }
     assert set(claves) == esperados, (
         f"faltan {esperados - set(claves)}; sobran {set(claves) - esperados}")

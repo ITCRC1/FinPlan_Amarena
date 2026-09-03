@@ -63,27 +63,44 @@ def test_avisa_que_el_gasto_de_propiedad_NO_va_por_departamento():
     assert 'clase === "property" && dept' in src
 
 
-def test_el_sub_tab_esta_registrado_y_tiene_ROTULO():
+def test_esta_en_el_MENU_y_no_en_un_sub_tab():
+    """Owner, 2026-09-03, después de verlo dentro de Cierre de Mes: «favor mueve
+    el checkbook afuera, donde está Full P&L Ejecutivo».
+
+    ⚠️ No es sólo dónde se hace clic. El que no tiene acceso a Planning viene
+    JUSTAMENTE a mirar un checkbook; un sub-tab lo obliga a entrar al cierre,
+    elegir versiones y saber que está ahí adentro.
+    """
     import json
+    nav = (FRONT / "components/TopNav.tsx").read_text(encoding="utf-8")
+    assert '{ key: "monthEndCheckbooks", href: "/month-end/checkbooks" }' in nav
+    # Y junto a Full P&L Ejecutivo, en el menú de Cierre de Mes.
+    grupo = nav[nav.index('key: "monthEnd",'):nav.index('key: "operationInsight"')]
+    assert "plFullExec" in grupo and "monthEndCheckbooks" in grupo
+    # Ya NO es un sub-tab.
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    assert '{ key: "checkbooks" }' in pagina
-    assert 'vista === "checkbooks"' in pagina
+    assert '{ key: "checkbooks" }' not in pagina
     for idioma in ("es", "en"):
-        textos = json.loads((FRONT / f"messages/{idioma}.json").read_text(encoding="utf-8"))
-        assert '"tab_checkbooks"' in json.dumps(textos), (
-            f"sin rótulo en {idioma}: el sub-tab saldría como «tab_checkbooks»")
+        textos = json.dumps(json.loads(
+            (FRONT / f"messages/{idioma}.json").read_text(encoding="utf-8")))
+        assert '"monthEndCheckbooks"' in textos, f"sin rótulo en {idioma}"
 
 
-def test_baja_en_el_WORD_y_el_EXCEL_con_TODOS_los_departamentos():
-    """⚠️ En el documento van los cuatro libros completos, no la selección que
-    estaba puesta en la pantalla. Un reporte que sale distinto según el filtro
-    del momento no se puede archivar: dos copias del mismo mes dirían cosas
-    distintas."""
-    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    cuerpo = pagina[pagina.index("    checkbooks: async () => {"):]
-    cuerpo = cuerpo[:cuerpo.index("    revenue: async ()")]
-    assert 'getDetalleDeCelda(ids, clase, "")' in cuerpo
-    assert cuerpo.count("[") > 0 and '"payroll", "Salarios"' in cuerpo
+def test_la_pantalla_nueva_REUSA_el_componente():
+    """Una segunda versión de la misma tabla es cómo terminan mostrando números
+    distintos."""
+    pag = (FRONT / "app/month-end/checkbooks/page.tsx").read_text(encoding="utf-8")
+    assert 'import Checkbooks from "@/app/month-end/pl/Checkbooks"' in pag
+
+
+def test_su_EXCEL_baja_los_cuatro_libros_completos():
+    """⚠️ Los cuatro y con TODOS los departamentos, no lo que esté filtrado en
+    pantalla: un archivo que sale distinto según el filtro del momento no se
+    puede archivar."""
+    pag = (FRONT / "app/month-end/checkbooks/page.tsx").read_text(encoding="utf-8")
+    assert 'getDetalleDeCelda([scenarioId], clase, "")' in pag
+    for clase in ("opex", "payroll", "cost", "property"):
+        assert f'"{clase}"' in pag
 
 
 def test_los_cuatro_libros_son_SUB_TABS_de_segundo_nivel():

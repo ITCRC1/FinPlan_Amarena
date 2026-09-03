@@ -39,7 +39,6 @@ import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import Auditoria from "./Auditoria";
-import Checkbooks from "./Checkbooks";
 import DetalleCelda, { type Celda } from "./DetalleCelda";
 import Estadisticas from "./Estadisticas";
 import VistasVisibles from "./VistasVisibles";
@@ -81,9 +80,6 @@ const VISTAS = [
   { key: "cost" },
   { key: "opex" },
   { key: "property" },
-  // Los cuatro checkbooks, para CONSULTAR. Owner, 2026-09-03: «algunos
-  // usuarios no van a tener acceso a Planning por obvias razones».
-  { key: "checkbooks" },
   { key: "formato" },     // el cuadro tal cual el Excel del cierre
   // Lo que se abre cuando hace falta mirar más abajo.
   { key: "consulta" },
@@ -1678,41 +1674,6 @@ export default function MonthEndPLPage() {
       // lo que corresponde para esto.
       return [];
     },
-    checkbooks: async () => {
-      // ⚠️ En el documento van los CUATRO libros completos —todos los
-      // departamentos—, no la selección de la pantalla. Un reporte que sale
-      // distinto según el filtro que estaba puesto cuando alguien lo bajó no se
-      // puede archivar: dos copias del mismo mes dirían cosas distintas.
-      const ids = usadas.map(u => u.id);
-      if (!ids.length) return [];
-      const LIBROS = [["opex", "Opex"], ["payroll", "Salarios"],
-                      ["cost", "Costo de ventas"],
-                      ["property", "Gastos de propiedad"]] as const;
-      const out: Cuadro[] = [];
-      for (const [clase, rotulo] of LIBROS) {
-        const d = await getDetalleDeCelda(ids, clase, "");
-        const vivas = d.filas.filter(f => d.versiones.some(
-          v => (f.series[v.scenario_id] ?? []).some(n => Math.abs(n) >= 0.005)));
-        if (!vivas.length) continue;
-        out.push({
-          titulo: `Checkbook · ${rotulo}`,
-          subtitulo: `${year} · todos los departamentos · USD`,
-          hoja: `Checkbook ${rotulo}`.slice(0, 31),
-          columnas: [
-            { label: "Cuenta", ancho: 10, formato: "texto" as const },
-            { label: "Nombre", ancho: 34, formato: "texto" as const },
-            ...ids.map(id => ({ label: etiqueta(id), ancho: 18,
-                                formato: "usd2" as const })),
-          ],
-          filas: vivas.map(f => ({
-            label: f.cuenta, es_total: false,
-            valores: [f.nombre, ...ids.map(id =>
-              (f.series[id] ?? []).reduce((a, n) => a + n, 0))],
-          })),
-        });
-      }
-      return out;
-    },
     revenue: async () => [cuadroClase("revenue")],
     payroll: async () => [cuadroClase("payroll")],
     cost: async () => [cuadroClase("cost")],
@@ -3264,13 +3225,6 @@ export default function MonthEndPLPage() {
       {vista === "formato" && (
         <Formato escenarios={escenarios} inicial={ranuras[0] || undefined}
                  compacto={compacto} />
-      )}
-
-      {vista === "checkbooks" && (
-        <Checkbooks
-          escenarios={escenarios}
-          scenarioIds={usadas.map(u => u.id)}
-          deptos={deptos} />
       )}
 
       {vista === "auditoria" && (
