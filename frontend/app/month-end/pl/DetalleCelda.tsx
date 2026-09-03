@@ -33,6 +33,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState } from "react";
+import { createPortal } from "react-dom";
 
 import { getDetalleDeCelda, type DetalleCelda as Datos } from "@/lib/api";
 
@@ -138,7 +139,10 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
    *  cuando ya la movió a mano sería quitársela de donde la puso. */
   const acomodada = useRef(false);
   useLayoutEffect(() => {
-    if (acomodada.current || !celda.origen) return;
+    // ⚠️ Sólo cuando el cuadro ya está dibujado. Con «cargando…» el panel mide
+    // sesenta píxeles: medirlo ahí y darlo por acomodado deja la ventana
+    // colgando fuera de la pantalla en cuanto llegan las filas.
+    if (acomodada.current || !celda.origen || !datos) return;
     const caja = panel.current?.getBoundingClientRect();
     if (!caja || !caja.height) return;
     acomodada.current = true;
@@ -191,7 +195,28 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
     ? { position: "fixed", left: pos.x, top: pos.y }
     : { position: "fixed", left: "50%", top: 90, transform: "translateX(-50%)" };
 
-  return (
+  /* ⚠️ **Un portal a `document.body`, y no es adorno.**
+   *
+   * `Transicion.tsx` envuelve CADA página en `.pag-entra`, que lleva una
+   * animación sobre `transform` con `fill-mode: both`. Un ancestro con
+   * transform se vuelve el bloque contenedor de sus descendientes
+   * `position: fixed`, así que el `top` de esta ventana se medía desde el tope
+   * del contenido de la página y no desde el de la pantalla: por eso salía
+   * siempre arriba, por más que se le pasara la posición del clic
+   * (owner, 2026-09-03: «está siempre arriba»).
+   *
+   * Sacarla del árbol la vuelve inmune a eso —y a cualquier transform que se
+   * agregue mañana en cualquier ancestro—, que es lo que no se puede lograr
+   * corrigiendo la hoja de estilos: bastaría un `transform` nuevo en cualquier
+   * contenedor para que el defecto volviera sin que nada fallara.
+   *
+   * `montado` existe porque `document` no existe al dibujar en el servidor.
+   */
+  const [montado, setMontado] = useState(false);
+  useEffect(() => { setMontado(true); }, []);
+  if (!montado) return null;
+
+  return createPortal((
     <div ref={panel} style={{
       ...estilo, zIndex: 1000,
       background: "var(--bg-surface)", borderRadius: 12,
@@ -340,5 +365,5 @@ export default function DetalleCelda({ celda, scenarioIds, mes, horizonte, onCer
         )}
       </div>
     </div>
-  );
+  ), document.body);
 }

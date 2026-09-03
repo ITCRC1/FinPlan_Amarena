@@ -214,3 +214,42 @@ def test_acomodarla_NO_le_gana_al_usuario():
     pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
     assert "const acomodada = useRef(false);" in pantalla
     assert "if (acomodada.current" in pantalla
+
+
+def test_la_ventana_sale_del_arbol_con_un_PORTAL():
+    """⚠️ La razón por la que «está siempre arriba» sobrevivió a pasarle la
+    posición del clic.
+
+    `components/Transicion.tsx` envuelve CADA página en `.pag-entra`, que lleva
+    una animación sobre `transform` con `fill-mode: both`. **Un ancestro con
+    transform se vuelve el bloque contenedor de sus descendientes
+    `position: fixed`**, así que el `top` se medía desde el tope del contenido
+    de la página y no desde el de la pantalla.
+
+    No alcanza con corregir la hoja de estilos: bastaría un `transform` nuevo en
+    cualquier contenedor para que el defecto volviera sin que nada fallara.
+    Fuera del árbol, la ventana es inmune.
+    """
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "createPortal" in pantalla
+    assert "document.body" in pantalla
+    # Y no revienta al dibujar en el servidor, donde `document` no existe.
+    assert "if (!montado) return null;" in pantalla
+
+
+def test_la_animacion_de_pagina_sigue_creando_bloque_contenedor():
+    """La prueba de arriba mide una consecuencia; ésta mide la CAUSA, para que
+    se entienda por qué existe el portal el día que alguien lo quiera quitar."""
+    css = (FRONT / "app/globals.css").read_text(encoding="utf-8")
+    assert ".pag-entra { animation:" in css
+    assert "transform: translateY(8px)" in css
+    trans = (FRONT / "components/Transicion.tsx").read_text(encoding="utf-8")
+    assert 'className="pag-entra"' in trans
+
+
+def test_no_se_da_por_ACOMODADA_mientras_carga():
+    """Con «cargando…» el panel mide sesenta píxeles. Medirlo ahí y darlo por
+    acomodado deja la ventana colgando fuera de la pantalla en cuanto llegan
+    las filas."""
+    pantalla = (CIERRE / "DetalleCelda.tsx").read_text(encoding="utf-8")
+    assert "!celda.origen || !datos) return;" in pantalla
