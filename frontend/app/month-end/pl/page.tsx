@@ -2576,7 +2576,19 @@ export default function MonthEndPLPage() {
           };
           return (
             <tr key={k ?? "__total"} style={k === null ? { background: "var(--bg-elevated)" } : undefined}>
-              <td style={{ ...TDL, fontWeight: k === null ? 700 : 500 }}>
+              {/* ⚠️ La tabla es `table-layout: fixed`, y en una tabla fija el
+                  texto que no entra NO se recorta solo: se sale de la celda y
+                  se dibuja ENCIMA de la columna siguiente. Owner, 2026-09-03:
+                  «el texto se sobrepone en los datos».
+
+                  Se deja envolver en vez de cortar con puntos suspensivos: un
+                  nombre de cuenta a medias obliga a pasar el mouse por encima
+                  para leerlo, y esto es un reporte que se imprime. La fila
+                  crece un renglón y no se pierde nada. */}
+              <td title={k === null ? undefined : rotulo(k)}
+                  style={{ ...TDL, fontWeight: k === null ? 700 : 500,
+                           whiteSpace: "normal", overflowWrap: "anywhere",
+                           lineHeight: 1.35 }}>
                 {k === null ? "TOTAL" : rotulo(k)}
               </td>
               {usadas.slice(0, trasVariacion).map(u => celda(u.i))}

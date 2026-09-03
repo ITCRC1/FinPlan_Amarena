@@ -36,6 +36,8 @@ from app.errores import ErrorApi
 from app.auth import get_current_user
 from app.db import get_session
 from app.engine import pl_engine
+from app.models.mapping import AccountMapping
+from app.nombres_cuenta import limpiar_nombre
 from app.engine import recalculate as recalc
 from app.models.actual_entry import ActualEntry
 from app.models.belowgop_account_entry import BelowGopAccountEntry
@@ -105,9 +107,17 @@ def _nombra(destino: dict, clave: str, nombre: str):
     """Guarda el nombre de una cuenta la primera vez que se la ve.
 
     El gasto de propiedad se abre por cuenta, y una lista de numeros sueltos
-    —8005, 8020, 8040— no le dice nada a nadie (owner, 2026-08-14)."""
-    if nombre:
-        destino.setdefault("__nombres__", {}).setdefault(clave, nombre)
+    —8005, 8020, 8040— no le dice nada a nadie (owner, 2026-08-14).
+
+    ⚠️ El nombre se LIMPIA antes de guardarlo. `account_name` y
+    `account_name_example` traen todas las variantes que aparecieron en el
+    mayor pegadas con barras —«DEPRECIATION1 | DEPRECIATION2 | DEPRECIATION4 |
+    DEPRECIATION»—, que son sesenta caracteres donde caben veinte: el rótulo se
+    montaba encima de los montos (owner, 2026-09-03).
+    """
+    limpio = limpiar_nombre(nombre)
+    if limpio:
+        destino.setdefault("__nombres__", {}).setdefault(clave, limpio)
 
 
 def _padre(dept: str) -> str:
@@ -197,9 +207,23 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
                 ActualEntry.scenario_id == scenario_id))).scalars().all():
             if (f.account_code or "").startswith("8"):
                 _nombra(detalle, f.account_code, f.account_name or "")
+        # ⚠️ `NonOpEntry.account_name` está VACÍO en las 18 filas de producción,
+        # en los tres escenarios. Sin un respaldo, el 8000 y el 8020 salían
+        # como número pelado — que es justo lo que este bloque vino a evitar.
+        #
+        # El catálogo sí los tiene: 8000 es RENT y 8020 es CAPITAL RESERVE. Se
+        # lee UNA vez, no una por cuenta.
+        del_catalogo = {
+            (m.account_code or "").strip(): m.account_name_example
+            for m in (await session.execute(select(AccountMapping).where(
+                AccountMapping.active_status == "YES",
+                AccountMapping.account_code.like("8%")))).scalars()
+        }
         for e in below:
             cod = str(e.account_code or "")
-            _nombra(detalle, cod, e.account_name or nombres_bg.get(cod, ""))
+            _nombra(detalle, cod,
+                    e.account_name or nombres_bg.get(cod, "")
+                    or del_catalogo.get(cod, ""))
 
     for m in range(1, 13):
         col = MESES[m - 1]

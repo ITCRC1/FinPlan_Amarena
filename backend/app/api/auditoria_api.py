@@ -52,6 +52,7 @@ from app.errores import ErrorApi
 from app.models.actual_entry import ActualEntry
 from app.models.department_catalog import DepartmentCatalog
 from app.models.mapping import AccountMapping
+from app.nombres_cuenta import limpiar_nombre
 
 router = APIRouter(tags=["auditoria"])
 
@@ -165,8 +166,12 @@ async def auditoria_del_mes(scenario_id: str, mes: int):
             códigos de planilla (60xx): no se importan del GL cuenta por cuenta,
             vienen del bloque de nómina, que trae el concepto y no su rótulo.
             """
-            return ((propio or "").strip()
-                    or catalogo.get((dept, cuenta), "")
+            # ⚠️ Se LIMPIA. `account_name` y `account_name_example` traen
+            # todas las variantes vistas en el mayor pegadas con barras
+            # —«DEPRECIATION1 | DEPRECIATION2 | DEPRECIATION»—, y eso no es un
+            # rótulo: son sesenta caracteres donde caben veinte.
+            return (limpiar_nombre(propio)
+                    or limpiar_nombre(catalogo.get((dept, cuenta), ""))
                     or rotulo_planilla.get(cuenta, "")
                     or f"Cuenta {cuenta}")
 
