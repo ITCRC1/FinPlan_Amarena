@@ -956,6 +956,99 @@ export default function MonthEndPLPage() {
     };
   }
 
+
+  const idASum = ranuras[varA], idBSum = ranuras[varB];
+  const vASum = datos.find(d => d.scenario_id === idASum);
+  const vBSum = datos.find(d => d.scenario_id === idBSum);
+
+  // ── El Monthly Summary, calculado UNA vez ───────────────────────────────
+  //
+  // Mismo movimiento que el P&L Statement: vivia adentro de su vista y el
+  // Word no podia armarlo sin copiarlo. Se renombra a `*Summary` porque en
+  // este archivo ya hay un `dato` —el del Statement— y son cuadros distintos.
+        /** El valor de una fila para un escenario y un horizonte. */
+  const datoSummary = (v: PLCompareVersion | undefined, id: string,
+                code: string, h: "month" | "ytd"): number | null => {
+    if (!v) return null;
+    // La caja es un SALDO, no un flujo: el «YTD» de la caja final es el
+    // mismo saldo del mes, no la suma de los meses. Sumarlo daria un
+    // numero que no significa nada — y en el cuadro del owner las dos
+    // columnas muestran exactamente lo mismo, que lo confirma.
+    if (code === "X_CASH") {
+      const serie = caja[id];
+      return serie && serie.length >= mes ? serie[mes - 1] : null;
+    }
+    const c = v[h];
+    if (!c) return null;
+    switch (code) {
+      case "K_ROOMS_AVAIL": return c.kpis.rooms_available;
+      case "K_ROOMS_OCC":   return c.kpis.rooms_occupied;
+      case "K_GUESTS":      return c.kpis.guests;
+      case "K_OCC":         return c.kpis.occupancy_pct;
+      case "K_ADR":         return c.kpis.adr;
+      case "K_REVPAR":      return c.kpis.revpar;
+      // «Other» es el RESTO, no una suma de líneas sueltas. Así los tres
+      // renglones de ingreso siempre suman Total Revenue: si mañana
+      // aparece una línea nueva, cae acá sola en vez de desaparecer del
+      // cuadro sin que nadie lo note.
+      case "X_ROOMS": return LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0);
+      case "X_FB":    return LINEAS_FB.reduce((s, l) => s + valor(c, l), 0);
+      case "X_OTHER": return valor(c, "TOTAL_REVENUES")
+                           - LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0)
+                           - LINEAS_FB.reduce((s, l) => s + valor(c, l), 0);
+      default: return valor(c, code);
+    }
+  };
+
+  const fmt = (n: number | null, tipo: typeof SUMMARY[number]["tipo"]) =>
+    n === null ? "—" : tipo === "pct" ? pct(n) : tipo === "num" ? num0(n) : usd(n);
+
+  /** Un par de columnas (valor A, valor B) con su variación. */
+  const parSummary = (f: typeof SUMMARY[number], h: "month" | "ytd") => {
+    const a = datoSummary(vASum, idASum, f.code, h);
+    const b = datoSummary(vBSum, idBSum, f.code, h);
+    const d = a === null || b === null ? null : a - b;
+    const p = d === null || !b ? null : d / Math.abs(b);
+    // En gasto, gastar de mas es malo aunque el numero sea positivo. Acá
+    // todas las filas son ingreso, resultado o volumen: más es mejor.
+    const bueno = d !== null && (f.gasto ? d < 0 : d > 0);
+    return { a, b, d, p, bueno };
+  };
+
+
+  /** El cuadro del Monthly Summary — lo usan su Excel y el Word. */
+  function cuadroSummary(): Cuadro {
+
+    const columnas: ColumnaCuadro[] = [
+      { label: "Metric", ancho: 30, formato: "texto" },
+      ...bloques.flatMap(bl => ([
+    { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
+    { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
+    { label: "Var $", ancho: 15, formato: "usd2" as const },
+    { label: "Var %", ancho: 11, formato: "pct" as const },
+      ])),
+      { label: "Notes", ancho: 30, formato: "texto" as const },
+    ];
+    const filas: FilaCuadro[] = SUMMARY.map(f => ({
+      label: f.label,
+      es_total: !!f.fuerte,
+      formato: f.tipo === "pct" ? "pct" : f.tipo === "num" ? "num" : undefined,
+      valores: [
+    ...bloques.flatMap(bl => {
+      const v = parSummary(f, bl.h);
+      return [v.a, v.b, v.d, v.p];
+    }),
+    null,
+      ],
+    }));
+    return {
+      titulo: `${MESES[mes - 1].toUpperCase()} ${year} Summary`,
+      subtitulo: `${etiqueta(idASum)} vs ${etiqueta(idBSum)} · USD`,
+      hoja: `Summary ${MESES[mes - 1]}`,
+      columnas, filas,
+    };
+  }
+
   function cuadroPL(): Cuadro {
     const columnas: ColumnaCuadro[] = [
       { label: "ACCOUNT DESCRIPTION", ancho: 38, formato: "texto" },
@@ -1086,6 +1179,9 @@ export default function MonthEndPLPage() {
     // tuviera que copiarlo.
     if (activos.includes("estado") && ranuras[varA] && ranuras[varB]) {
       cuadros.push(cuadroEstado());
+    }
+    if (activos.includes("summary") && ranuras[varA] && ranuras[varB]) {
+      cuadros.push(cuadroSummary());
     }
     const CLASES_DEPTO = ["revenue", "payroll", "cost", "opex", "property"] as const;
     for (const clase of CLASES_DEPTO) {
@@ -1990,54 +2086,6 @@ export default function MonthEndPLPage() {
         const vA = datos.find(d => d.scenario_id === idA);
         const vB = datos.find(d => d.scenario_id === idB);
 
-        /** El valor de una fila para un escenario y un horizonte. */
-        const dato = (v: PLCompareVersion | undefined, id: string,
-                      code: string, h: "month" | "ytd"): number | null => {
-          if (!v) return null;
-          // La caja es un SALDO, no un flujo: el «YTD» de la caja final es el
-          // mismo saldo del mes, no la suma de los meses. Sumarlo daria un
-          // numero que no significa nada — y en el cuadro del owner las dos
-          // columnas muestran exactamente lo mismo, que lo confirma.
-          if (code === "X_CASH") {
-            const serie = caja[id];
-            return serie && serie.length >= mes ? serie[mes - 1] : null;
-          }
-          const c = v[h];
-          if (!c) return null;
-          switch (code) {
-            case "K_ROOMS_AVAIL": return c.kpis.rooms_available;
-            case "K_ROOMS_OCC":   return c.kpis.rooms_occupied;
-            case "K_GUESTS":      return c.kpis.guests;
-            case "K_OCC":         return c.kpis.occupancy_pct;
-            case "K_ADR":         return c.kpis.adr;
-            case "K_REVPAR":      return c.kpis.revpar;
-            // «Other» es el RESTO, no una suma de líneas sueltas. Así los tres
-            // renglones de ingreso siempre suman Total Revenue: si mañana
-            // aparece una línea nueva, cae acá sola en vez de desaparecer del
-            // cuadro sin que nadie lo note.
-            case "X_ROOMS": return LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0);
-            case "X_FB":    return LINEAS_FB.reduce((s, l) => s + valor(c, l), 0);
-            case "X_OTHER": return valor(c, "TOTAL_REVENUES")
-                                 - LINEAS_ROOMS.reduce((s, l) => s + valor(c, l), 0)
-                                 - LINEAS_FB.reduce((s, l) => s + valor(c, l), 0);
-            default: return valor(c, code);
-          }
-        };
-
-        const fmt = (n: number | null, tipo: typeof SUMMARY[number]["tipo"]) =>
-          n === null ? "—" : tipo === "pct" ? pct(n) : tipo === "num" ? num0(n) : usd(n);
-
-        /** Un par de columnas (valor A, valor B) con su variación. */
-        const par = (f: typeof SUMMARY[number], h: "month" | "ytd") => {
-          const a = dato(vA, idA, f.code, h);
-          const b = dato(vB, idB, f.code, h);
-          const d = a === null || b === null ? null : a - b;
-          const p = d === null || !b ? null : d / Math.abs(b);
-          // En gasto, gastar de mas es malo aunque el numero sea positivo. Acá
-          // todas las filas son ingreso, resultado o volumen: más es mejor.
-          const bueno = d !== null && (f.gasto ? d < 0 : d > 0);
-          return { a, b, d, p, bueno };
-        };
 
         const TH2: React.CSSProperties = { ...TH, fontSize: 12 };
         const bloques = [
@@ -2046,35 +2094,10 @@ export default function MonthEndPLPage() {
         ];
 
         function bajarSummary() {
-          const columnas: ColumnaCuadro[] = [
-            { label: "Metric", ancho: 30, formato: "texto" },
-            ...bloques.flatMap(bl => ([
-              { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
-              { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
-              { label: "Var $", ancho: 15, formato: "usd2" as const },
-              { label: "Var %", ancho: 11, formato: "pct" as const },
-            ])),
-            { label: "Notes", ancho: 30, formato: "texto" as const },
-          ];
-          const filas: FilaCuadro[] = SUMMARY.map(f => ({
-            label: f.label,
-            es_total: !!f.fuerte,
-            formato: f.tipo === "pct" ? "pct" : f.tipo === "num" ? "num" : undefined,
-            valores: [
-              ...bloques.flatMap(bl => {
-                const v = par(f, bl.h);
-                return [v.a, v.b, v.d, v.p];
-              }),
-              null,
-            ],
-          }));
-          bajarCuadros(`Summary_${MESES[mes - 1]}_${year}`, [{
-            titulo: `${MESES[mes - 1].toUpperCase()} ${year} Summary`,
-            subtitulo: `${etiqueta(idA)} vs ${etiqueta(idB)} · USD`,
-            hoja: `Summary ${MESES[mes - 1]}`,
-            columnas, filas,
-          }]).catch(e => alert(e instanceof Error ? e.message : t("errExcel")));
+          bajarCuadros(`Summary_${MESES[mes - 1]}_${year}`, [cuadroSummary()])
+            .catch(e => alert(e instanceof Error ? e.message : t("errExcel")));
         }
+
 
         if (!idA || !idB) return (
           <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
@@ -2135,7 +2158,7 @@ export default function MonthEndPLPage() {
                     <tr style={f.fuerte ? { background: "var(--bg-elevated)" } : undefined}>
                       <td style={{ ...TDL, fontWeight: f.fuerte ? 700 : 500 }}>{f.label}</td>
                       {bloques.map(bl => {
-                        const v = par(f, bl.h);
+                        const v = parSummary(f, bl.h);
                         const cv = v.d === null || v.d === 0 ? "var(--text-secondary)"
                           : v.bueno ? "var(--positive)" : "var(--negative)";
                         return (
