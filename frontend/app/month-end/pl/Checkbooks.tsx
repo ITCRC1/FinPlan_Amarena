@@ -209,6 +209,20 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
         {error && <span style={{ fontSize: 12, color: "var(--negative)" }}>{error}</span>}
       </div>
 
+      {versiones.some(v => (v.actuals_through ?? 0) > 0) && (
+        <p style={{ fontSize: 11.5, marginBottom: 10, padding: "8px 12px",
+                    borderRadius: 7, lineHeight: 1.6,
+                    border: "1px solid var(--border)",
+                    borderLeft: "4px solid var(--positive)",
+                    color: "var(--text-secondary)", maxWidth: 900 }}>
+          Este forecast está <b>compuesto por dos cosas</b>: hasta el corte los
+          números son los <b>actuales cargados</b> —van marcados «real» en el
+          encabezado del mes— y de ahí en adelante es lo <b>proyectado</b> en su
+          checkbook. Son los mismos meses que usa el P&amp;L, así que esta tabla
+          suma exactamente lo que dice el reporte.
+        </p>
+      )}
+
       {/* ⚠️ El gasto de propiedad se abre por CUENTA, no por departamento: vive
           todo en el 0250. Decirlo evita que el selector de arriba parezca roto
           cuando no cambia nada. */}
@@ -245,13 +259,30 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
                                  borderBottom: "2px solid var(--text-primary)" }}>
                       Cuenta
                     </th>
-                    {MESES.map(m => (
-                      <th key={m} style={{ ...TD, fontWeight: 700, minWidth: 82,
-                                           position: "static",
-                                           borderBottom: "2px solid var(--text-primary)" }}>
-                        {m}
-                      </th>
-                    ))}
+                    {/* ⚠️ Los meses que ya son ACTUALES van marcados.
+                        Owner, 2026-09-03: «el Forecast 2026 está compuesto por
+                        actuales y por forecast; cómo se está manejando esto en
+                        esta vista».
+
+                        Doce columnas iguales harían leer como presupuesto lo
+                        que ya pasó — y en este checkbook conviven las dos
+                        cosas. */}
+                    {MESES.map((m, i) => {
+                      const real = i < (v.actuals_through ?? 0);
+                      return (
+                        <th key={m} title={real ? "Actual cargado" : "Proyectado"}
+                            style={{ ...TD, fontWeight: 700, minWidth: 82,
+                                     position: "static",
+                                     color: real ? "var(--positive)" : undefined,
+                                     borderBottom: "2px solid var(--text-primary)" }}>
+                          {m}
+                          {real && (
+                            <div style={{ fontSize: 9, fontWeight: 600,
+                                          letterSpacing: .3 }}>real</div>
+                          )}
+                        </th>
+                      );
+                    })}
                     <th style={{ ...TD, fontWeight: 800, minWidth: 100,
                                  position: "static",
                                  borderLeft: "2px solid var(--border-medium)",

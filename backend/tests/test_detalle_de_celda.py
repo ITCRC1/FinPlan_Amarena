@@ -306,3 +306,44 @@ def test_las_tablas_compartidas_se_IMPORTAN_y_no_se_copian():
     assert "from app.api.gasto_por_clase_api import" in fuente
     # Y no reescritas acá.
     assert '"4999"' not in fuente and '"0161": "0162"' not in fuente
+
+
+# ─── El forecast vivo: actuales hasta el corte, proyectado después ──────────
+#
+# Owner, 2026-09-03: «hay que revisar el checkbook Forecast 2026, porque ése
+# está compuesto por actuales y por forecast; cómo se está manejando esto en
+# esta vista».
+
+def test_un_FORECAST_mezcla_actuales_y_proyectado():
+    """⚠️ No se estaba manejando: el endpoint leía el checkbook del forecast
+    para los DOCE meses, y el P&L usa el ACTUAL hasta el corte.
+
+    Medido en el FORECAST Working 2026 (corte julio), opex de Habitaciones:
+
+        desplegable  0  0  0     0     0  11.892  17.714 | 17.546 …
+        el cuadro    0  0  0    25  1.513   2.185   8.329 | 17.546 …
+
+    De agosto en adelante coincidían al centavo; hasta julio no. Eran **38
+    celdas** del forecast que no sumaban su propia línea del P&L — y no
+    aparecieron antes porque la comprobación de 120 celdas usó los tres
+    primeros escenarios y el forecast quedó afuera.
+    """
+    fuente = inspect.getsource(api.detalle_de_celda)
+    assert 'escenario.type == "FORECAST"' in fuente
+    assert "recalc.linked_actual_scenario" in fuente
+
+
+def test_cada_mes_sale_de_UNA_sola_fuente():
+    """Sumar las dos contaría dos veces lo mismo en los meses cerrados."""
+    fuente = inspect.getsource(api.detalle_de_celda)
+    assert "real[i] if i < corte else propia[i]" in fuente
+
+
+def test_se_DICE_hasta_donde_llegan_los_actuales():
+    """Doce columnas iguales harían leer como presupuesto lo que ya pasó."""
+    fuente = inspect.getsource(api.detalle_de_celda)
+    assert '"actuals_through": corte' in fuente
+    assert "Actual hasta {MESES_ES[corte - 1]}" in fuente
+    pantalla = (CIERRE / "Checkbooks.tsx").read_text(encoding="utf-8")
+    assert "v.actuals_through ?? 0" in pantalla
+    assert '"Actual cargado"' in pantalla

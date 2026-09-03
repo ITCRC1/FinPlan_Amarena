@@ -4999,10 +4999,15 @@ export async function correrRondaGuillermo(): Promise<{
 export interface DetalleCeldaVersion {
   scenario_id: string;
   escenario: string;
-  /** «Mayor (GL)» o «Auxiliar (checkbook)». Un presupuesto no tiene mayor
-   *  cargado: su detalle —igual de profundo, y con la misma cuenta— vive en
-   *  sus auxiliares. Se dice de dónde sale en vez de mezclarlos. */
+  /** De dónde sale el detalle: «Mayor (GL)», «Auxiliar (checkbook)», o —en un
+   *  forecast vivo— «Actual hasta julio · auxiliar de ahí en adelante». */
   fuente: string;
+  /** Hasta qué mes los números son ACTUALES. 0 = ninguno.
+   *
+   *  ⚠️ Un forecast vivo está compuesto por dos cosas: hasta el corte son los
+   *  actuales cargados y de ahí en adelante lo proyectado. Mostrar las doce
+   *  columnas iguales haría leer como presupuesto lo que ya pasó. */
+  actuals_through?: number;
   /** El ingreso presupuestado de una línea que agrega VARIAS cuentas del mayor
    *  (`ROOMS` = 4000 + 4001 + 4002) se muestra como línea, no como cuenta:
    *  elegir una de las que agrupa sería inventar. */

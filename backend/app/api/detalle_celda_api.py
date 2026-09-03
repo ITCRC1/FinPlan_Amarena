@@ -72,6 +72,11 @@ router = APIRouter(tags=["detalle-celda"])
 MESES = ["jan", "feb", "mar", "apr", "may", "jun",
          "jul", "aug", "sep", "oct", "nov", "dec"]
 
+#: Para decirle al usuario hasta qué mes manda el actual. «Actual hasta 7» no
+#: se lee; «Actual hasta julio», sí.
+MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+            "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
 CERO = Decimal("0")
 
 #: La clase del cuadro → el primer dígito de la cuenta en el mayor.
@@ -345,6 +350,47 @@ async def detalle_de_celda(
             r = (await _del_mayor(session, escenario, clase, clave)
                  if manda_el_mayor
                  else await _del_auxiliar(session, escenario, clase, clave))
+
+            # ── La mezcla del forecast vivo ─────────────────────────────────
+            #
+            # Owner, 2026-09-03: *«hay que revisar el checkbook Forecast 2026,
+            # porque ése está compuesto por actuales y por forecast; cómo se
+            # está manejando esto en esta vista»*.
+            #
+            # ⚠️ No se estaba manejando. Este endpoint leía el checkbook del
+            # forecast para los DOCE meses, y el P&L usa el ACTUAL hasta el
+            # corte. Medido en el FORECAST Working 2026 (corte julio), opex de
+            # Habitaciones:
+            #
+            #     desplegable  0  0  0     0     0  11.892  17.714 | 17.546 …
+            #     el cuadro    0  0  0    25  1.513   2.185   8.329 | 17.546 …
+            #
+            # De agosto en adelante coinciden al centavo; hasta julio no. Eran
+            # 38 celdas del forecast que no sumaban su propia línea del P&L.
+            #
+            # La mezcla es la de `compute_pl_month`: hasta `actuals_through`
+            # manda el ACTUAL enlazado, y de ahí en adelante el propio
+            # escenario. Rehacerla con otro criterio es como el desplegable y
+            # el reporte terminan contando dos historias.
+            corte = 0
+            if escenario.type == "FORECAST" and (escenario.actuals_through or 0) > 0:
+                enlazado = await recalc.linked_actual_scenario(session, escenario)
+                if enlazado is not None:
+                    corte = int(escenario.actuals_through or 0)
+                    del_actual = await _del_mayor(session, enlazado, clase, clave)
+                    mezcla: dict[tuple[str, str], list[Decimal]] = {}
+                    llaves = set(r["series"]) | set(del_actual["series"])
+                    for k in llaves:
+                        propia = r["series"].get(k, [CERO] * 12)
+                        real = del_actual["series"].get(k, [CERO] * 12)
+                        # Cada mes de UNA sola fuente: sumarlas contaría dos
+                        # veces lo mismo en los meses cerrados.
+                        mezcla[k] = [real[i] if i < corte else propia[i]
+                                     for i in range(12)]
+                    r = {"series": mezcla,
+                         "nombres": {**del_actual["nombres"], **r["nombres"]},
+                         "agregado": r.get("agregado")}
+
             series[sid] = r["series"]
             for cuenta, nombre in r["nombres"].items():
                 if nombre and cuenta not in nombres:
@@ -352,7 +398,11 @@ async def detalle_de_celda(
             versiones.append({
                 "scenario_id": sid,
                 "escenario": f"{escenario.type} {escenario.version} {escenario.year}",
-                "fuente": "Mayor (GL)" if manda_el_mayor else "Auxiliar (checkbook)",
+                "fuente": ("Mayor (GL)" if manda_el_mayor
+                           else f"Actual hasta {MESES_ES[corte - 1]} · auxiliar de ahí en adelante"
+                           if corte else "Auxiliar (checkbook)"),
+                #: Hasta qué mes los números son ACTUALES. 0 = ninguno.
+                "actuals_through": corte,
                 # ⚠️ Una línea de ingreso que agrega varias cuentas del mayor se
                 # muestra como línea, no como cuenta: elegir una de las que
                 # agrupa sería inventar.
