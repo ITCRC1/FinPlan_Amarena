@@ -488,7 +488,7 @@ export default function AllocationsConfigPage() {
         `${t("xlsCalcResult")} — ${t("cafeteria")}`, t("xlsSheetCafMonthly")));
 
       // Validación: el reparto de cafetería tiene que netear $0 cada mes.
-      if (summary && Object.keys(summary.CAFETERIA).length) {
+      if (summary?.CAFETERIA && Object.keys(summary.CAFETERIA).length) {
         const caf = summary.CAFETERIA;
         const depts = Object.keys(caf).sort();
         const receivers = depts.filter(d => d !== "0220");
@@ -589,7 +589,7 @@ export default function AllocationsConfigPage() {
       if (calcResult) cuadros.push(cuadroMensual(calcResult.monthly.laundry,
         `${t("xlsCalcResult")} — ${t("laundry")}`, t("xlsSheetLauMonthly")));
 
-      if (breakdown && breakdown.total_cost.some(v => Math.abs(v) > 0.5)) {
+      if (breakdown?.total_cost?.some(v => Math.abs(v) > 0.5)) {
         const acc = breakdown.accounts;
         const ann = (arr: number[]) => arr.reduce((s, v) => s + v, 0);
         const sumDepts = (m: Record<string, number[]>, mi: number) =>
@@ -1507,7 +1507,13 @@ export default function AllocationsConfigPage() {
 
       {/* ── Validación: desglose Cafetería por departamento (cuenta 6025) ──── */}
       <BloqueSeguro nombre="Validacion de cafeteria">
-      {tab === "cafeteria" && summary && Object.keys(summary.CAFETERIA).length > 0 && (() => {
+      {/* ⚠️ `summary?.CAFETERIA` y no `summary.CAFETERIA`. Esta condicion se
+          evalua en el render del PADRE —para decidir que hijo pasarle a la
+          red—, asi que si revienta aca el `BloqueSeguro` no la atrapa: el
+          error ocurre antes de que exista el hijo. Es la razon por la que la
+          red de abajo no evito la pantalla en blanco. */}
+      {tab === "cafeteria" && summary?.CAFETERIA
+        && Object.keys(summary.CAFETERIA).length > 0 && (() => {
         const caf = summary.CAFETERIA;
         const nm = (dc: string) =>
           cafRows.find(r => r.dept_code === dc)?.dept_name ??
@@ -1591,7 +1597,9 @@ export default function AllocationsConfigPage() {
 
       {/* ── Validación: desglose Lavandería 3 vías ──────────────────────────── */}
       <BloqueSeguro nombre="Desglose de lavanderia">
-      {tab === "laundry" && breakdown && breakdown.total_cost.some(v => Math.abs(v) > 0.5) && (() => {
+      {/* Mismo motivo: `total_cost` puede no venir y la condicion corre fuera
+          de la red. */}
+      {tab === "laundry" && breakdown?.total_cost?.some(v => Math.abs(v) > 0.5) && (() => {
         const nm = (dc: string) =>
           lauRows.find(r => r.dept_code === dc)?.dept_name ??
           cafRows.find(r => r.dept_code === dc)?.dept_name ?? dc;

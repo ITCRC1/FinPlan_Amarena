@@ -86,3 +86,43 @@ def test_los_cuadros_de_validacion_no_se_llevan_la_pantalla():
     assert "componentDidCatch" in red
     assert "this.state.error.message" in red, (
         "la red dejó de mostrar el motivo: volveríamos a un callejón sin pista")
+
+
+def test_la_condicion_del_bloque_va_GUARDADA():
+    """⚠️ Un `ErrorBoundary` NO atrapa la condición que decide su hijo.
+
+    `{cond && <Boundary>…</Boundary>}` — y también
+    `<Boundary>{cond && …}</Boundary>` — evalúan `cond` en el render del PADRE,
+    para construir el elemento hijo. Si `cond` revienta, el error ocurre antes
+    de que la red exista y la pantalla se cae igual.
+
+    Es exactamente lo que pasó: se puso la red alrededor de los dos cuadros y el
+    owner siguió viendo «Application error». La condición leía
+    `summary.CAFETERIA` y `breakdown.total_cost` sin guarda.
+    """
+    from pathlib import Path
+
+    pagina = (Path(__file__).resolve().parents[2]
+              / "frontend/app/allocations/config/page.tsx").read_text(encoding="utf-8")
+    assert "summary?.CAFETERIA\n        && Object.keys" in pagina, (
+        "la condición volvió a leer `summary.CAFETERIA` sin guarda: si la clave "
+        "no viene, la pantalla se cae ANTES de que la red pueda atraparlo")
+    assert "breakdown?.total_cost?.some(" in pagina
+
+
+def test_la_ruta_tiene_su_propia_pantalla_de_error():
+    """`error.tsx` es del framework y envuelve TODA la ruta, incluido el cuerpo
+    del componente — donde una red puesta a mano no llega.
+
+    Y muestra el mensaje: «see the browser console» obliga a abrir las
+    herramientas de desarrollo para poder reportar un problema.
+    """
+    from pathlib import Path
+
+    err = Path(__file__).resolve().parents[2] / "frontend/app/error.tsx"
+    assert err.exists(), "se fue la pantalla de error de la app"
+    fuente = err.read_text(encoding="utf-8")
+    assert "error.message" in fuente, "dejó de mostrar el motivo"
+    assert "está guardado" in fuente, (
+        "se fue el aviso de que lo guardado se guardó — es lo primero que el "
+        "usuario necesita saber cuando la pantalla se cae")
