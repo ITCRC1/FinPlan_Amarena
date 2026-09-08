@@ -631,26 +631,34 @@ def consolidate_block(blk: dict, mappings: list[dict], report_lines: list[dict],
         if avail and occ:
             d["occupancy_pct"] = Decimal(str(occ)) / Decimal(str(avail))
         if occ:
-            # ADR = renta de habitación / ocupadas. REGLA por año (confirmado por el
-            # owner): 2026 en adelante = SOLO la cuenta "Rooms" (excluye No Show,
-            # Cancellations, otros ingresos del depto). EXCEPCIÓN histórica: ene-2024 a
-            # dic-2025 quedó sobre TODO el revenue del depto Rooms — se respeta tal cual.
-            year = blk.get("year") or 0
-            # Budget también va sobre el total: solo se presupuesta rooms revenue puro
-            # (el depto = Rooms puro). 2024-2025 = histórico sobre el depto.
-            whole_dept = year <= 2025 or blk.get("type") == "BUDGET"
-            if whole_dept:
-                rooms_rev = sum(
-                    (Decimal(str(v)) for r in blk.get("revenue", [])
-                     for mm, v in r["months"].items()
-                     if mm == m and pl_engine.group_for_dept(r["dept_code"]) == "ROOMS"),
-                    Decimal(0))
-            else:
-                rooms_rev = sum(
-                    (Decimal(str(v)) for r in blk.get("revenue", [])
-                     for mm, v in r["months"].items()
-                     if mm == m and (r.get("account_name") or "").strip().lower() == "rooms"),
-                    Decimal(0))
+            # ADR = renta de habitación / ocupadas.
+            #
+            # ⚠️ SIEMPRE la cuenta 4000, en todo año y toda versión.
+            #
+            # Owner, 2026-09-08: «el ADR debe ser siempre con la cuenta 4000,
+            # rooms only». Antes había dos reglas: hasta 2025 —y en todo
+            # BUDGET— se calculaba sobre TODO el ingreso del departamento
+            # Rooms, y de 2026 en adelante solo sobre la cuenta de Rooms.
+            # Un mismo indicador calculado de dos formas segun el año hace que
+            # la serie no se pueda comparar consigo misma, que es justo para lo
+            # que sirve un ADR.
+            #
+            # ⚠️ Y se identifica por CODIGO, no por nombre. Esto comparaba
+            # `account_name.lower() == "rooms"`, y funcionó mientras el archivo
+            # del owner rotulara así esa fila. Al pasar a la plantilla que
+            # genera el app, la fila se llamó «Room Revenue» —el nombre canonico
+            # del mapeo—, la suma dio CERO, y el ADR y el RevPAR quedaron en
+            # blanco en los cinco meses del ACTUAL 2026 sin que nada avisara: el
+            # P&L cuadra igual porque ninguna linea depende de ellos.
+            #
+            # La 4001 (Cancellations) y la 4002 (No Show) quedan fuera: son
+            # ingreso del departamento, pero no renta de habitación vendida.
+            rooms_rev = sum(
+                (Decimal(str(v)) for r in blk.get("revenue", [])
+                 for mm, v in r["months"].items()
+                 if mm == m and str(r.get("account_code") or "").strip() == "4000"
+                 and pl_engine.group_for_dept(r["dept_code"]) == "ROOMS"),
+                Decimal(0))
             if rooms_rev:
                 d["adr"] = rooms_rev / Decimal(str(occ))
         stats[m] = d
