@@ -2815,9 +2815,6 @@ async def export_scenario_detail(
             if v is not None:
                 verif.setdefault(ctrl.codigo, {})[m] = v
 
-    xls = build_detail_workbook([label], list(accts.values()), stats, dept_names,
-                                verificacion={label: verif},
-                                membresias=membresias_tpl)
     # ── Los socios del Club Madresal ────────────────────────────────────────
     #
     # Owner, 2026-09-08: «el upload debe tener estas lineas para poder subir
@@ -2846,6 +2843,9 @@ async def export_scenario_detail(
         if not membresias_tpl:
             membresias_tpl = {(label, m): {} for m in months}
 
+    xls = build_detail_workbook([label], list(accts.values()), stats, dept_names,
+                                verificacion={label: verif},
+                                membresias=membresias_tpl)
     scope = f"m{month:02d}" if month else "full"
     fn = f"{hotel_slug()}_Detalle_{scen.type}_{scen.version}_{scen.year}_{scope}.xlsx".replace(" ", "-")
     return Response(content=xls,
