@@ -76,6 +76,18 @@ CONCEPT_BY_ACCT = {
 # huéspedes se suman por mes; ocupación (occ/avail) y ADR (rev rooms/occ) se derivan.
 STAT_BY_ACCT = {"9010": "rooms_available", "9020": "rooms_occupied", "9060": "guests"}
 
+#: Los socios del Club Madresal. Van a `ClubMembershipStat`, NO a `ScenarioStat`.
+#:
+#: Owner, 2026-09-08: «la estadistica tambien debe traer total membresias,
+#: membresias condicionados, membresias pagando y membresias en acuerdo de pago;
+#: el upload debe tener estas lineas para poder subir estas estadisticas».
+#:
+#: ⚠️ El total del anio es el saldo de DICIEMBRE, no la suma de los doce meses.
+#: Son socios, no ingresos: sumarlos daria 1.500 donde hay 129. Por eso su
+#: `agrega` en el catalogo es FIN y no SUM — ver `models/club_membership_stat.py`.
+MEMBRESIA_BY_ACCT = {"9800": "total", "9801": "condicionados",
+                     "9802": "pagando", "9803": "acuerdo_pago"}
+
 
 #: **Quienes reparten, y en que clases.** Cafeteria (0220) reparte su costo,
 #: planilla y opex; Lavanderia (0161) solo planilla y opex — su Laundry Services
@@ -314,7 +326,8 @@ def parse_gl_detail(data: bytes) -> list[dict]:
                    # Es un CONTROL, no un origen — no suma en ningun total y
                    # nadie lo escribe en la base. Ver `app/importers/verificacion.py`.
                    "verificacion": {},
-                   "skipped": {"payroll_noconcept": 0, "nodept": 0}}
+                   "skipped": {"payroll_noconcept": 0, "nodept": 0},
+                   "membresias": {}}
             blocks.append(cur)
         cur["colmap"].setdefault(mi, c)
 
@@ -420,6 +433,9 @@ def parse_gl_detail(data: bytes) -> list[dict]:
                 field = STAT_BY_ACCT.get(code)
                 if field:
                     blk["stats"].setdefault(field, {}).update(smonths)
+                socios = MEMBRESIA_BY_ACCT.get(code)
+                if socios:
+                    blk["membresias"].setdefault(socios, {}).update(smonths)
                 blk["stats_9"].append({
                     "fila": r0 + 1,
                     "account_code": code,
