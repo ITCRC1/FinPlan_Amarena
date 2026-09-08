@@ -205,6 +205,22 @@ async def _por_mes(session, scenario_id: str, detalle: dict | None = None) -> li
             lineas_ingreso.setdefault(ln.month, []).append(ln)
             _nombra(detalle, ln.line_code, ln.line_name or "")
 
+    # Las lineas de INGRESO del P&L, por mes. Se leen una vez, no doce.
+    #
+    # `TOTAL_REVENUES` y `SEC_REVENUES` son agregados —el total y el encabezado
+    # de la seccion—: incluirlos duplicaria el ingreso en el cuadro, y el error
+    # se veria como «el doble», que es de los que pasan desapercibidos porque
+    # todo sigue sumando consigo mismo.
+    lineas_ingreso: dict[int, list] = {}
+    if detalle is not None:
+        for ln in (await session.execute(select(PLLine).where(
+                PLLine.scenario_id == scenario_id,
+                PLLine.section == "REVENUES",
+                PLLine.line_code.notin_(["TOTAL_REVENUES", "SEC_REVENUES"]),
+        ))).scalars().all():
+            lineas_ingreso.setdefault(ln.month, []).append(ln)
+            _nombra(detalle, ln.line_code, ln.line_name or "")
+
     # El nombre de cada cuenta 8xxx. `actual_rows_for_month` devuelve solo
     # codigo, depto y monto, asi que el nombre se busca aparte — una vez, no una
     # por mes.
