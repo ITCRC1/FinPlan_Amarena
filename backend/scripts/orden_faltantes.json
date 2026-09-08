@@ -1,0 +1,440 @@
+[
+ [
+  "0110",
+  "4001",
+  "Cancellations",
+  "Revenue"
+ ],
+ [
+  "0110",
+  "4002",
+  "No Show",
+  "Revenue"
+ ],
+ [
+  "0110",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0120",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0140",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0140",
+  "7080",
+  "Commissions",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7085",
+  "Commissions and Fees—Group",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7090",
+  "Complimentary Food and Beverage",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7095",
+  "Complimentary In-Room/Media Entertainment",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7245",
+  "Guest Relocation",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7250",
+  "Guest Supplies",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7255",
+  "Guest Transportation",
+  "Opex"
+ ],
+ [
+  "0140",
+  "7485",
+  "Postage and Overnight Delivery Charges",
+  "Opex"
+ ],
+ [
+  "0150",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0150",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ],
+ [
+  "0150",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0150",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0150",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0150",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0150",
+  "7255",
+  "Guest Transportation",
+  "Opex"
+ ],
+ [
+  "0152",
+  "4500",
+  "TRANSPORTATION - GROUNDS",
+  "Revenue"
+ ],
+ [
+  "0152",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0152",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ],
+ [
+  "0152",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0152",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0152",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0152",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0155",
+  "4600",
+  "INNOCEANA 1",
+  "Revenue"
+ ],
+ [
+  "0155",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0155",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0155",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0155",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0155",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0156",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0156",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ],
+ [
+  "0156",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0156",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0156",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0156",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0161",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0162",
+  "5301",
+  "Costo Servicio Lavanderia (huespedes)",
+  "Cost"
+ ],
+ [
+  "0165",
+  "4305",
+  "VISORS/HATS/CAPS RETAIL GIFT SHOP",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "4307",
+  "CLOTHING OTHER RETAIL GIFT SHOP",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "4314",
+  "NEWSPAPERS & MAGAZINES",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "4315",
+  "CANDY RETAIL GIFT SHOP",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "4316",
+  "RETAIL GIFT SHOP OTHERS",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "4320",
+  "OTHER SUNDRY RETAIL GIFT SHOP",
+  "Revenue"
+ ],
+ [
+  "0165",
+  "5223",
+  "OTHER RETAIL COST STORE COSTS",
+  "Cost"
+ ],
+ [
+  "0165",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0165",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ],
+ [
+  "0165",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0165",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0165",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0165",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0180",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0181",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0190",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0190",
+  "7680",
+  "Uniform Costs",
+  "Opex"
+ ],
+ [
+  "0190",
+  "7685",
+  "Uniform Laundry",
+  "Opex"
+ ],
+ [
+  "0200",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0205",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0205",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ],
+ [
+  "0205",
+  "7110",
+  "Corporate Office Reimbursables",
+  "Opex"
+ ],
+ [
+  "0205",
+  "7150",
+  "Dues and Subscriptions",
+  "Opex"
+ ],
+ [
+  "0205",
+  "7175",
+  "Entertainment—In-House",
+  "Opex"
+ ],
+ [
+  "0205",
+  "7185",
+  "Equipment Rental",
+  "Opex"
+ ],
+ [
+  "0220",
+  "5420",
+  "COST OF FOOD CAFETERIA - STAFF",
+  "Cost"
+ ],
+ [
+  "0220",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0230",
+  "5400",
+  "IT / COST OF CELL PHONE",
+  "Cost"
+ ],
+ [
+  "0230",
+  "5401",
+  "IT / COST OF INTERNET SERVICES",
+  "Cost"
+ ],
+ [
+  "0230",
+  "5404",
+  "OTHER COST OF SERVICES",
+  "Cost"
+ ],
+ [
+  "0230",
+  "6004",
+  "Payroll 6004",
+  "Payroll"
+ ],
+ [
+  "0230",
+  "7105",
+  "Contract Services",
+  "Opex"
+ ]
+]
