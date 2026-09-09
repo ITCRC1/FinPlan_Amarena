@@ -52,6 +52,15 @@ MENSAJES: dict[str, dict[str, str]] = {
               "quitarle el rol o desactivarlo, o nadie va a poder administrar.",
         "en": "This is the only active administrator. Appoint another one before "
               "removing the role or deactivating, or nobody will be able to administer."},
+    "break_even.archivo_ilegible": {
+        "es": "No se pudo abrir el archivo. Tiene que ser el .xlsx que baja esta misma pantalla, guardado en formato Excel.",
+        "en": "The file could not be opened. It must be the .xlsx this screen downloads, saved in Excel format."},
+    "break_even.archivo_vacio": {
+        "es": "El archivo llegó vacío: no trae ninguna hoja con datos.",
+        "en": "The file arrived empty: it has no sheet with data."},
+    "break_even.sin_encabezado": {
+        "es": "El archivo no tiene el encabezado de la plantilla: faltan las columnas «id» y «% Variable». Bajá la plantilla de nuevo y llenala sobre ese archivo.",
+        "en": "The file is missing the template header: columns «id» and «% Variable» are not there. Download the template again and fill that file in."},
     "clave.demasiado_comun": {
         "es": "Esa contraseña es de las primeras que alguien probaría. Elegí otra.",
         "en": "That password is among the first anyone would try. Choose another."},
