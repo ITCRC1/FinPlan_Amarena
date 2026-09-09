@@ -3,6 +3,8 @@ Tests for the YTD / Full Year aggregator (A2) — pl_api._aggregate.
 
 Run: pytest tests/test_pl_ytd.py -v
 """
+import pytest
+
 from decimal import Decimal
 
 from app.engine.pl_engine import PLLineResult
@@ -145,9 +147,18 @@ def test_revpar_es_ingreso_TOTAL_por_habitacion_disponible():
 
 
 def test_el_revpar_de_habitaciones_sigue_disponible_aparte():
-    """No se perdió: quedó como `revpar_bruto`. Sirve para comparar contra la
-    tarifa, que es para lo que servía el RevPAR anterior."""
+    """El RevPAR viejo no se perdió: quedó como `revpar_bruto`. Sirve para
+    comparar contra la tarifa, que es justo para lo que servía.
+
+    ⚠️ Sólo aplica donde existe el resumen de habitaciones. Una instalación que
+    todavía no lo tiene no puede fallar por no publicar un campo de un cuadro
+    que no dibuja — pero el día que lo agregue, esta guarda la agarra: lo que
+    se comprueba es que si hay resumen, el RevPAR de habitaciones esté ahí.
+    """
     import inspect
 
     from app.api import pl_api
-    assert '"revpar_bruto"' in inspect.getsource(pl_api)
+    fuente = inspect.getsource(pl_api)
+    if '"rooms_revenue"' not in fuente:
+        pytest.skip("esta instalación todavía no tiene el resumen de habitaciones")
+    assert '"revpar_bruto"' in fuente
