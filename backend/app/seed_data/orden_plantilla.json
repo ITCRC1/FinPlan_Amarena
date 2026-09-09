@@ -3743,26 +3743,6 @@
     },
     {
       "dept_code": "0181",
-      "cuenta": "5700",
-      "clase": "Cost"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "5701",
-      "clase": "Cost"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7060",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7065",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
       "cuenta": "7105",
       "clase": "Opex"
     },
@@ -3774,11 +3754,6 @@
     {
       "dept_code": "0181",
       "cuenta": "7125",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7140",
       "clase": "Opex"
     },
     {
@@ -3798,42 +3773,7 @@
     },
     {
       "dept_code": "0181",
-      "cuenta": "7195",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7235",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7275",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7295",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7300",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7310",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
       "cuenta": "7335",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7350",
       "clase": "Opex"
     },
     {
@@ -3844,16 +3784,6 @@
     {
       "dept_code": "0181",
       "cuenta": "7400",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7460",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7490",
       "clase": "Opex"
     },
     {
@@ -3879,11 +3809,6 @@
     {
       "dept_code": "0181",
       "cuenta": "7685",
-      "clase": "Opex"
-    },
-    {
-      "dept_code": "0181",
-      "cuenta": "7695",
       "clase": "Opex"
     },
     {
