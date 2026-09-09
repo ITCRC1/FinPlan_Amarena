@@ -42,11 +42,21 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 #: Dónde viven las semillas dentro del repo.
 def _carpeta_de_la_propiedad() -> pathlib.Path:
-    """La carpeta de ESTA instalacion. Sin `HOTEL_ID`, la de Corcovado."""
-    import os
-    hotel = os.getenv("HOTEL_ID", "CWL")
+    """La carpeta de ESTA instalacion, la MISMA que usa el arranque.
+
+    ⚠️ Antes leia `os.getenv("HOTEL_ID", "CWL")` a mano. Ese default quedo de
+    cuando el repo servia a las cuatro propiedades, y en este —que es el
+    despliegue de Amarena— hacia lo peor que puede hacer un cargador: sin la
+    variable de entorno cargaba las semillas de CORCOVADO en la base de
+    Amarena, con los porcentajes fijo/variable medidos contra otro P&L. Y no da
+    error: el tab de Break-Even muestra numeros, solo que son de otro hotel.
+
+    `app.hotel_actual.HOTEL_ID` es la unica fuente de la identidad de la
+    instalacion y ya tiene el default correcto (`AMA`) con su motivo escrito.
+    """
+    from app.hotel_actual import HOTEL_ID
     return (pathlib.Path(__file__).resolve().parents[1]
-            / "app" / "seed_data" / hotel / "break_even")
+            / "app" / "seed_data" / HOTEL_ID / "break_even")
 
 
 #: ATENCION (2026-08-20): las semillas se movieron a
