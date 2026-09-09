@@ -41,6 +41,23 @@ from app.i18n import DEFAULT_LOCALE, normalize_locale
 #: mano — y con tres redacciones distintas entre ellos.
 MENSAJES: dict[str, dict[str, str]] = {
     # ── Lo que no se encuentra ────────────────────────────────────────────────
+    "auth.demasiados_intentos": {
+        "es": "Demasiados intentos fallidos. Probá de nuevo en {minutos} minutos.",
+        "en": "Too many failed attempts. Try again in {minutos} minutes."},
+    "auth.demasiados_intentos_ip": {
+        "es": "Demasiados intentos desde esta conexión. Esperá un momento.",
+        "en": "Too many attempts from this connection. Wait a moment."},
+    "auth.ultimo_admin": {
+        "es": "Es el único administrador activo. Nombrá otro antes de "
+              "quitarle el rol o desactivarlo, o nadie va a poder administrar.",
+        "en": "This is the only active administrator. Appoint another one before "
+              "removing the role or deactivating, or nobody will be able to administer."},
+    "clave.demasiado_comun": {
+        "es": "Esa contraseña es de las primeras que alguien probaría. Elegí otra.",
+        "en": "That password is among the first anyone would try. Choose another."},
+    "clave.poca_variedad": {
+        "es": "La contraseña repite muy pocos caracteres distintos",
+        "en": "The password repeats too few distinct characters"},
     "escenario.no_encontrado": {
         "es": "Escenario no encontrado",
         "en": "Scenario not found"},
