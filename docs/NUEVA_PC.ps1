@@ -82,6 +82,11 @@ if (-not $SoloRepos) {
 
 # ── 2 · Los repos ────────────────────────────────────────────────────────────
 #
+# ⚠️ Es SEGURO correrlo sobre una PC donde ya instalaste cosas: no pisa nada.
+# Lo que ya está se saltea, y lo que está desactualizado se AVISA en vez de
+# actualizarse solo — un `pull` automático sobre trabajo sin comitear es la
+# forma más rápida de perderlo.
+#
 # Desde el 2026-09-09 los cuatro están completos en GitHub, así que NO hay que
 # copiar carpetas de la PC vieja: se clonan. Antes de esa fecha esto no era
 # posible y había 63 commits que vivían en un solo disco.
@@ -89,10 +94,39 @@ Titulo "Repos"
 New-Item -ItemType Directory -Force -Path $Raiz | Out-Null
 foreach ($r in $REPOS) {
     $destino = Join-Path $Raiz $r.nombre
-    if (Test-Path (Join-Path $destino ".git")) { Ok "$($r.nombre) ya estaba clonado"; continue }
-    Write-Host "  ...  clonando $($r.nombre)"
-    git clone "https://github.com/ITCRC1/$($r.nombre).git" $destino
-    Ok $r.nombre
+    if (-not (Test-Path (Join-Path $destino ".git"))) {
+        Write-Host "  ...  clonando $($r.nombre)"
+        git clone "https://github.com/ITCRC1/$($r.nombre).git" $destino
+        Ok $r.nombre
+        continue
+    }
+
+    # ⚠️ Ya estaba clonado. NO se saltea en silencio.
+    #
+    # Un clon viejo se ve igual que uno al día, y ésa es la trampa: el guion
+    # seguiría de largo y la PC quedaría trabajando sobre código de antes de
+    # ayer sin que nada lo diga. Se mide y se avisa — pero NO se hace `pull`
+    # solo: si hay trabajo local sin comitear, un pull automático es la forma
+    # más rápida de perderlo.
+    Push-Location $destino
+    git fetch --quiet 2>$null
+    $sucio  = (git status --porcelain | Measure-Object -Line).Lines
+    $atras  = (git rev-list --count "HEAD..@{u}" 2>$null)
+    $delante= (git rev-list --count "@{u}..HEAD" 2>$null)
+    Pop-Location
+
+    if ($sucio -gt 0) {
+        Malo "$($r.nombre): $sucio archivo(s) SIN COMITEAR — reviselos antes de nada"
+    }
+    if ($delante -and [int]$delante -gt 0) {
+        Malo "$($r.nombre): $delante commit(s) locales que NO están en GitHub — empujalos antes de tocar nada"
+    }
+    if ($atras -and [int]$atras -gt 0) {
+        Falta "$($r.nombre): está $atras commit(s) ATRASADO. Poné al día con:  cd $destino ; git pull"
+    }
+    if ($sucio -eq 0 -and (-not $delante -or [int]$delante -eq 0) -and (-not $atras -or [int]$atras -eq 0)) {
+        Ok "$($r.nombre) ya estaba, y al día"
+    }
 }
 
 # ── 3 · Los entornos ─────────────────────────────────────────────────────────
