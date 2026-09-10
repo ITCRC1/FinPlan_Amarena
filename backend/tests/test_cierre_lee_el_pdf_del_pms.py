@@ -322,3 +322,149 @@ def test_el_lector_no_usa_pypdf():
     src = (BACKEND / "app/importers/skill4_room_stats_pdf.py").read_text(encoding="utf-8")
     assert "import pdfplumber" in src
     assert "import pypdf" not in src
+
+# ──────────────── 5. el mes se elige, y elegirlo no lo impone ───────────────
+#
+# Owner, 2026-09-10: *«debe darme la oportunidad de escoger un mes cuando
+# subo»*. El mes elegido dice DONDE se guarda; el que manda sobre QUE se
+# guarda sigue siendo el archivo. Las dos mitades se cuidan acá.
+
+def test_el_mes_elegido_que_no_es_el_del_pdf_se_frena():
+    """⚠️ El modo de falla es silencioso y por eso se valida en vez de obedecer.
+
+    Guardar reemplaza el mes entero (`revenue_api` borra las filas del mes
+    antes de escribir). Si el selector le ganara al archivo, subir el PDF de
+    marzo con abril elegido pisaría un abril que ya estaba bien, con cifras de
+    otro mes — y el resultado se ve perfectamente normal: doce meses cargados
+    y totales que suman. Es el mismo motivo por el que ya existe la guarda del
+    año, `skill4.ano_no_coincide`.
+    """
+    from app.api.room_stats_pdf_api import _validar_mes_elegido
+    from app.errores import ErrorApi
+
+    with pytest.raises(ErrorApi) as e:
+        _validar_mes_elegido(4, 3)
+    assert e.value.status_code == 422
+    # El mensaje nombra LOS DOS meses: sin eso, quien lo ve no sabe si el que
+    # está mal es el archivo o su elección.
+    assert "Marzo" in e.value.detail and "Abril" in e.value.detail
+
+
+def test_el_mes_elegido_que_coincide_pasa():
+    from app.api.room_stats_pdf_api import _validar_mes_elegido
+    _validar_mes_elegido(3, 3)      # no levanta
+
+
+def test_sin_mes_elegido_el_lector_sigue_andando():
+    """`None` = la pantalla no mandó mes. Se acepta y se usa el del archivo.
+
+    El parámetro es opcional a propósito: hacerlo obligatorio habría roto todo
+    cliente que ya llamaba al lector, y el lector no necesita el mes para
+    leer — lo necesita para avisar.
+    """
+    from app.api.room_stats_pdf_api import _validar_mes_elegido
+    _validar_mes_elegido(None, 3)   # no levanta
+
+
+@pytest.mark.parametrize("mes", [0, 13, -1, 99])
+def test_un_mes_fuera_del_almanaque_se_frena(mes):
+    from app.api.room_stats_pdf_api import _validar_mes_elegido
+    from app.errores import ErrorApi
+    with pytest.raises(ErrorApi) as e:
+        _validar_mes_elegido(mes, 3)
+    assert e.value.status_code == 422
+
+
+def test_el_lector_sigue_sin_escribir_con_el_mes_encima():
+    """La guarda nueva no convirtió el lector en importador.
+
+    Se repite la mirada de la prueba 1 sobre el cuerpo del endpoint porque el
+    parámetro nuevo es justamente la clase de cambio que invita a «ya que
+    estamos, guardémoslo».
+    """
+    src = API.read_text(encoding="utf-8")
+    desde = src.index("async def leer_pdf_room_stats")
+    hasta = src.index("@router.", desde)
+    cuerpo = src[desde:hasta]
+    for escritura in ("db.add(", "db.commit(", "db.delete(", "insert("):
+        assert escritura not in cuerpo, f"el lector escribe: {escritura}"
+
+
+def test_los_dos_errores_del_mes_estan_en_los_dos_idiomas():
+    from app.errores import MENSAJES
+    for clave in ("skill4.mes_no_coincide", "skill4.mes_invalido"):
+        assert clave in MENSAJES, f"falta {clave} en el catálogo"
+        assert MENSAJES[clave]["es"] and MENSAJES[clave]["en"]
+
+
+def test_la_pantalla_ofrece_elegir_el_mes():
+    """Sin selector, el mes lo decide el archivo y quien sube no ve cuál va a
+    reemplazar antes de apretar Guardar."""
+    src = PAGINA.read_text(encoding="utf-8")
+    assert 'aria-label="Mes"' in src, "la pantalla no tiene selector de mes"
+    assert "setMesSel" in src
+
+
+def test_la_pantalla_manda_el_mes_al_lector():
+    """El selector tiene que VIAJAR. Un selector que no se manda es peor que no
+    tenerlo: da la impresión de que se eligió algo."""
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "leerPdfRoomStats(scenarioId, f, mesSel)" in src
+    cliente = (FRONT / "lib/api.ts").read_text(encoding="utf-8")
+    assert 'form.append("mes"' in cliente
+
+
+def test_el_mes_elegido_avisa_lo_que_va_a_reemplazar():
+    """Si el mes ya tiene estadística, la pantalla lo dice ANTES de subir —y
+    con cifras, no con un cartel genérico."""
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "ya tiene estadística guardada" in src
+    assert "reemplaza" in src
+
+
+def test_el_mes_guardado_no_finge_el_detalle_del_pdf():
+    """⚠️ Lo guardado son totales; el rótulo del PMS, su resumen de ocupación y
+    los avisos de cuadre sólo existen en el archivo.
+
+    Rellenar esos campos con ceros para poder pintar las tres vistas del mes
+    haría que un mes guardado se lea como un mes sin ventas — el mismo error
+    que `anio_room_stats` evita con `cargado: false`. Mientras las vistas no
+    sepan pintar sin archivo, la pantalla dice CUÁNTO hay y no inventa el
+    detalle.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    desde = src.index("const guardado = useMemo")
+    hasta = src.index("const fueraDelAdr", desde)
+    cuerpo = src[desde:hasta]
+    for inventado in ("nombre_pdf", "resumen_pdf", "avisos_de_cuadre",
+                      "hab_entradas", "cli_entradas"):
+        assert inventado not in cuerpo, f"el mes guardado finge {inventado}"
+
+
+def test_al_guardar_se_recarga_el_ano_y_no_se_descarta():
+    """⚠️ Cargar varios meses de corrido depende de esto.
+
+    Al guardar, la pantalla hacía `setAnio(null)` y ningún efecto volvía a
+    pedir el año: quedaba nulo hasta abrir Acumulado o cambiar de escenario.
+    Con el año nulo, el cartel del vacío no puede decir cuánto hay guardado y
+    el selector no puede avanzar al primer mes que falta — o sea que después
+    de guardar marzo seguía ofreciendo marzo.
+
+    Owner, 2026-09-10: *«ya tengo de marzo a Agosto para subir»*. Son seis
+    cargas seguidas; el avance solo es la diferencia entre seis y doce pasos.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    desde = src.index("async function guardar()")
+    hasta = src.index("async function bajarExcel", desde)
+    cuerpo = src[desde:hasta]
+    assert "cargarAnio()" in cuerpo, "guardar no recarga el año"
+    assert "setAnio(null)" not in cuerpo, "guardar descarta el año en vez de recargarlo"
+
+
+def test_el_selector_avanza_solo_al_primer_mes_que_falta():
+    """El default se acomoda al primer mes sin cargar, y deja de moverse en
+    cuanto el usuario elige a mano: un selector que salta mientras alguien lo
+    está usando es peor que un default imperfecto."""
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "mesTocado" in src
+    assert "anio.meses.find(m => !m.cargado)" in src

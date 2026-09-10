@@ -214,6 +214,12 @@ MENSAJES: dict[str, dict[str, str]] = {
     "skill4.ano_no_coincide": {
         "es": "El PDF es del año {ano_archivo} y el escenario es del {ano_escenario}. Abrí el escenario del año que corresponde y volvé a subirlo.",
         "en": "The PDF is from {ano_archivo} and the scenario is from {ano_escenario}. Open the scenario for the matching year and upload it again."},
+    "skill4.mes_no_coincide": {
+        "es": "El PDF es de {mes_archivo} y elegiste {mes_elegido}. Revisá cuál de los dos está mal y volvé a subirlo: guardarlo en el mes equivocado reemplaza un mes que ya estaba bien.",
+        "en": "The PDF is from {mes_archivo} and you chose {mes_elegido}. Check which of the two is wrong and upload it again: saving it under the wrong month replaces a month that was already right."},
+    "skill4.mes_invalido": {
+        "es": "El mes «{mes}» no existe. Tiene que estar entre 1 y 12.",
+        "en": "Month “{mes}” does not exist. It has to be between 1 and 12."},
     "skill4.no_se_pudo_leer": {
         "es": "No se pudo leer el PDF del PMS: {detalle}",
         "en": "The PMS PDF could not be read: {detalle}"},

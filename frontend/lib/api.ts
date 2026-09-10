@@ -3449,9 +3449,19 @@ export interface PdfRoomStatsLectura {
   };
   avisos_de_cuadre: string[];
 }
-export async function leerPdfRoomStats(scenarioId: string, file: File): Promise<PdfRoomStatsLectura> {
+/** Lee el PDF del PMS sin guardarlo.
+ *
+ * `mes` es el mes elegido en la pantalla. Viaja para que el backend lo
+ * COMPARE contra el que declara el archivo y frene si no coinciden: el mes
+ * elegido dice donde se va a guardar, y el guardado reemplaza el mes entero.
+ * Sin esa comparacion, el PDF de marzo con abril elegido pisa un abril que
+ * estaba bien y el resultado se ve normal. */
+export async function leerPdfRoomStats(
+  scenarioId: string, file: File, mes?: number,
+): Promise<PdfRoomStatsLectura> {
   const form = new FormData();
   form.append("file", file);
+  if (mes !== undefined) { form.append("mes", String(mes)); }
   const res = await fetch(`${BASE}/scenarios/${scenarioId}/room-stats/leer-pdf/`, {
     method: "POST", body: form, headers: authHeaders(),
   });

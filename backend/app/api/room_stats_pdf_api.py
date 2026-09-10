@@ -51,7 +51,7 @@ from __future__ import annotations
 import calendar
 import unicodedata
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,10 +160,38 @@ async def _escenario(scenario_id: str, db: AsyncSession) -> Scenario:
     return sc
 
 
+def _validar_mes_elegido(mes_elegido, mes_archivo: int) -> None:
+    """El mes que eligio la pantalla tiene que ser el que declara el PDF.
+
+    **Por que se valida y no se obedece (owner, 2026-09-10).** El mes elegido
+    dice DONDE se va a guardar, y el guardado reemplaza el mes entero
+    (`revenue_api` borra las filas del mes antes de escribir). Si el selector
+    le ganara al archivo, subir el PDF de marzo con abril elegido pisaria un
+    abril que ya estaba bien, con cifras de otro mes, y el resultado se ve
+    perfectamente normal: doce meses cargados, totales que suman. Nada avisa.
+
+    Es la misma guarda que ya existe para el ano (`skill4.ano_no_coincide`) y
+    por el mismo motivo: mismo mes, otro periodo, ninguna forma de notarlo
+    despues.
+
+    `None` = la pantalla no mando mes. Se acepta y se usa el del archivo, para
+    que un cliente viejo siga andando igual que antes.
+    """
+    if mes_elegido is None:
+        return
+    if not 1 <= mes_elegido <= 12:
+        raise ErrorApi(422, "skill4.mes_invalido", mes=mes_elegido)
+    if mes_elegido != mes_archivo:
+        raise ErrorApi(422, "skill4.mes_no_coincide",
+                       mes_archivo=nombre_del_mes(mes_archivo),
+                       mes_elegido=nombre_del_mes(mes_elegido))
+
+
 @router.post("/scenarios/{scenario_id}/room-stats/leer-pdf/")
 async def leer_pdf_room_stats(
     scenario_id: str,
     file: UploadFile = File(...),
+    mes: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Lee el PDF de Skill4 y devuelve el mes ya armado. **No guarda nada.**
@@ -174,6 +202,10 @@ async def leer_pdf_room_stats(
 
     Lo que vuelve alcanza para pintar la pantalla y para guardar después con
     `PUT /scenarios/{id}/room-stats-entry/{month}/` sin volver a subir el PDF.
+
+    `mes` es el mes elegido en la pantalla, y si viene tiene que coincidir con
+    el que declara el archivo — ver `_validar_mes_elegido`. Es opcional para
+    que un cliente que no lo manda siga andando.
     """
     sc = await _escenario(scenario_id, db)
     raw = await file.read()
@@ -192,6 +224,11 @@ async def leer_pdf_room_stats(
     if lectura.year != sc.year:
         raise ErrorApi(422, "skill4.ano_no_coincide",
                        ano_archivo=lectura.year, ano_escenario=sc.year)
+
+    # Y el mes elegido en la pantalla tiene que ser el del archivo. Ver
+    # `_validar_mes_elegido`: el mes elegido dice donde se guarda, y el
+    # guardado reemplaza el mes entero.
+    _validar_mes_elegido(mes, lectura.month)
 
     categorias = (await db.execute(
         select(RoomTypeConfig)

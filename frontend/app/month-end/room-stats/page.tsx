@@ -57,6 +57,8 @@ import { HOTEL_ID } from "@/lib/hotel";
 
 const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
               "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+               "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 type Vista = "canal" | "habitacion" | "matriz" | "acumulado";
 type Medida = "noches" | "ocupacion" | "pax" | "ingreso" | "adr" | "revpar";
@@ -124,6 +126,16 @@ export default function CierreRoomStatsPage() {
     "month-end/room-stats", escenarios, "actual");
 
   const [vista, setVista] = useState<Vista>("habitacion");
+  /** El mes donde va a guardar. Es una eleccion explicita y no algo que se
+   *  deduzca del archivo: el guardado REEMPLAZA el mes entero, asi que quien
+   *  sube tiene que ver de antemano cual va a pisar. El backend igual compara
+   *  este mes contra el que declara el PDF y frena si no coinciden. */
+  const [mesSel, setMesSel] = useState<number>(new Date().getMonth() + 1);
+  /** ¿El usuario ya eligió mes a mano? Mientras no, el default se acomoda al
+   *  primer mes que falta (ver el efecto más abajo). Después no se mueve más:
+   *  un selector que salta solo mientras alguien lo usa es peor que un default
+   *  imperfecto. */
+  const mesTocado = useRef(false);
   const [lectura, setLectura] = useState<PdfRoomStatsLectura | null>(null);
   const [calce, setCalce] = useState<Record<string, string>>({});
   const [abierta, setAbierta] = useState<Record<string, boolean>>({});
@@ -163,13 +175,29 @@ export default function CierreRoomStatsPage() {
       .catch(e => setError(e instanceof Error ? e.message : "No se pudo cargar el año"));
   }, [scenarioId]);
 
+  // El ano se carga con el escenario y no solo al abrir Acumulado: es de donde
+  // sale saber si el mes elegido YA tiene estadistica guardada. Sin eso, el
+  // selector no puede avisar que subir ahi reemplaza algo.
+  useEffect(() => { cargarAnio(); }, [cargarAnio]);
+
+  /** El default útil es el PRIMER MES SIN CARGAR, no el mes calendario.
+   *
+   *  Cerrar es completar lo que falta: con enero–agosto cargados el que sigue
+   *  es septiembre, y con marzo faltando en medio el que sigue es marzo. El mes
+   *  calendario acierta sólo cuando no hay atraso, y acá justamente se está
+   *  llenando hacia atrás. Si están los doce, se queda donde estaba. */
+  useEffect(() => {
+    if (!anio || mesTocado.current) return;
+    const falta = anio.meses.find(m => !m.cargado);
+    if (falta) setMesSel(falta.month);
+  }, [anio]);
   useEffect(() => { if (vista === "acumulado") cargarAnio(); }, [vista, cargarAnio]);
 
   const leer = useCallback(async (f: File) => {
     if (!scenarioId) { setError("Elegí primero la versión donde va el mes."); return; }
     setLeyendo(true); setError(null); setOk(null); setLectura(null);
     try {
-      const r = await leerPdfRoomStats(scenarioId, f);
+      const r = await leerPdfRoomStats(scenarioId, f, mesSel);
       setLectura(r);
       setCalce(Object.fromEntries(r.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""])));
       setEnAdr(Object.fromEntries(r.canales.map(c => [c.canal_code, c.cuenta_para_kpis])));
@@ -181,7 +209,7 @@ export default function CierreRoomStatsPage() {
       setLeyendo(false);
       if (archivo.current) archivo.current.value = "";  // se puede volver a subir
     }
-  }, [scenarioId, vista]);
+  }, [scenarioId, vista, mesSel]);
 
   /** La casilla del ADR. Se persiste al instante: es una decisión de la
    *  propiedad, no de este mes, y tiene que valer para todos los meses. */
@@ -218,6 +246,25 @@ export default function CierreRoomStatsPage() {
              dispTot: disp.reduce((a, v) => a + v, 0),
              filtra: canales.some(c => !(enAdr[c] ?? true)) };
   }, [lectura, enAdr, calce, categorias]);
+
+  /** Lo que la base ya tiene en el mes elegido. Sale de `/anio/`, que es el
+   *  MISMO endpoint que alimenta Acumulado — no una segunda fuente.
+   *
+   *  ⚠️ Solo los totales. La apertura por canal guardada existe, pero las tres
+   *  vistas del mes se pintan con campos que solo trae el PDF —el rotulo del
+   *  PMS, su resumen de ocupacion, los avisos de cuadre—, y rellenarlos con
+   *  ceros haria que un mes guardado se lea como un mes sin ventas. Mientras
+   *  esas vistas no sepan pintar sin archivo, aca se dice cuanto hay y no se
+   *  finge el detalle. */
+  const guardado = useMemo(() => {
+    const m = anio?.meses?.[mesSel - 1];
+    if (!m || !m.cargado) return null;
+    const noches = m.categorias.reduce((a, c) => a + c.nights_occupied, 0);
+    const pax = m.categorias.reduce((a, c) => a + c.pax, 0);
+    const ingreso = m.categorias.reduce((a, c) => a + c.revenue, 0);
+    const disp = m.categorias.reduce((a, c) => a + c.nights_available, 0);
+    return { noches, pax, ingreso, disp, canales: m.canales.length };
+  }, [anio, mesSel]);
 
   const fueraDelAdr = useMemo(
     () => (mes?.canales ?? []).filter(c => !(enAdr[c] ?? true)), [mes, enAdr]);
@@ -259,7 +306,11 @@ export default function CierreRoomStatsPage() {
             + `${r.canales_saved ? `, ${r.canales_saved} línea(s) de canal` : ""}. `
             + "El PDF no se almacenó.");
       setLectura(null);
-      setAnio(null);
+      // Se RECARGA el ano, no se descarta. Descartarlo dejaba la pantalla sin
+      // saber que el mes recien guardado ya esta: el cartel del vacio no podia
+      // decir cuanto hay, y el selector no podia avanzar al mes que sigue —
+      // que es todo el punto cuando se cargan varios meses de corrido.
+      cargarAnio();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar");
     } finally { setGuardando(false); }
@@ -351,6 +402,18 @@ export default function CierreRoomStatsPage() {
                 style={SEL} aria-label="Versión">
           {escenarios.map(s => (
             <option key={s.id} value={s.id}>{s.type} · {s.version} · {s.year}</option>
+          ))}
+        </select>
+        <select value={mesSel}
+                onChange={e => { mesTocado.current = true; setMesSel(Number(e.target.value)); }}
+                style={SEL} aria-label="Mes" disabled={leyendo || !!lectura}
+                title={lectura
+                  ? "Hay un PDF leído en pantalla. Apretá Descartar para cambiar de mes: el calce de categorías es de este archivo y se perdería."
+                  : "El mes donde se va a guardar. Subir reemplaza el mes entero."}>
+          {MESES.map((n, i) => (
+            <option key={i + 1} value={i + 1}>
+              {n}{(anio?.meses_cargados ?? []).includes(i + 1) ? " · cargado" : ""}
+            </option>
           ))}
         </select>
         <label style={{ ...SEL, cursor: leyendo ? "wait" : "pointer", fontWeight: 600,
@@ -448,11 +511,28 @@ export default function CierreRoomStatsPage() {
         {vista === "acumulado"
           ? <Acumulado anio={anio} medida={medida} filas={filas} enAdr={enAdr} pega={pega} />
           : !lectura
-            ? <p style={{ padding: "26px 16px", margin: 0, fontSize: 12.5,
-                          color: "var(--text-secondary)" }}>
-                Subí el PDF del mes para ver esta vista. El acumulado del año se puede
-                mirar sin subir nada.
-              </p>
+            ? <div style={{ padding: "26px 16px", fontSize: 12.5,
+                            color: "var(--text-secondary)" }}>
+                <p style={{ margin: 0 }}>
+                  Subí el PDF de <strong>{MESES[mesSel - 1]}</strong> para ver esta
+                  vista. El acumulado del año se puede mirar sin subir nada.
+                </p>
+                {guardado ? (
+                  <p style={{ margin: "9px 0 0" }}>
+                    {MESES[mesSel - 1]} <strong>ya tiene estadística guardada</strong>:{" "}
+                    {guardado.noches.toLocaleString("es-CR")} noches ·{" "}
+                    {guardado.pax.toLocaleString("es-CR")} pax ·{" "}
+                    {usd(guardado.ingreso)}
+                    {guardado.noches ? ` · ADR ${usd(guardado.ingreso / guardado.noches)}` : ""}
+                    {guardado.canales ? ` · ${guardado.canales} fila(s) por canal` : " · sin apertura por canal"}.
+                    {" "}Subir el PDF de este mes <strong>reemplaza</strong> eso.
+                  </p>
+                ) : (
+                  <p style={{ margin: "9px 0 0" }}>
+                    {MESES[mesSel - 1]} todavía no tiene estadística en esta versión.
+                  </p>
+                )}
+              </div>
             : vista === "canal"   ? <PorCanal {...{ lectura, mes: mes!, enAdr, alternarAdr, pega }} />
             : vista === "matriz"  ? <Matriz {...{ lectura, mes: mes!, rotuloAdr, enAdr, pega, Calce }} />
             :                       <PorHabitacion {...{ lectura, mes: mes!, sufijo: sufijoKpi, pega, Calce }} />}
