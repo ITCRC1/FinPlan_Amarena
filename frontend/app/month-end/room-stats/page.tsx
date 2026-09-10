@@ -45,9 +45,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  getAnioRoomStats, getRoomStatsEntry, getScenarios, leerPdfRoomStats,
-  marcarCanalParaKpis, saveRoomStatsEntry,
-  type AnioMes, type AnioRoomStats,
+  getAnioRoomStats, getMapeoPms, getRoomStatsEntry, getScenarios, leerPdfRoomStats,
+  guardarMapeoPms, marcarCanalParaKpis, saveRoomStatsEntry,
+  type AnioMes, type AnioRoomStats, type MapeoPms,
   type PdfRoomStatsLectura, type RoomStatCanalIn,
   type Scenario,
 } from "@/lib/api";
@@ -60,7 +60,7 @@ const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-type Vista = "canal" | "habitacion" | "matriz" | "acumulado";
+type Vista = "canal" | "habitacion" | "matriz" | "acumulado" | "mapeo";
 type Medida = "noches" | "ocupacion" | "pax" | "ingreso" | "adr" | "revpar";
 
 /** Ocupación y RevPAR se dividen por noches disponibles, y un canal no tiene
@@ -144,6 +144,10 @@ export default function CierreRoomStatsPage() {
   const [enAdr, setEnAdr] = useState<Record<string, boolean>>({});
 
   const [anio, setAnio] = useState<AnioRoomStats | null>(null);
+  /** El calce guardado: rotulo del PMS -> categoria. Es lo que evita volver a
+   *  tomar la misma decision cada mes. */
+  const [mapeo, setMapeo] = useState<MapeoPms | null>(null);
+  const [guardandoMapeo, setGuardandoMapeo] = useState(false);
   const [medida, setMedida] = useState<Medida>("ingreso");
   const [filas, setFilas] = useState<"habitacion" | "canal">("habitacion");
 
@@ -168,6 +172,26 @@ export default function CierreRoomStatsPage() {
       .catch(() => { if (vivo) setCategorias([]); });
     return () => { vivo = false; };
   }, [scenarioId, lectura]);
+
+  const cargarMapeo = useCallback(() => {
+    getMapeoPms().then(setMapeo)
+      .catch(e => setError(e instanceof Error ? e.message : "No se pudo cargar el mapeo"));
+  }, []);
+  useEffect(() => { cargarMapeo(); }, [cargarMapeo]);
+
+  /** Fija (o borra, con codigo vacio) el calce de un rotulo y recarga. */
+  const fijarMapeo = useCallback(async (label: string, code: string) => {
+    setGuardandoMapeo(true); setError(null);
+    try {
+      await guardarMapeoPms([{ label, room_type_code: code }]);
+      cargarMapeo();
+      setOk(code
+        ? `Calce guardado: «${label}» va a esa categoría de acá en adelante.`
+        : `Calce borrado: «${label}» vuelve a quedar sin categoría.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar el calce");
+    } finally { setGuardandoMapeo(false); }
+  }, [cargarMapeo]);
 
   const cargarAnio = useCallback(() => {
     if (!scenarioId) return;
@@ -305,6 +329,24 @@ export default function CierreRoomStatsPage() {
       setOk(`Guardado: ${lectura.mes_nombre} ${lectura.year} · ${r.rows_saved} categoría(s)`
             + `${r.canales_saved ? `, ${r.canales_saved} línea(s) de canal` : ""}. `
             + "El PDF no se almacenó.");
+      // ⚠️ Se RECUERDA el calce de este PDF, no solo se usa.
+      //
+      // Es el punto de todo esto: sin guardarlo, los seis meses que vienen
+      // vuelven a preguntar lo mismo, y cada vez es una oportunidad de elegir
+      // distinto — con lo que la serie queda partida en dos categorias sin que
+      // ningun total lo delate. Se guarda DESPUES de que el mes entro: si la
+      // escritura del mes falla, el calce no queda fijado por un intento.
+      const aRecordar = lectura.filas
+        .filter(f => calce[f.nombre_pdf])
+        .map(f => ({
+          label: f.nombre_pdf,
+          room_type_code: mapeo?.categorias.find(c => c.name === calce[f.nombre_pdf])?.code ?? "",
+        }))
+        .filter(x => x.room_type_code);
+      if (aRecordar.length) {
+        try { await guardarMapeoPms(aRecordar); cargarMapeo(); }
+        catch { /* el mes ya entro; el calce se puede fijar en el sub-tab */ }
+      }
       setLectura(null);
       // Se RECARGA el ano, no se descarta. Descartarlo dejaba la pantalla sin
       // saber que el mes recien guardado ya esta: el cartel del vacio no podia
@@ -472,7 +514,8 @@ export default function CierreRoomStatsPage() {
       <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "flex-end",
                                    borderBottom: "1px solid var(--border-medium)" }}>
         {([["canal", "Por canal"], ["habitacion", "Por habitación"],
-           ["matriz", "Canal × habitación"], ["acumulado", "Acumulado"]] as [Vista, string][])
+           ["matriz", "Canal × habitación"], ["acumulado", "Acumulado"],
+           ["mapeo", "Mapping"]] as [Vista, string][])
           .map(([k, r]) => (
           <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)}
             style={{ background: "none", border: "none", padding: "7px 15px",
@@ -508,7 +551,9 @@ export default function CierreRoomStatsPage() {
            style={{ border: "1px solid var(--border-medium)", borderTop: "none",
                     borderRadius: "0 0 8px 8px", overflowX: "auto",
                     background: "var(--bg-surface)" }}>
-        {vista === "acumulado"
+        {vista === "mapeo"
+          ? <Mapeo {...{ mapeo, lectura, fijarMapeo, guardandoMapeo, pega }} />
+          : vista === "acumulado"
           ? <Acumulado anio={anio} medida={medida} filas={filas} enAdr={enAdr} pega={pega} />
           : !lectura
             ? <div style={{ padding: "26px 16px", fontSize: 12.5,
@@ -567,6 +612,173 @@ export default function CierreRoomStatsPage() {
 }
 
 /* ─────────────────────────── Vista 1 · Por canal ────────────────────────── */
+/** El sub-tab «Mapping»: los dos lados del calce, y quién decide.
+ *
+ * ⚠️ Es la única vista que NO necesita el PDF, y tiene que serlo: la pregunta
+ * «a dónde va este rótulo» aparece justo cuando el archivo todavía no se subió
+ * o ya se descartó. Lo que trae el PDF cargado se suma como una fila más —lo
+ * que hay que decidir—, no como la fuente.
+ *
+ * Tres estados que se ven distinto a propósito:
+ *
+ * * **guardado** — alguien lo decidió y manda. Es lo que hace que el mes que
+ *   viene no vuelva a preguntar lo mismo.
+ * * **propuesto** — parecido de texto (`_calce`). Se muestra y espera: un
+ *   calce por parecido que nadie revisó es como se archivan las noches bajo la
+ *   categoría equivocada.
+ * * **huérfano** — el mapeo apunta a un código que ya no está activo. No se
+ *   limpia solo: borrarlo en silencio dejaría el rótulo sin destino y las
+ *   noches caerían en «sin categoría» sin explicación.
+ */
+function Mapeo({ mapeo, lectura, fijarMapeo, guardandoMapeo, pega }: {
+  mapeo: MapeoPms | null;
+  lectura: PdfRoomStatsLectura | null;
+  fijarMapeo: (label: string, code: string) => void;
+  guardandoMapeo: boolean;
+  pega: React.CSSProperties;
+}) {
+  if (!mapeo) {
+    return <p style={{ padding: "26px 16px", margin: 0, fontSize: 12.5,
+                       color: "var(--text-secondary)" }}>Cargando el mapeo…</p>;
+  }
+  const guardados = new Set(mapeo.mapeos.map(m => m.label));
+  const delPdf = (lectura?.filas ?? [])
+    .map(f => f.nombre_pdf)
+    .filter(l => !guardados.has(l));
+  const codigoDe = (nombre: string | null) =>
+    mapeo.categorias.find(c => c.name === nombre)?.code ?? "";
+
+  const selector = (label: string, actual: string) => (
+    <select value={actual} disabled={guardandoMapeo}
+            onChange={e => fijarMapeo(label, e.target.value)}
+            aria-label={"Categoría para " + label}
+            style={{ font: "inherit", fontSize: 12, padding: "3px 6px",
+                     border: "1px solid var(--border-medium)", borderRadius: 5,
+                     background: "var(--bg-surface)", color: "var(--text-primary)",
+                     maxWidth: 300 }}>
+      <option value="">— sin categoría —</option>
+      {mapeo.categorias.map(c => (
+        <option key={c.code} value={c.code}>{c.code} · {c.name}</option>
+      ))}
+    </select>
+  );
+
+  const chip = (texto: string, color: string) => (
+    <span style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase",
+                   letterSpacing: ".04em", padding: "2px 7px", borderRadius: 9,
+                   background: color, color: "#fff", whiteSpace: "nowrap" }}>{texto}</span>
+  );
+
+  return (
+    <div style={{ padding: "4px 0 10px" }}>
+      <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "100%" }}>
+        <thead>
+          <tr>
+            <th style={{ ...TH, ...pega, textAlign: "left" }}>Rótulo del PMS</th>
+            <th style={{ ...TH, textAlign: "left" }}>Categoría en Master Data</th>
+            <th style={{ ...TH, textAlign: "left" }}>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {mapeo.mapeos.map(m => (
+            <tr key={m.label}>
+              <td style={{ ...TD, ...pega, textAlign: "left",
+                           background: "var(--bg-surface)" }}>{m.label}</td>
+              <td style={{ ...TD, textAlign: "left" }}>
+                {selector(m.label, m.room_type_code)}
+              </td>
+              <td style={{ ...TD, textAlign: "left" }}>
+                {chip("guardado", "var(--positive)")}
+              </td>
+            </tr>
+          ))}
+          {mapeo.huerfanos.map(m => (
+            <tr key={"h-" + m.label}>
+              <td style={{ ...TD, ...pega, textAlign: "left",
+                           background: "var(--bg-surface)" }}>{m.label}</td>
+              <td style={{ ...TD, textAlign: "left" }}>
+                {selector(m.label, "")}
+                <span style={{ marginLeft: 8, fontSize: 11.5,
+                               color: "var(--text-secondary)" }}>
+                  apuntaba a <code>{m.room_type_code}</code>, que ya no está activo
+                </span>
+              </td>
+              <td style={{ ...TD, textAlign: "left" }}>
+                {chip("huérfano", "var(--negative)")}
+              </td>
+            </tr>
+          ))}
+          {delPdf.map(label => {
+            const propuesto = lectura?.filas.find(f => f.nombre_pdf === label);
+            return (
+              <tr key={"p-" + label}>
+                <td style={{ ...TD, ...pega, textAlign: "left",
+                             background: "var(--bg-surface)" }}>{label}</td>
+                <td style={{ ...TD, textAlign: "left" }}>
+                  {selector(label, codigoDe(propuesto?.room_type_name ?? null))}
+                </td>
+                <td style={{ ...TD, textAlign: "left" }}>
+                  {propuesto?.room_type_name
+                    ? chip("propuesto · " + propuesto.confianza, "#b06f00")
+                    : chip("sin calce", "var(--negative)")}
+                </td>
+              </tr>
+            );
+          })}
+          {mapeo.mapeos.length === 0 && mapeo.huerfanos.length === 0
+           && delPdf.length === 0 && (
+            <tr><td colSpan={3} style={{ ...TD, textAlign: "left", fontSize: 12.5,
+                                         color: "var(--text-secondary)" }}>
+              Todavía no hay ningún rótulo del PMS calzado. Subí un PDF y el calce que
+              elijas al guardar queda fijado acá para los meses siguientes.
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+
+      <div style={{ padding: "14px 12px 2px" }}>
+        <h3 style={{ fontSize: 12.5, fontWeight: 700, margin: "0 0 7px" }}>
+          Categorías de Master Data
+        </h3>
+        <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, textAlign: "left" }}>Código</th>
+              <th style={{ ...TH, textAlign: "left" }}>Categoría</th>
+              <th style={TH}>Unidades</th>
+              <th style={TH}>Rótulos del PMS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mapeo.categorias.map(c => (
+              <tr key={c.code}>
+                <td style={{ ...TD, textAlign: "left" }}><code>{c.code}</code></td>
+                <td style={{ ...TD, textAlign: "left" }}>{c.name}</td>
+                <td style={TD}>{c.units}</td>
+                <td style={{ ...TD, color: c.rotulos ? undefined : "var(--negative)",
+                             fontWeight: c.rotulos ? 400 : 600 }}>
+                  {c.rotulos || "0"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {mapeo.categorias_sin_rotulo.length > 0 && (
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--text-secondary)",
+                      maxWidth: 760 }}>
+            ⚠️ Sin ningún rótulo del PMS apuntando a{" "}
+            <strong>{mapeo.categorias_sin_rotulo.join(", ")}</strong>. Si el PMS igual
+            las vende, esas noches están cayendo en otra categoría o quedando afuera —
+            y el total del mes sigue cuadrando contra su propio archivo, así que no hay
+            nada que lo delate salvo esta columna.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function PorCanal({ mes, enAdr, alternarAdr, pega }: {
   mes: MesAgregado; enAdr: MapaAdr;
   alternarAdr: (code: string, cuenta: boolean) => void;

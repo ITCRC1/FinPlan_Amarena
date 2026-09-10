@@ -58,6 +58,7 @@ from app.models.club_membership_stat import ClubMembershipStat
 from app.models.club_fee_budget import ClubFeeBudget
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
+from app.models.pms_room_label import PmsRoomLabel
 from app.models.actual_dept_fte import ActualDeptFte
 from app.models.on_the_books import OnTheBooksEntry
 from app.models.otb_daily_occ import OtbDailyOcc
@@ -89,7 +90,7 @@ __all__ = [
     "ScenarioMaster",
     "SalesChannelConfig", "RateCard", "OccupancyBudget",
     "PackageConfig", "RevenueOther",
-    "RevenueEntry", "REVENUE_LINES", "REVENUE_LINE_LABELS", "ActualRoomStat", "ActualRoomStatCanal", "ActualDeptFte", "OnTheBooksEntry", "OtbDailyOcc",
+    "RevenueEntry", "REVENUE_LINES", "REVENUE_LINE_LABELS", "ActualRoomStat", "ActualRoomStatCanal", "PmsRoomLabel", "ActualDeptFte", "OnTheBooksEntry", "OtbDailyOcc",
     "ChannelMixEntry",
     "CountryMixEntry", "COUNTRY_METRICS",
     "OpsKpiEntry",

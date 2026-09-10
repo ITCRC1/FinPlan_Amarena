@@ -214,6 +214,12 @@ MENSAJES: dict[str, dict[str, str]] = {
     "skill4.ano_no_coincide": {
         "es": "El PDF es del año {ano_archivo} y el escenario es del {ano_escenario}. Abrí el escenario del año que corresponde y volvé a subirlo.",
         "en": "The PDF is from {ano_archivo} and the scenario is from {ano_escenario}. Open the scenario for the matching year and upload it again."},
+    "skill4.rotulo_vacio": {
+        "es": "Falta el rótulo del PMS.",
+        "en": "The PMS label is missing."},
+    "skill4.categoria_desconocida": {
+        "es": "La categoría «{codigo}» no existe entre las activas de esta propiedad. Revisá Master Data · Inventario: un mapeo hacia un código que no existe deja el rótulo sin destino y las noches vuelven a caer en «sin categoría».",
+        "en": "Category “{codigo}” does not exist among this property's active ones. Check Master Data · Inventory: a mapping to a code that does not exist leaves the label with no destination and the nights fall back to “no category”."},
     "skill4.mes_no_coincide": {
         "es": "El PDF es de {mes_archivo} y elegiste {mes_elegido}. Revisá cuál de los dos está mal y volvé a subirlo: guardarlo en el mes equivocado reemplaza un mes que ya estaba bien.",
         "en": "The PDF is from {mes_archivo} and you chose {mes_elegido}. Check which of the two is wrong and upload it again: saving it under the wrong month replaces a month that was already right."},

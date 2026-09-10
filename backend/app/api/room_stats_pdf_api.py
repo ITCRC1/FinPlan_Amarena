@@ -63,6 +63,7 @@ from app.importers.skill4_room_stats_pdf import leer_pdf_skill4, nombre_del_mes
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
 from app.models.market_code import MarketCode
+from app.models.pms_room_label import PmsRoomLabel
 from app.models.room_type_config import RoomTypeConfig
 from app.models.scenario import Scenario
 
@@ -96,6 +97,13 @@ def _normalizar(texto: str) -> str:
 
 def _tokens(texto: str) -> set:
     return {_SINONIMOS.get(p, p) for p in _normalizar(texto).split()} - _VACIAS
+
+
+async def _mapeo_guardado(db: AsyncSession) -> dict:
+    """`rotulo del PMS -> codigo de categoria`, lo que ya se fijo a mano."""
+    filas = (await db.execute(select(PmsRoomLabel).where(
+        PmsRoomLabel.hotel_id == HOTEL_ID))).scalars().all()
+    return {f.label: f.room_type_code for f in filas}
 
 
 def _calce(nombre_pdf: str, categorias: list) -> tuple:
@@ -242,10 +250,24 @@ async def leer_pdf_room_stats(
         ActualRoomStat.scenario_id == scenario_id,
         ActualRoomStat.month == lectura.month))).scalars().all()}
 
+    # ⚠️ El mapeo guardado DECIDE; `_calce` solo PROPONE.
+    #
+    # Si el parecido pudiera pisar una decision guardada, el calce cambiaria
+    # solo el dia que alguien edita un nombre en Master Data —y cambiaria en
+    # silencio, porque el total del mes sigue cuadrando contra su archivo. La
+    # serie quedaria partida: los meses viejos bajo una categoria y los nuevos
+    # bajo otra. Mismo criterio que `market_codes` con los canales.
+    mapeo = await _mapeo_guardado(db)
+    por_codigo = {c.code: c for c in categorias if c.code}
+
     filas, sin_calce = [], []
     usadas = set()
     for t in lectura.por_tipo():
-        cat, confianza = _calce(t["room_type_name"], categorias)
+        fijado = por_codigo.get(mapeo.get(t["room_type_name"], ""))
+        if fijado is not None:
+            cat, confianza = fijado, "guardado"
+        else:
+            cat, confianza = _calce(t["room_type_name"], categorias)
         if cat is not None and cat.name in usadas:
             # Dos categorías del PDF apuntando a la misma de la propiedad:
             # sumarlas en silencio perdería una. Se manda a revisión manual.
@@ -445,6 +467,112 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
         # salir — y hay que decirlo, no mostrar un cuadro vacío.
         "hay_apertura_por_canal": any(m["canales"] for m in meses),
     }
+
+
+# ─────────────── El mapeo de categorias del PMS (sub-tab) ──────────────────
+
+class MapeoPmsIn(BaseModel):
+    """`room_type_code` vacio = borrar el mapeo de ese rotulo."""
+
+    label: str
+    room_type_code: str = ""
+
+
+class MapeoPmsBody(BaseModel):
+    mapeos: list[MapeoPmsIn]
+
+
+@router.get("/room-stats/mapping/")
+async def ver_mapeo_pms(db: AsyncSession = Depends(get_db)):
+    """Los dos lados del calce: lo que trae el PMS y lo que hay en Master Data.
+
+    Se devuelven las dos listas y no solo la union, porque las dos preguntas
+    que se hacen frente a esta pantalla son distintas: «este rotulo del PDF, a
+    donde va» y «esta categoria mia, la trae el archivo». La segunda es la que
+    detecta una categoria que dejo de venir en el PMS y que por eso viene
+    guardando cero sin que nadie lo note.
+
+    ⚠️ `huerfanos` son mapeos cuyo codigo ya no existe entre las categorias
+    activas —se borro o se desactivo la categoria—. No se limpian solos: se
+    muestran, porque borrarlos en silencio dejaria el rotulo sin destino y las
+    noches volverian a caer en «sin categoria» sin explicacion.
+    """
+    categorias = (await db.execute(
+        select(RoomTypeConfig)
+        .where(RoomTypeConfig.hotel_id == HOTEL_ID, RoomTypeConfig.active == True)  # noqa: E712
+        .order_by(RoomTypeConfig.sort_order)
+    )).scalars().all()
+    por_codigo = {c.code: c for c in categorias if c.code}
+
+    filas = (await db.execute(select(PmsRoomLabel).where(
+        PmsRoomLabel.hotel_id == HOTEL_ID).order_by(PmsRoomLabel.label))).scalars().all()
+
+    mapeos, huerfanos = [], []
+    for f in filas:
+        cat = por_codigo.get(f.room_type_code)
+        fila = {"label": f.label, "room_type_code": f.room_type_code,
+                "room_type_name": cat.name if cat is not None else None}
+        (mapeos if cat is not None else huerfanos).append(fila)
+
+    con_mapeo = {m["room_type_code"] for m in mapeos}
+    return {
+        "hotel_id": HOTEL_ID,
+        "categorias": [{"code": c.code, "name": c.name, "short_name": c.short_name,
+                        "units": c.units,
+                        # Cuantos rotulos del PMS caen en esta categoria. Cero
+                        # = el archivo no la trae con ningun nombre conocido.
+                        "rotulos": sum(1 for m in mapeos if m["room_type_code"] == c.code)}
+                       for c in categorias],
+        "mapeos": mapeos,
+        "huerfanos": huerfanos,
+        "categorias_sin_rotulo": [c.name for c in categorias
+                                  if c.code and c.code not in con_mapeo],
+    }
+
+
+@router.put("/room-stats/mapping/")
+async def guardar_mapeo_pms(body: MapeoPmsBody, db: AsyncSession = Depends(get_db)):
+    """Fija (o borra) el calce de uno o varios rotulos del PMS.
+
+    No toca ningun importe: solo dice a que categoria pertenece un rotulo de
+    aca en adelante. Los meses ya guardados no se reescriben — si un mes quedo
+    bajo la categoria equivocada, hay que volver a subir ese mes.
+    """
+    categorias = (await db.execute(
+        select(RoomTypeConfig)
+        .where(RoomTypeConfig.hotel_id == HOTEL_ID, RoomTypeConfig.active == True)  # noqa: E712
+    )).scalars().all()
+    codigos = {c.code for c in categorias if c.code}
+
+    existentes = {f.label: f for f in (await db.execute(select(PmsRoomLabel).where(
+        PmsRoomLabel.hotel_id == HOTEL_ID))).scalars().all()}
+
+    guardados, borrados = 0, 0
+    for m in body.mapeos:
+        label = m.label.strip()
+        if not label:
+            raise ErrorApi(422, "skill4.rotulo_vacio")
+        code = m.room_type_code.strip()
+        if not code:
+            fila = existentes.get(label)
+            if fila is not None:
+                await db.delete(fila)
+                borrados += 1
+            continue
+        # Un codigo que no existe entre las activas se rechaza en vez de
+        # guardarse: guardado apuntaria a la nada y el rotulo caeria en «sin
+        # categoria» sin que la pantalla del mapeo mostrara nada raro.
+        if code not in codigos:
+            raise ErrorApi(422, "skill4.categoria_desconocida", codigo=code)
+        fila = existentes.get(label)
+        if fila is None:
+            db.add(PmsRoomLabel(hotel_id=HOTEL_ID, label=label, room_type_code=code))
+        else:
+            fila.room_type_code = code
+        guardados += 1
+
+    await db.commit()
+    return {"guardados": guardados, "borrados": borrados}
 
 
 # ───────────────── Qué canal cuenta para el ADR ─────────────────────────────

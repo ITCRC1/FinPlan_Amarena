@@ -3500,6 +3500,36 @@ export async function getAnioRoomStats(scenarioId: string): Promise<AnioRoomStat
   return api.get<AnioRoomStats>(`/scenarios/${scenarioId}/room-stats/anio/`);
 }
 
+/** Un rotulo del PMS ya calzado con una categoria de la propiedad. */
+export interface MapeoPmsFila {
+  label: string; room_type_code: string;
+  /** El nombre de HOY de esa categoria. `null` = el codigo ya no existe. */
+  room_type_name: string | null;
+}
+export interface MapeoPms {
+  hotel_id: string;
+  categorias: { code: string; name: string; short_name: string; units: number;
+                /** Cuantos rotulos del PMS caen aca. 0 = el archivo no la trae. */
+                rotulos: number }[];
+  mapeos: MapeoPmsFila[];
+  /** Mapeos cuyo codigo ya no existe entre las activas. No se limpian solos. */
+  huerfanos: MapeoPmsFila[];
+  categorias_sin_rotulo: string[];
+}
+/** Los dos lados del calce: lo que trae el PMS y lo que hay en Master Data. */
+export async function getMapeoPms(): Promise<MapeoPms> {
+  return api.get<MapeoPms>(`/room-stats/mapping/`);
+}
+/** Fija o borra el calce de rotulos del PMS. `room_type_code` vacio = borrar.
+ *
+ * No toca ningun importe: dice a que categoria pertenece un rotulo de aca en
+ * adelante. Los meses ya guardados NO se reescriben. */
+export async function guardarMapeoPms(
+  mapeos: { label: string; room_type_code: string }[],
+): Promise<{ guardados: number; borrados: number }> {
+  return api.put(`/room-stats/mapping/`, { mapeos });
+}
+
 export async function getCanalesPms(): Promise<{ canales: (CanalDelPms & { nombre: string; activo: boolean })[] }> {
   return api.get(`/room-stats/canales/`);
 }
