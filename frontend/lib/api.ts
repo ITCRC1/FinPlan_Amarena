@@ -3401,7 +3401,7 @@ export interface CanalDelPms {
   canal: string;
   canal_comision: string;
   /** false = este canal no entra a la BASE del ADR (cortesías, uso interno). */
-  cuenta_para_adr: boolean;
+  cuenta_para_kpis: boolean;
   /** false = el código no está en `market_codes`. No se adivina: se reporta. */
   conocido: boolean;
 }
@@ -3494,8 +3494,8 @@ export async function getCanalesPms(): Promise<{ canales: (CanalDelPms & { nombr
   return api.get(`/room-stats/canales/`);
 }
 /** Prende o apaga un canal para la base del ADR. No toca ningún importe. */
-export async function marcarCanalParaAdr(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
-  return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/adr/`, { cuenta });
+export async function marcarCanalParaKpis(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
+  return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/kpis/`, { cuenta });
 }
 
 export async function importRoomStats(scenarioId: string, file: File, dryRun = false): Promise<ImportRoomStatsResult> {

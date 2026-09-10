@@ -71,18 +71,29 @@ class MarketCode(Base):
     orden: Mapped[int] = mapped_column(Integer, default=0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    #: ¿Este código entra a la BASE del ADR? (owner, 2026-09-09).
+    #: ¿Este código entra a la BASE de los indicadores? (owner, 2026-09-09:
+    #: primero *«que el CPL no forme parte del ADR global»*, después *«sí,
+    #: saca todo»*).
     #:
-    #: Las cortesías y el uso interno se venden a cero y hunden el ADR sin
-    #: decir nada: en marzo 2026 CPL puso el 60.8% de las noches con el 0.7%
-    #: del ingreso, y el ADR del mes pasa de $317.66 a $125.44 según se lo
-    #: cuente o no.
+    #: Las cortesías y el uso interno no son venta, y contarlas deforma los
+    #: tres indicadores a la vez. En marzo 2026 CPL puso el 60.8% de las
+    #: noches con el 0.7% del ingreso:
     #:
-    #: ⚠️ **No cambia noches, pax ni ingreso.** Los totales siguen siendo los
-    #: del archivo y siguen cuadrando contra el PDF; lo único que se mueve es
-    #: el denominador del ADR. Default `True`: sin que nadie desmarque nada,
-    #: el ADR es el mismo de siempre.
-    cuenta_para_adr: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: | | Con CPL | Sin CPL |
+    #: |---|---|---|
+    #: | Ocupación | 10.28% | 4.03% |
+    #: | ADR | $125.44 | $317.66 |
+    #: | RevPAR | $12.90 | $12.81 |
+    #:
+    #: RevPAR casi no se mueve, y ese es el punto: el ingreso es el mismo, lo
+    #: que estaba mal era repartirlo entre noches que nadie compró.
+    #:
+    #: ⚠️ **No cambia lo que se GUARDA.** `actual_room_stats` sigue teniendo
+    #: las noches, los pax y el ingreso del archivo, y sigue cuadrando contra
+    #: el PDF. Esto mueve la base con la que se CALCULAN los indicadores, y
+    #: las dos bases se muestran juntas para poder conciliarlas. Default
+    #: `True`: sin que nadie desmarque nada, todo indicador es el de siempre.
+    cuenta_para_kpis: Mapped[bool] = mapped_column(Boolean, default=True)
 
     @property
     def canal_comision(self) -> str:

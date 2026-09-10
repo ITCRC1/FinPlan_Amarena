@@ -16,11 +16,11 @@ $317.66 según se lo cuente o no.
 
 1. `actual_room_stat_canales` guarda la apertura, para que el mix por canal se
    pueda leer acumulado y no sólo el mes que se está subiendo.
-2. `market_codes.cuenta_para_adr` guarda la decisión de qué canal entra a la
+2. `market_codes.cuenta_para_kpis` guarda la decisión de qué canal entra a la
    base del ADR. Va en `market_codes` y no en una tabla nueva porque ahí ya
    vive el código del PMS con su canal canónico: es la misma fila.
 
-⚠️ **`cuenta_para_adr` NO cambia noches, pax ni ingreso.** Sólo mueve la BASE
+⚠️ **`cuenta_para_kpis` NO cambia noches, pax ni ingreso.** Sólo mueve la BASE
 del ADR. Si tocara los totales, el cuadre contra el PDF se rompería y ya no se
 podría saber si la diferencia es del archivo o del filtro. El default es
 `true`: el día que esto se despliega, ningún ADR de ninguna propiedad se
@@ -63,12 +63,12 @@ def upgrade() -> None:
 
     # Default `true`: nada se mueve hasta que alguien desmarque.
     op.add_column("market_codes",
-                  sa.Column("cuenta_para_adr", sa.Boolean(), nullable=False,
+                  sa.Column("cuenta_para_kpis", sa.Boolean(), nullable=False,
                             server_default=sa.true()))
 
 
 def downgrade() -> None:
-    op.drop_column("market_codes", "cuenta_para_adr")
+    op.drop_column("market_codes", "cuenta_para_kpis")
     op.drop_index("ix_roomstat_canal_code", table_name="actual_room_stat_canales")
     op.drop_index("ix_roomstat_canal_scenario", table_name="actual_room_stat_canales")
     op.drop_table("actual_room_stat_canales")

@@ -190,11 +190,11 @@ def test_la_casilla_del_adr_no_toca_ningun_importe():
     archivo o del filtro. La prueba mira el endpoint: sólo escribe la bandera.
     """
     src = API.read_text(encoding="utf-8")
-    cuerpo = src[src.index("async def marcar_canal_para_adr"):]
+    cuerpo = src[src.index("async def marcar_canal_para_kpis"):]
     # Sin el docstring: ahí los campos se NOMBRAN justamente para decir que no
     # se tocan, y buscarlos en el texto haría fallar a la explicación.
     codigo = cuerpo.split('"""')[2] if cuerpo.count('"""') >= 2 else cuerpo
-    assert "fila.cuenta_para_adr = bool(body.cuenta)" in codigo
+    assert "fila.cuenta_para_kpis = bool(body.cuenta)" in codigo
     for campo in ("nights_occupied", "revenue", "pax"):
         assert campo not in codigo, f"la casilla del ADR toca {campo}"
 
@@ -202,7 +202,7 @@ def test_la_casilla_del_adr_no_toca_ningun_importe():
 def test_el_default_del_adr_no_mueve_nada_al_desplegar():
     """La columna nace en `true`: el día del deploy, ningún ADR cambia."""
     from app.models.market_code import MarketCode
-    assert MarketCode.__table__.c.cuenta_para_adr.default.arg is True
+    assert MarketCode.__table__.c.cuenta_para_kpis.default.arg is True
     mig = (BACKEND / "alembic/versions/139_room_stats_por_canal.py").read_text(encoding="utf-8")
     assert "server_default=sa.true()" in mig
 
@@ -215,7 +215,7 @@ def test_un_codigo_del_pms_sin_canal_no_se_adivina():
     info = _canal_info("CPL", {})
     assert info["canal"] == "" and info["conocido"] is False
     # Y sin catalogar, cuenta para el ADR: no se le inventa una exclusión.
-    assert info["cuenta_para_adr"] is True
+    assert info["cuenta_para_kpis"] is True
 
 
 # ───────────────────────── el acumulado del año ─────────────────────────────
@@ -260,6 +260,46 @@ def test_sin_apertura_el_adr_acumulado_usa_el_total_y_no_inventa():
     sobre el total: descontar «lo que suele ser cortesía» sería inventar."""
     pag = PAGINA.read_text(encoding="utf-8")
     assert "? abre.reduce<T3>" in pag and ": tot;" in pag
+
+
+def test_un_canal_fuera_sale_de_LOS_TRES_indicadores():
+    """Owner, 2026-09-09: «sí, saca todo».
+
+    Primero fue sólo el ADR. Pero contar las cortesías deforma los tres a la
+    vez: en marzo 2026 la ocupación es 10.28% con CPL y 4.03% sin él. Que un
+    canal cuente para la ocupación y no para el ADR sería una tercera versión
+    del mes, distinta de las otras dos.
+
+    ⚠️ RevPAR casi no se mueve ($12.90 → $12.81) y eso confirma la lectura:
+    el ingreso es el mismo, lo que estaba mal era repartirlo entre noches que
+    nadie compró.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    # Acumulado: las tres tasas sobre `base`, ninguna sobre `tot`.
+    assert 'case "ocupacion": return c.disp ? pct(c.base[0] / c.disp * 100)' in pag
+    assert 'case "revpar":    return c.disp ? usd(c.base[2] / c.disp)' in pag
+    assert 'case "adr":       return adrDe(c.base);' in pag
+    # Mes: la vista por habitación, igual.
+    assert "pct(baseCat[i][0] / d * 100)" in pag
+    assert "usd(baseCat[i][2] / d)" in pag
+
+
+def test_excluir_un_canal_no_cambia_lo_que_se_guarda():
+    """⚠️ La base de los indicadores y lo que va a la base de datos son cosas
+    distintas.
+
+    Lo que se guarda son las cifras del ARCHIVO — si el guardado filtrara, el
+    mes dejaría de cuadrar contra el PDF y el ingreso desaparecería del P&L.
+    Lo que se filtra es el cálculo, y las dos bases se muestran juntas para
+    poder conciliarlas.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    guardado = pag[pag.index("async function guardar()"):pag.index("async function bajarExcel")]
+    for filtrado in ("baseCat", "baseTot", "enAdr"):
+        assert filtrado not in guardado, f"el guardado filtra por {filtrado}"
+    assert "nights_occupied: f.nights_occupied" in guardado
+    # Y la fila de conciliación existe en las dos vistas del mes.
+    assert pag.count("Con todos los canales (PDF)") == 2
 
 
 def test_ocupacion_y_revpar_no_existen_por_canal():

@@ -46,7 +46,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import {
   getAnioRoomStats, getRoomStatsEntry, getScenarios, leerPdfRoomStats,
-  marcarCanalParaAdr, saveRoomStatsEntry,
+  marcarCanalParaKpis, saveRoomStatsEntry,
   type AnioMes, type AnioRoomStats,
   type PdfRoomStatsLectura, type RoomStatCanalIn,
   type Scenario,
@@ -172,7 +172,7 @@ export default function CierreRoomStatsPage() {
       const r = await leerPdfRoomStats(scenarioId, f);
       setLectura(r);
       setCalce(Object.fromEntries(r.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""])));
-      setEnAdr(Object.fromEntries(r.canales.map(c => [c.canal_code, c.cuenta_para_adr])));
+      setEnAdr(Object.fromEntries(r.canales.map(c => [c.canal_code, c.cuenta_para_kpis])));
       setAbierta({});
       if (vista === "acumulado") setVista("habitacion");
     } catch (e) {
@@ -188,7 +188,7 @@ export default function CierreRoomStatsPage() {
   async function alternarAdr(code: string, cuenta: boolean) {
     setEnAdr(m => ({ ...m, [code]: cuenta }));   // optimista: la tabla responde ya
     try {
-      await marcarCanalParaAdr(code, cuenta);
+      await marcarCanalParaKpis(code, cuenta);
       if (anio) cargarAnio();
     } catch (e) {
       setEnAdr(m => ({ ...m, [code]: !cuenta }));  // se revierte si no guardó
@@ -202,7 +202,7 @@ export default function CierreRoomStatsPage() {
     const canales = lectura.canales.map(c => c.canal_code);
     const porCat: T3[] = lectura.filas.map(f => [f.nights_occupied, f.pax, f.revenue]);
     const baseCat: T3[] = lectura.filas.map(f =>
-      f.agencias.reduce<T3>((a, ag) => (enAdr[ag.canal_code] ?? ag.cuenta_para_adr)
+      f.agencias.reduce<T3>((a, ag) => (enAdr[ag.canal_code] ?? ag.cuenta_para_kpis)
         ? mas(a, [ag.nights_occupied, ag.pax, ag.revenue]) : a, cero()));
     const porCan: T3[] = canales.map(code =>
       lectura.filas.reduce<T3>((a, f) => {
@@ -221,6 +221,10 @@ export default function CierreRoomStatsPage() {
 
   const fueraDelAdr = useMemo(
     () => (mes?.canales ?? []).filter(c => !(enAdr[c] ?? true)), [mes, enAdr]);
+  /** Sufijo para los indicadores cuando hay canales fuera de la base. */
+  const sufijoKpi = fueraDelAdr.length === 0 ? ""
+    : fueraDelAdr.length === 1 ? ` s/ ${fueraDelAdr[0].split(" ")[0]}`
+    : ` s/ ${fueraDelAdr.length} canales`;
   const rotuloAdr = fueraDelAdr.length === 0 ? "ADR"
     : fueraDelAdr.length === 1 ? `ADR s/ ${fueraDelAdr[0].split(" ")[0]}`
     : `ADR s/ ${fueraDelAdr.length} canales`;
@@ -270,7 +274,7 @@ export default function CierreRoomStatsPage() {
         hoja: `Canal ${lectura.mes_nombre}`.slice(0, 31),
         columnas: [
           { label: "Canal", ancho: 30, formato: "texto" },
-          { label: "En ADR", ancho: 9, formato: "texto" },
+          { label: "Cuenta", ancho: 9, formato: "texto" },
           { label: "Noches", ancho: 12, formato: "num" },
           { label: "Pax", ancho: 10, formato: "num" },
           { label: "Ingreso", ancho: 16, formato: "usd2" },
@@ -451,7 +455,7 @@ export default function CierreRoomStatsPage() {
               </p>
             : vista === "canal"   ? <PorCanal {...{ lectura, mes: mes!, enAdr, alternarAdr, pega }} />
             : vista === "matriz"  ? <Matriz {...{ lectura, mes: mes!, rotuloAdr, enAdr, pega, Calce }} />
-            :                       <PorHabitacion {...{ lectura, mes: mes!, rotuloAdr, pega, Calce }} />}
+            :                       <PorHabitacion {...{ lectura, mes: mes!, sufijo: sufijoKpi, pega, Calce }} />}
       </div>
 
       {lectura && (
@@ -495,7 +499,7 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
         <tr>
           <th style={{ ...TH, ...pega, textAlign: "left", background: "var(--bg-elevated)" }}>Canal</th>
           <th style={{ ...TH, textAlign: "center", width: 62 }}
-              title="Marcado = este canal cuenta para el ADR">En ADR</th>
+              title="Marcado = este canal cuenta para ocupación, ADR y RevPAR">Cuenta</th>
           <th style={TH}>Noches</th><th style={TH}>% noches</th>
           <th style={TH}>Pax</th>
           <th style={TH}>Ingreso</th><th style={TH}>% ingreso</th>
@@ -519,7 +523,7 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
               <td style={{ ...TD, textAlign: "center" }}>
                 <input type="checkbox" checked={dentro}
                   onChange={e => alternarAdr(code, e.target.checked)}
-                  aria-label={`Incluir ${code} en el ADR`}
+                  aria-label={`Incluir ${code} en los indicadores`}
                   style={{ width: 14, height: 14, accentColor: "var(--brand)", cursor: "pointer" }} />
               </td>
               <td style={{ ...TD, ...tenue }}>{n(no)}</td>
@@ -545,10 +549,10 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
                         usd(total[2]), pct(100), adrDe(baseTot)]} pega={pega} />
         {filtra && (
           <>
-            <Stat celdas={["Base del ADR (canales marcados)", "", n(baseTot[0]), "",
-                           n(baseTot[1]), usd(baseTot[2]), "", adrDe(baseTot)]}
-                  pega={pega} primera />
-            <Stat celdas={["ADR con todos los canales (PDF)", "", n(total[0]), "",
+            <Stat celdas={["Base de indicadores (canales marcados)", "",
+                           n(baseTot[0]), "", n(baseTot[1]), usd(baseTot[2]), "",
+                           adrDe(baseTot)]} pega={pega} primera />
+            <Stat celdas={["Con todos los canales (PDF)", "", n(total[0]), "",
                            n(total[1]), usd(total[2]), "", adrDe(total)]} pega={pega} />
           </>
         )}
@@ -558,11 +562,11 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
 }
 
 /* ──────────────────────── Vista 2 · Por habitación ──────────────────────── */
-function PorHabitacion({ lectura, mes, rotuloAdr, pega, Calce }: {
-  lectura: PdfRoomStatsLectura; mes: MesAgregado; rotuloAdr: string;
+function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
+  lectura: PdfRoomStatsLectura; mes: MesAgregado; sufijo: string;
   pega: React.CSSProperties; Calce: CalceComp;
 }) {
-  const { porCat, baseCat, total, baseTot, disp, dispTot } = mes;
+  const { porCat, baseCat, total, baseTot, disp, dispTot, filtra } = mes;
   const r = lectura.resumen_pdf;
   return (
     <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "100%" }}>
@@ -573,9 +577,9 @@ function PorHabitacion({ lectura, mes, rotuloAdr, pega, Calce }: {
           </th>
           <th style={{ ...TH, textAlign: "left" }}>Va a (Master Data)</th>
           <th style={TH}>Noches disp.</th><th style={TH}>Noches ocup.</th>
-          <th style={TH}>% Ocup.</th><th style={TH}>Pax</th>
-          <th style={TH}>Ingreso</th><th style={TH}>{rotuloAdr}</th>
-          <th style={TH}>RevPAR</th><th style={TH}>Ya guardado</th>
+          <th style={TH}>% Ocup.{sufijo}</th><th style={TH}>Pax</th>
+          <th style={TH}>Ingreso</th><th style={TH}>ADR{sufijo}</th>
+          <th style={TH}>RevPAR{sufijo}</th><th style={TH}>Ya guardado</th>
         </tr>
       </thead>
       <tbody>
@@ -592,11 +596,11 @@ function PorHabitacion({ lectura, mes, rotuloAdr, pega, Calce }: {
                 {d ? n(d) : "—"}
               </td>
               <td style={TD}>{n(no)}</td>
-              <td style={TD}>{d ? pct(no / d * 100) : "—"}</td>
+              <td style={TD}>{d ? pct(baseCat[i][0] / d * 100) : "—"}</td>
               <td style={TD}>{n(pa)}</td>
               <td style={TD}>{usd(ing)}</td>
               <td style={TD}>{adrDe(baseCat[i])}</td>
-              <td style={TD}>{d ? usd(ing / d) : "—"}</td>
+              <td style={TD}>{d ? usd(baseCat[i][2] / d) : "—"}</td>
               <td style={{ ...TD, color: "var(--text-secondary)", fontSize: 11.5 }}>
                 {f.actual_guardado
                   ? `${n(f.actual_guardado.nights_occupied)} n · ${usd(f.actual_guardado.revenue)}`
@@ -606,10 +610,18 @@ function PorHabitacion({ lectura, mes, rotuloAdr, pega, Calce }: {
           );
         })}
         <Total pega={pega} celdas={["TOTAL", "", n(dispTot), n(total[0]),
-          dispTot ? pct(total[0] / dispTot * 100) : "—", n(total[1]), usd(total[2]),
-          adrDe(baseTot), dispTot ? usd(total[2] / dispTot) : "—", ""]} />
+          dispTot ? pct(baseTot[0] / dispTot * 100) : "—", n(total[1]), usd(total[2]),
+          adrDe(baseTot), dispTot ? usd(baseTot[2] / dispTot) : "—", ""]} />
+        {/* ⚠️ Las dos bases juntas: sin esta fila, la ocupación de la pantalla
+            y la del PDF no se pueden conciliar y una de las dos parece un error. */}
+        {filtra && (
+          <Stat pega={pega} primera celdas={["Con todos los canales (PDF)", "",
+            n(dispTot), n(total[0]),
+            dispTot ? pct(total[0] / dispTot * 100) : "—", n(total[1]), usd(total[2]),
+            adrDe(total), dispTot ? usd(total[2] / dispTot) : "—", ""]} />
+        )}
         {/* El PDF no abre estas por categoría: son del hotel. */}
-        <Stat pega={pega} primera celdas={["Habitaciones-noche (inventario)", "",
+        <Stat pega={pega} celdas={["Habitaciones-noche (inventario)", "",
           n(r.habitaciones_totales), "", "", "", "", "", "", ""]} />
         <Stat pega={pega} celdas={["Habitaciones disponibles", "",
           n(r.habitaciones_disponibles), "", "", "", "", "", "", ""]} />
@@ -737,8 +749,8 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
     </p>;
   }
 
-  const dentro = (c: { canal_code: string; cuenta_para_adr: boolean }) =>
-    enAdr[c.canal_code] ?? c.cuenta_para_adr;
+  const dentro = (c: { canal_code: string; cuenta_para_kpis: boolean }) =>
+    enAdr[c.canal_code] ?? c.cuenta_para_kpis;
 
   /** Filas de la dimensión elegida, en orden estable. */
   const claves: string[] = filas === "canal"
@@ -791,8 +803,10 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
       case "pax":       return n(c.tot[1]);
       case "ingreso":   return usd(c.tot[2]);
       case "adr":       return adrDe(c.base);
-      case "ocupacion": return c.disp ? pct(c.tot[0] / c.disp * 100) : "—";
-      case "revpar":    return c.disp ? usd(c.tot[2] / c.disp) : "—";
+      // ⚠️ Ocupación y RevPAR van sobre la BASE, igual que el ADR: un canal
+      // que no cuenta, no cuenta en ninguno de los tres.
+      case "ocupacion": return c.disp ? pct(c.base[0] / c.disp * 100) : "—";
+      case "revpar":    return c.disp ? usd(c.base[2] / c.disp) : "—";
     }
   };
 
@@ -880,10 +894,10 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
               </tr>
               {pie("Noches disponibles", c => n(c.disp))}
               {pie("Noches ocupadas", c => n(c.tot[0]))}
-              {pie("% Ocupación", c => c.disp ? pct(c.tot[0] / c.disp * 100) : "—")}
+              {pie("% Ocupación", c => c.disp ? pct(c.base[0] / c.disp * 100) : "—")}
               {pie("Ingreso", c => usd(c.tot[2]))}
               {pie("ADR", c => adrDe(c.base))}
-              {pie("RevPAR", c => c.disp ? usd(c.tot[2] / c.disp) : "—")}
+              {pie("RevPAR", c => c.disp ? usd(c.base[2] / c.disp) : "—")}
             </>
           );
         })()}

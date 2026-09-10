@@ -147,7 +147,7 @@ def _canal_info(codigo: str, catalogo: dict) -> dict:
         "canal_code": codigo,
         "canal": mc.canal if mc else "",
         "canal_comision": mc.canal_comision if mc else "",
-        "cuenta_para_adr": bool(mc.cuenta_para_adr) if mc else True,
+        "cuenta_para_kpis": bool(mc.cuenta_para_kpis) if mc else True,
         "conocido": mc is not None,
     }
 
@@ -424,11 +424,11 @@ async def listar_canales(db: AsyncSession = Depends(get_db)):
     return {"canales": [
         {"canal_code": f.code, "nombre": f.nombre, "canal": f.canal,
          "canal_comision": f.canal_comision, "activo": f.activo,
-         "cuenta_para_adr": bool(f.cuenta_para_adr)} for f in filas]}
+         "cuenta_para_kpis": bool(f.cuenta_para_kpis)} for f in filas]}
 
 
-@router.put("/room-stats/canales/{canal_code}/adr/")
-async def marcar_canal_para_adr(
+@router.put("/room-stats/canales/{canal_code}/kpis/")
+async def marcar_canal_para_kpis(
     canal_code: str, body: CuentaParaAdrIn, db: AsyncSession = Depends(get_db)
 ):
     """Prende o apaga un canal para la BASE del ADR.
@@ -452,7 +452,7 @@ async def marcar_canal_para_adr(
         fila = MarketCode(code=codigo, nombre=canal_code.strip(), canal="",
                           orden=0, activo=True)
         db.add(fila)
-    fila.cuenta_para_adr = bool(body.cuenta)
+    fila.cuenta_para_kpis = bool(body.cuenta)
     await db.commit()
-    return {"canal_code": codigo, "cuenta_para_adr": bool(fila.cuenta_para_adr),
+    return {"canal_code": codigo, "cuenta_para_kpis": bool(fila.cuenta_para_kpis),
             "canal": fila.canal}
