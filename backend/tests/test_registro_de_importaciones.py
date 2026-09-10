@@ -203,7 +203,16 @@ def _rutas_de_subida() -> tuple[list[str], list[str]]:
 
 # ⚠️ `validate_upload` sólo VALIDA y no escribe. Registrarla haría que la
 # subida real después chocara contra su propia validación.
-NO_REGISTRAN = {"audit_api.py:validate_upload"}
+#
+# ⚠️ `leer_pdf_room_stats` LEE y no escribe: el owner lo pidió así el
+# 2026-09-09 —«que se suba el documento y se lea la información pero que no se
+# guarde»—. Registrarlo tendría el mismo defecto que el caso de arriba, y uno
+# peor: el registro frena el reimport, así que el mismo PDF no se podría volver
+# a MIRAR. Lo que sí registra es el guardado, que va por `room-stats-entry`.
+# Que este endpoint siga sin escribir lo vigila
+# `test_cierre_lee_el_pdf_del_pms.py::test_el_endpoint_de_lectura_no_escribe_en_la_base`.
+NO_REGISTRAN = {"audit_api.py:validate_upload",
+                "room_stats_pdf_api.py:leer_pdf_room_stats"}
 
 
 def test_TODA_puerta_de_subida_QUE_ESCRIBE_registra_el_archivo():

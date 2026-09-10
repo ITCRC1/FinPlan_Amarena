@@ -188,6 +188,11 @@ export const NAV: NavGroup[] = [
       // (owner, 2026-09-03). Mismo motivo que los checkbooks: quien no tiene
       // acceso a Planning igual necesita ver de qué está hecho el ingreso.
       { key: "monthEndRevenuePlan", href: "/month-end/revenue-plan" },
+      // La estadistica de habitaciones del PMS, que en Amarena llega en PDF y
+      // no en el Excel de Opera (owner, 2026-09-09). Va en Cierre de Mes y no
+      // en Operation Insight porque es un paso DEL CIERRE —se sube el mes que
+      // cerro— y no una consulta: Operation Insight muestra el resultado.
+      { key: "monthEndRoomStats", href: "/month-end/room-stats" },
     ],
   },
   {

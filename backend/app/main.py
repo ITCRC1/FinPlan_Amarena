@@ -37,6 +37,7 @@ from app.api.auth_api import router as auth_router
 from app.api.collab_api import router as collab_router
 from app.api.cashflow_directo_api import router as cashflow_directo_router
 from app.api.rooms_sets_api import router as rooms_sets_router
+from app.api.room_stats_pdf_api import router as room_stats_pdf_router
 from app.api.consolidado_api import router as consolidado_router
 from app.api.integraciones_api import router as integraciones_router
 from app.api.origenes_api import router as origenes_router
@@ -179,6 +180,7 @@ app.include_router(comentario_pl_router, prefix="/api", dependencies=_guard)
 app.include_router(collab_router, prefix="/api", dependencies=_guard)
 app.include_router(cashflow_directo_router, prefix="/api", dependencies=_guard)
 app.include_router(rooms_sets_router, prefix="/api", dependencies=_guard)
+app.include_router(room_stats_pdf_router, prefix="/api", dependencies=_guard)
 # El consolidado NO lleva `_guard`: trae su propia puerta, que acepta la sesión
 # normal O la llave de solo lectura (`CONSOLIDADO_API_KEY`). Con `_guard` encima,
 # la llave nunca llegaría a usarse — el guard global exige JWT y corta antes.

@@ -205,6 +205,15 @@ MENSAJES: dict[str, dict[str, str]] = {
     "room_stats.sin_bloques_mensuales": {
         "es": "El archivo no trae bloques mensuales de Room Stats.",
         "en": "The file carries no monthly Room Stats blocks."},
+    "skill4.archivo_vacio": {
+        "es": "El archivo llegó vacío.",
+        "en": "The file arrived empty."},
+    "skill4.ano_no_coincide": {
+        "es": "El PDF es del año {ano_archivo} y el escenario es del {ano_escenario}. Abrí el escenario del año que corresponde y volvé a subirlo.",
+        "en": "The PDF is from {ano_archivo} and the scenario is from {ano_escenario}. Open the scenario for the matching year and upload it again."},
+    "skill4.no_se_pudo_leer": {
+        "es": "No se pudo leer el PDF del PMS: {detalle}",
+        "en": "The PMS PDF could not be read: {detalle}"},
     "stats.sin_datos_validos": {
         "es": "No se encontraron datos válidos.",
         "en": "No valid data was found."},

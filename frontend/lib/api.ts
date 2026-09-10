@@ -3377,6 +3377,64 @@ export async function saveRoomStatsEntry(scenarioId: string, month: number,
   return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`, { rows });
 }
 
+/**
+ * Lectura del PDF del PMS (Skill4) para el cierre de mes. **No guarda nada.**
+ *
+ * ⚠️ No confundir con `importRoomStats`, que lee el Excel de Opera Y GUARDA.
+ * Amarena no tiene Opera: su PMS emite este PDF, y acá el archivo se lee en
+ * memoria y se descarta. Guardar es un paso aparte —`saveRoomStatsEntry`—
+ * después de que alguien revisó a qué categoría de la propiedad va cada
+ * categoría del PDF.
+ */
+export interface PdfRoomStatsAgencia {
+  agencia: string; revenue: number; nights_occupied: number; pax: number;
+  hab_entradas: number; cli_entradas: number; tarifa_promedio: number;
+}
+export interface PdfRoomStatsFila {
+  nombre_pdf: string;
+  /** `null` = el nombre del PDF no calzó con ninguna categoría: lo elige el usuario. */
+  room_type_name: string | null;
+  room_type_code: string;
+  confianza: "exacto" | "probable" | "ninguno";
+  units: number; nights_available: number;
+  nights_occupied: number; pax: number; revenue: number; adr: number;
+  hab_entradas: number; cli_entradas: number;
+  agencias: PdfRoomStatsAgencia[];
+  actual_guardado: { nights_occupied: number; pax: number; revenue: number } | null;
+}
+export interface PdfRoomStatsLectura {
+  guardado: false;
+  archivo: string; entidad: string; scenario_id: string;
+  year: number; month: number; mes_nombre: string; moneda: string;
+  dias_del_mes: number;
+  filas: PdfRoomStatsFila[];
+  categorias_sin_calce: string[];
+  categorias_ausentes_en_el_pdf: string[];
+  mes_ya_tiene_datos: boolean;
+  totales: {
+    nights_occupied: number; pax: number; revenue: number; adr: number;
+    nights_available_config: number;
+  };
+  resumen_pdf: {
+    dias: number; capacidad_hab: number;
+    habitaciones_totales: number; habitaciones_disponibles: number;
+    habitaciones_bloqueadas: number;
+    ocupacion_sobre_total: number; ocupacion_sobre_disponibles: number;
+    ingreso_hospedaje: number; ingreso_puntos_venta: number;
+    ingreso_otros: number; ingreso_total_hotel: number;
+  };
+  avisos_de_cuadre: string[];
+}
+export async function leerPdfRoomStats(scenarioId: string, file: File): Promise<PdfRoomStatsLectura> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/scenarios/${scenarioId}/room-stats/leer-pdf/`, {
+    method: "POST", body: form, headers: authHeaders(),
+  });
+  if (!res.ok) { throw new Error(`API ${res.status}: ${await res.text()}`); }
+  return res.json();
+}
+
 export async function importRoomStats(scenarioId: string, file: File, dryRun = false): Promise<ImportRoomStatsResult> {
   const form = new FormData();
   form.append("file", file);

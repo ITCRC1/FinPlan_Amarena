@@ -136,7 +136,8 @@
       "plDetailClub": "P&L Detail Club",
       "monthEndDetailFull": "P&L Detail Full (consolidado)",
       "monthEndCheckbooks": "Checkbooks (consulta)",
-      "monthEndRevenuePlan": "Armado de ingresos (consulta)"
+      "monthEndRevenuePlan": "Armado de ingresos (consulta)",
+      "monthEndRoomStats": "Estadística de habitaciones (PDF del PMS)"
     },
     "groupsFull": {
       "financials": "Estados financieros",

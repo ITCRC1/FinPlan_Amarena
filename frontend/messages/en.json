@@ -136,7 +136,8 @@
       "plDetailClub": "P&L Detail Club",
       "monthEndDetailFull": "P&L Detail Full (consolidated)",
       "monthEndCheckbooks": "Checkbooks (read-only)",
-      "monthEndRevenuePlan": "Revenue build-up (read-only)"
+      "monthEndRevenuePlan": "Revenue build-up (read-only)",
+      "monthEndRoomStats": "Room statistics (PMS PDF)"
     },
     "groupsFull": {
       "financials": "Financial Statements",
