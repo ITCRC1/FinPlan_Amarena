@@ -142,6 +142,41 @@ tener que volver a explicar cada trampa.
 
 ---
 
+## «Antes ejecutabas sin problemas y ahora no puedo»
+
+Owner, 2026-09-10, desde la máquina nueva. No es que se haya perdido acceso: la
+PC vieja tenía cuatro cosas que una máquina recién comprada no trae, y **tres no
+dan error** — simplemente hacen que nada se ofrezca.
+
+**1 · Las carpetas que Claude tiene permitidas.** Claude Code sólo puede tocar
+los directorios que se le abrieron. Si lo abrís parado en otra carpeta, no
+alcanza `C:\dev\FinPlan_*`: no es que no quiera, es que no los ve. En la PC
+vieja la sesión tenía habilitado `C:\dev\FinPlan_Amarena` **además** del
+proyecto principal, y por eso podía saltar de una propiedad a otra.
+→ Abrí Claude parado en `C:\dev`, o agregale las carpetas de los cuatro FinPlan.
+
+**2 · El modo de permisos.** Por omisión pide aprobación comando por comando.
+Las corridas largas de la PC vieja iban con permisos amplios, y por eso podía
+decir *«¿lo aplico en los otros tres?»* y hacerlo de corrido.
+→ Si querés ese ritmo, hay que habilitarlo en la máquina nueva.
+
+**3 · La memoria.** Sin las 33 notas, Claude no sabe que existen las otras tres
+propiedades, ni cómo se llaman sus servicios en Railway, ni desde qué carpeta
+sube cada una. Por eso **deja de ofrecer** replicar los cambios: no sabe a dónde.
+
+**4 · Las herramientas y las sesiones.** Railway CLI, la clave SSH, los venv.
+Éstas sí dan error, y son las fáciles.
+
+Para saber cuál de las cuatro te está frenando, corré en la PC nueva:
+
+```powershell
+.\FinPlan_Amarena\docs\DIAGNOSTICO_PC.ps1
+```
+
+No instala ni cambia nada: sólo mide y te dice qué falta, punto por punto.
+
+---
+
 ## Comprobación final
 
 Las cuatro suites tienen que dar verde:
