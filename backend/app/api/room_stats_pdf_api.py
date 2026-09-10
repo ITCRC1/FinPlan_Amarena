@@ -52,6 +52,7 @@ import calendar
 import unicodedata
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +61,8 @@ from app.errores import ErrorApi
 from app.hotel_actual import HOTEL_ID
 from app.importers.skill4_room_stats_pdf import leer_pdf_skill4, nombre_del_mes
 from app.models.actual_room_stat import ActualRoomStat
+from app.models.actual_room_stat_canal import ActualRoomStatCanal
+from app.models.market_code import MarketCode
 from app.models.room_type_config import RoomTypeConfig
 from app.models.scenario import Scenario
 
@@ -126,6 +129,29 @@ def _calce(nombre_pdf: str, categorias: list) -> tuple:
     return None, "ninguno"
 
 
+async def _codigos_de_canal(db: AsyncSession) -> dict:
+    """Los códigos del PMS que ya están catalogados, por código.
+
+    ⚠️ Un código que no está NO se inventa. Vuelve con `canal: ""` y
+    `conocido: false`, que es la misma regla que ya rige en `market_codes`:
+    adivinar el canal mandaría noches al canal equivocado y el total seguiría
+    cuadrando.
+    """
+    filas = (await db.execute(select(MarketCode))).scalars().all()
+    return {f.code.strip().upper(): f for f in filas}
+
+
+def _canal_info(codigo: str, catalogo: dict) -> dict:
+    mc = catalogo.get(codigo.strip().upper())
+    return {
+        "canal_code": codigo,
+        "canal": mc.canal if mc else "",
+        "canal_comision": mc.canal_comision if mc else "",
+        "cuenta_para_adr": bool(mc.cuenta_para_adr) if mc else True,
+        "conocido": mc is not None,
+    }
+
+
 async def _escenario(scenario_id: str, db: AsyncSession) -> Scenario:
     sc = (await db.execute(
         select(Scenario).where(Scenario.id == scenario_id))).scalar_one_or_none()
@@ -172,6 +198,7 @@ async def leer_pdf_room_stats(
         .where(RoomTypeConfig.hotel_id == HOTEL_ID, RoomTypeConfig.active == True)  # noqa: E712
         .order_by(RoomTypeConfig.sort_order)
     )).scalars().all()
+    catalogo = await _codigos_de_canal(db)
 
     dias = calendar.monthrange(lectura.year, lectura.month)[1]
     ya_cargado = {s.room_type_name: s for s in (await db.execute(select(ActualRoomStat).where(
@@ -208,7 +235,8 @@ async def leer_pdf_room_stats(
                 {"agencia": f.agencia, "revenue": round(f.ingreso_hospedaje, 2),
                  "nights_occupied": f.hab_estancias, "pax": f.cli_estancias,
                  "hab_entradas": f.hab_entradas, "cli_entradas": f.cli_entradas,
-                 "tarifa_promedio": f.tarifa_promedio}
+                 "tarifa_promedio": f.tarifa_promedio,
+                 **_canal_info(f.agencia, catalogo)}
                 for f in lectura.filas if f.room_type_name == t["room_type_name"]
             ],
             # Lo que hoy hay guardado para esa categoría, para que se vea qué
@@ -261,7 +289,170 @@ async def leer_pdf_room_stats(
             "ingreso_otros": r.ingreso_otros,
             "ingreso_total_hotel": r.ingreso_total_hotel,
         },
+        # Los canales del mes, ya agregados y con su calce a `market_codes`.
+        # Es lo que pinta la vista «Por canal» sin que la pantalla tenga que
+        # volver a sumar el detalle por su cuenta.
+        "canales": _canales_del_mes(lectura, catalogo),
         # Vacío = la suma del detalle da los totales que el propio archivo
         # declara. Con algo adentro, el archivo y lo leído se separaron.
         "avisos_de_cuadre": lectura.cuadre(),
     }
+
+
+def _canales_del_mes(lectura, catalogo: dict) -> list:
+    """Agrega el detalle del PDF por agencia, cruzando todas las categorías."""
+    acc: dict = {}
+    for f in lectura.filas:
+        a = acc.setdefault(f.agencia, {
+            "nights_occupied": 0.0, "pax": 0.0, "revenue": 0.0,
+            "hab_entradas": 0.0, "cli_entradas": 0.0})
+        a["nights_occupied"] += f.hab_estancias
+        a["pax"] += f.cli_estancias
+        a["revenue"] += f.ingreso_hospedaje
+        a["hab_entradas"] += f.hab_entradas
+        a["cli_entradas"] += f.cli_entradas
+    salida = []
+    for agencia, v in acc.items():
+        v["revenue"] = round(v["revenue"], 2)
+        v["adr"] = round(v["revenue"] / v["nights_occupied"], 2) if v["nights_occupied"] else 0.0
+        salida.append({"agencia": agencia, **v, **_canal_info(agencia, catalogo)})
+    salida.sort(key=lambda x: -x["revenue"])
+    return salida
+
+
+# ─────────────────────────── El año acumulado ───────────────────────────────
+
+@router.get("/scenarios/{scenario_id}/room-stats/anio/")
+async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
+    """Los doce meses de la estadística real: por categoría y por canal.
+
+    Es lo que alimenta la vista Acumulado. Devuelve el DATO por mes y no el
+    acumulado ya sumado, a propósito: las tasas —ADR, ocupación, RevPAR— no se
+    pueden acumular sumando.
+
+    ⚠️ **El YTD de una tasa no es el promedio de los meses.** Se recalcula
+    sobre los totales del período. Promediar seis ADR mensuales le da el mismo
+    peso a un mes de 20 noches que a uno de 150, y el número que sale no
+    existe en ningún lado. Por eso acá viajan los ingredientes (noches, pax,
+    ingreso, disponibles) y la división la hace quien muestra.
+
+    ⚠️ **Un mes sin cargar no es un mes en cero.** Los meses sin filas salen
+    en `meses_cargados: false` y sin datos, para que la pantalla los pueda
+    dejar en blanco. Un cero se lee como «el hotel no vendió», y con una
+    propiedad que abrió a mitad de año eso convierte un YTD incompleto en un
+    mal semestre.
+    """
+    import calendar
+    sc = await _escenario(scenario_id, db)
+
+    categorias = (await db.execute(
+        select(RoomTypeConfig)
+        .where(RoomTypeConfig.hotel_id == HOTEL_ID, RoomTypeConfig.active == True)  # noqa: E712
+        .order_by(RoomTypeConfig.sort_order)
+    )).scalars().all()
+    unidades = {c.name: c.units for c in categorias}
+
+    totales = (await db.execute(select(ActualRoomStat).where(
+        ActualRoomStat.scenario_id == scenario_id))).scalars().all()
+    aperturas = (await db.execute(select(ActualRoomStatCanal).where(
+        ActualRoomStatCanal.scenario_id == scenario_id))).scalars().all()
+    catalogo = await _codigos_de_canal(db)
+
+    por_mes: dict = {m: {"categorias": [], "canales": []} for m in range(1, 13)}
+    for t in totales:
+        por_mes[t.month]["categorias"].append({
+            "room_type_name": t.room_type_name,
+            "units": t.units,
+            "nights_available": float(t.nights_available),
+            "nights_occupied": float(t.nights_occupied),
+            "pax": float(t.pax),
+            "revenue": float(t.revenue),
+        })
+    for a in aperturas:
+        por_mes[a.month]["canales"].append({
+            "room_type_name": a.room_type_name,
+            "nights_occupied": float(a.nights_occupied),
+            "pax": float(a.pax),
+            "revenue": float(a.revenue),
+            **_canal_info(a.canal_code, catalogo),
+        })
+
+    meses = []
+    for m in range(1, 13):
+        d = por_mes[m]
+        cargado = bool(d["categorias"])
+        # ⚠️ Las noches disponibles se recalculan con las unidades de HOY, no
+        # con las que había al importar: si alguien corrige el inventario en
+        # Master Data, la ocupación histórica tiene que corregirse con él.
+        dias = calendar.monthrange(sc.year, m)[1]
+        for c in d["categorias"]:
+            u = unidades.get(c["room_type_name"])
+            if u is not None:
+                c["units"] = u
+                c["nights_available"] = u * dias
+        meses.append({
+            "month": m, "dias": dias, "cargado": cargado,
+            "categorias": d["categorias"],
+            "canales": d["canales"],
+        })
+
+    return {
+        "scenario_id": scenario_id,
+        "year": sc.year,
+        "escenario": f"{sc.type} {sc.version} {sc.year}",
+        "room_types": [{"name": c.name, "code": c.code, "units": c.units}
+                       for c in categorias],
+        "meses": meses,
+        "meses_cargados": [m["month"] for m in meses if m["cargado"]],
+        # Si ningún mes tiene apertura, la vista por canal no tiene de dónde
+        # salir — y hay que decirlo, no mostrar un cuadro vacío.
+        "hay_apertura_por_canal": any(m["canales"] for m in meses),
+    }
+
+
+# ───────────────── Qué canal cuenta para el ADR ─────────────────────────────
+
+class CuentaParaAdrIn(BaseModel):
+    cuenta: bool
+
+
+@router.get("/room-stats/canales/")
+async def listar_canales(db: AsyncSession = Depends(get_db)):
+    """Los códigos del PMS catalogados, con su canal y si cuentan para el ADR."""
+    filas = (await db.execute(select(MarketCode).order_by(
+        MarketCode.orden, MarketCode.code))).scalars().all()
+    return {"canales": [
+        {"canal_code": f.code, "nombre": f.nombre, "canal": f.canal,
+         "canal_comision": f.canal_comision, "activo": f.activo,
+         "cuenta_para_adr": bool(f.cuenta_para_adr)} for f in filas]}
+
+
+@router.put("/room-stats/canales/{canal_code}/adr/")
+async def marcar_canal_para_adr(
+    canal_code: str, body: CuentaParaAdrIn, db: AsyncSession = Depends(get_db)
+):
+    """Prende o apaga un canal para la BASE del ADR.
+
+    ⚠️ **No toca noches, pax ni ingreso de ningún mes.** Sólo cambia el
+    denominador con el que se calcula el ADR, en todos los meses y en el
+    acumulado a la vez. Los totales siguen siendo los del archivo y siguen
+    cuadrando contra el PDF; si esto moviera el ingreso, un ADR distinto al
+    del documento dejaría de poder explicarse.
+
+    Si el código todavía no está en `market_codes` se crea con canal vacío —
+    que es el estado «nadie decidió a qué canal pertenece», visible y
+    reportado, no adivinado.
+    """
+    codigo = canal_code.strip().upper()
+    if not codigo:
+        raise ErrorApi(422, "skill4.canal_vacio")
+    fila = (await db.execute(
+        select(MarketCode).where(MarketCode.code == codigo))).scalar_one_or_none()
+    if fila is None:
+        fila = MarketCode(code=codigo, nombre=canal_code.strip(), canal="",
+                          orden=0, activo=True)
+        db.add(fila)
+    fila.cuenta_para_adr = bool(body.cuenta)
+    await db.commit()
+    return {"canal_code": codigo, "cuenta_para_adr": bool(fila.cuenta_para_adr),
+            "canal": fila.canal}

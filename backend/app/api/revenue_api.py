@@ -59,6 +59,7 @@ from app.models.scenario_master import ScenarioMaster
 from app.models.historical_kpi import HistoricalKpi
 from app.models.scenario_stat import ScenarioStat
 from app.models.actual_room_stat import ActualRoomStat
+from app.models.actual_room_stat_canal import ActualRoomStatCanal
 from app.models.on_the_books import OnTheBooksEntry
 from app.models.otb_daily_occ import OtbDailyOcc
 from app.models.otb_week_param import OtbWeekParam
@@ -1080,8 +1081,20 @@ class RoomStatRowIn(BaseModel):
     pax: float = 0
 
 
+class RoomStatCanalIn(BaseModel):
+    """Una celda de la apertura por canal: categoría × agencia del PMS."""
+    room_type_name: str
+    canal_code: str
+    nights_occupied: float = 0
+    pax: float = 0
+    revenue: float = 0
+
+
 class RoomStatsEntryIn(BaseModel):
     rows: list[RoomStatRowIn]
+    #: La apertura por canal, cuando el mes viene del PDF del PMS. Opcional:
+    #: la carga MANUAL no la tiene y sigue funcionando igual que siempre.
+    canales: list[RoomStatCanalIn] | None = None
 
 
 @router.put("/scenarios/{scenario_id}/room-stats-entry/{month}/")
@@ -1089,7 +1102,18 @@ async def put_room_stats_entry(
     scenario_id: str, month: int, body: RoomStatsEntryIn, db: AsyncSession = Depends(get_db)
 ):
     """Guarda (upsert) los room stats reales de un mes. Reemplaza solo ese mes
-    (los demás meses quedan intactos → YTD acumula solo)."""
+    (los demás meses quedan intactos → YTD acumula solo).
+
+    Si el cuerpo trae `canales`, guarda además la APERTURA por agencia del PMS
+    en `actual_room_stat_canales`. Las dos tablas se escriben en la **misma
+    transacción y borrando el mismo mes**: si una se actualizara sin la otra,
+    el mix por canal quedaría describiendo un mes que ya no existe.
+
+    ⚠️ El total por categoría sigue saliendo de `rows`, no de la suma de los
+    canales. La apertura es apertura: que un reporte empezara a sumar desde
+    ella convertiría cualquier redondeo en una diferencia entre dos pantallas
+    que dicen medir lo mismo.
+    """
     # Una version enllavada no se puede editar.
     await candado(db, scenario_id)
     import calendar
@@ -1108,8 +1132,27 @@ async def put_room_stats_entry(
             units=r.units, nights_available=(r.units or 0) * days,
             nights_occupied=r.nights_occupied, revenue=r.revenue, pax=r.pax))
         saved += 1
+
+    # ⚠️ El borrado corre SIEMPRE que venga la lista, aunque llegue vacía: es
+    # cómo se limpia la apertura de un mes que se vuelve a cargar a mano.
+    # Con `None` (carga manual) no se toca — ahí nadie dijo nada del canal.
+    canales_guardados = 0
+    if body.canales is not None:
+        await db.execute(delete(ActualRoomStatCanal).where(
+            ActualRoomStatCanal.scenario_id == scenario_id,
+            ActualRoomStatCanal.month == month))
+        for c in body.canales:
+            if not (c.nights_occupied or c.revenue or c.pax):
+                continue
+            db.add(ActualRoomStatCanal(
+                scenario_id=scenario_id, month=month,
+                room_type_name=c.room_type_name, canal_code=c.canal_code,
+                nights_occupied=c.nights_occupied, pax=c.pax, revenue=c.revenue))
+            canales_guardados += 1
+
     await db.commit()
-    return {"saved": True, "month": month, "rows_saved": saved}
+    return {"saved": True, "month": month, "rows_saved": saved,
+            "canales_saved": canales_guardados}
 
 
 

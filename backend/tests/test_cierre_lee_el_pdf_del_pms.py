@@ -38,7 +38,11 @@ def test_el_endpoint_de_lectura_no_escribe_en_la_base():
     notaría.
     """
     src = API.read_text(encoding="utf-8")
-    cuerpo = src[src.index("async def leer_pdf_room_stats"):]
+    desde = src.index("async def leer_pdf_room_stats")
+    # Sólo el cuerpo de ESA función: el módulo tiene otros endpoints que sí
+    # escriben —la casilla del ADR— y son legítimos.
+    hasta = src.index("@router.", desde)
+    cuerpo = src[desde:hasta]
     for escritura in ("db.add(", "db.commit(", "db.delete(", "delete(", "insert("):
         assert escritura not in cuerpo, f"el lector escribe: {escritura}"
 
@@ -56,8 +60,34 @@ def test_la_pantalla_guarda_por_el_camino_de_la_carga_manual():
     escritura a `actual_room_stats` es cómo terminan conviviendo dos verdades
     para el mismo mes."""
     pag = PAGINA.read_text(encoding="utf-8")
-    assert "saveRoomStatsEntry(scenarioId, lectura.month, rows)" in pag
+    assert "saveRoomStatsEntry(scenarioId, lectura.month, rows, canales)" in pag
     assert "leerPdfRoomStats" in pag
+
+
+def test_el_total_y_su_apertura_se_guardan_JUNTOS():
+    """⚠️ Una sola llamada, una sola transacción.
+
+    Si el detalle por canal se escribiera aparte, un fallo en la segunda
+    escritura dejaría el mes con un total nuevo y un mix viejo — y el mix
+    estaría describiendo un mes que ya no existe, sin que nada lo diga.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert pag.count("saveRoomStatsEntry(") == 1
+    rev = (BACKEND / "app/api/revenue_api.py").read_text(encoding="utf-8")
+    cuerpo = rev[rev.index("async def put_room_stats_entry"):]
+    cuerpo = cuerpo[:cuerpo.index("@router.")]
+    assert "ActualRoomStatCanal" in cuerpo
+    # Un solo commit: los dos borrados y los dos insertados caen juntos.
+    assert cuerpo.count("await db.commit()") == 1
+
+
+def test_la_apertura_por_canal_no_se_toca_en_la_carga_manual():
+    """`canales=None` (la pantalla de captura a mano) deja el detalle como
+    estaba. Borrarlo por omisión perdería el mix de un mes que alguien sólo
+    quiso corregir en un número."""
+    rev = (BACKEND / "app/api/revenue_api.py").read_text(encoding="utf-8")
+    assert "if body.canales is not None:" in rev
+    assert "canales: list[RoomStatCanalIn] | None = None" in rev
 
 
 # ───────────────────────── 2. el calce se propone ───────────────────────────
@@ -151,6 +181,93 @@ def test_la_pagina_existe_en_la_ruta_del_menu():
 
 
 # ───────────────────── la dependencia queda declarada ───────────────────────
+
+def test_la_casilla_del_adr_no_toca_ningun_importe():
+    """⚠️ Lo único que cambia es el DENOMINADOR del ADR.
+
+    Si desmarcar un canal moviera noches o ingreso, el total dejaría de
+    cuadrar contra el PDF y ya no se podría saber si la diferencia es del
+    archivo o del filtro. La prueba mira el endpoint: sólo escribe la bandera.
+    """
+    src = API.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def marcar_canal_para_adr"):]
+    # Sin el docstring: ahí los campos se NOMBRAN justamente para decir que no
+    # se tocan, y buscarlos en el texto haría fallar a la explicación.
+    codigo = cuerpo.split('"""')[2] if cuerpo.count('"""') >= 2 else cuerpo
+    assert "fila.cuenta_para_adr = bool(body.cuenta)" in codigo
+    for campo in ("nights_occupied", "revenue", "pax"):
+        assert campo not in codigo, f"la casilla del ADR toca {campo}"
+
+
+def test_el_default_del_adr_no_mueve_nada_al_desplegar():
+    """La columna nace en `true`: el día del deploy, ningún ADR cambia."""
+    from app.models.market_code import MarketCode
+    assert MarketCode.__table__.c.cuenta_para_adr.default.arg is True
+    mig = (BACKEND / "alembic/versions/139_room_stats_por_canal.py").read_text(encoding="utf-8")
+    assert "server_default=sa.true()" in mig
+
+
+def test_un_codigo_del_pms_sin_canal_no_se_adivina():
+    """Misma regla que ya rige en `market_codes`: sin canal se muestra vacío y
+    se reporta. Adivinarlo mandaría noches al canal equivocado y el total
+    seguiría cuadrando."""
+    from app.api.room_stats_pdf_api import _canal_info
+    info = _canal_info("CPL", {})
+    assert info["canal"] == "" and info["conocido"] is False
+    # Y sin catalogar, cuenta para el ADR: no se le inventa una exclusión.
+    assert info["cuenta_para_adr"] is True
+
+
+# ───────────────────────── el acumulado del año ─────────────────────────────
+
+def test_el_ano_devuelve_los_ingredientes_y_no_las_tasas():
+    """⚠️ El YTD de una tasa NO es el promedio de los meses.
+
+    Por eso el endpoint manda noches, pax, ingreso y disponibles, y la
+    división la hace quien muestra. Si el backend mandara el ADR de cada mes
+    ya calculado, el acumulado sólo podría promediarlos — y un mes de 20
+    noches pesaría igual que uno de 150.
+    """
+    src = API.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def anio_room_stats"):]
+    for ingrediente in ("nights_occupied", "pax", "revenue", "nights_available"):
+        assert ingrediente in cuerpo
+    for derivada in ('"adr"', '"revpar"', '"occupancy"'):
+        assert derivada not in cuerpo, f"el backend ya calculó {derivada}"
+
+
+def test_un_mes_sin_cargar_no_es_un_mes_en_cero():
+    """Un cero dice «el hotel no vendió»; sin cargar dice «falta el PDF». Con
+    una propiedad que abrió a mitad de año, confundirlos convierte un YTD
+    incompleto en un mal semestre."""
+    src = API.read_text(encoding="utf-8")
+    assert '"cargado": cargado' in src
+    assert '"meses_cargados"' in src
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "rayado" in pag, "la pantalla no distingue el mes sin cargar"
+
+
+def test_las_noches_disponibles_se_recalculan_con_el_inventario_de_hoy():
+    """Si alguien corrige las unidades en Master Data, la ocupación histórica
+    tiene que corregirse con él — no quedarse con las de la importación."""
+    src = API.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def anio_room_stats"):]
+    assert 'c["nights_available"] = u * dias' in cuerpo
+
+
+def test_sin_apertura_el_adr_acumulado_usa_el_total_y_no_inventa():
+    """Un mes cargado a mano no tiene detalle por canal. Ahí el ADR se calcula
+    sobre el total: descontar «lo que suele ser cortesía» sería inventar."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "? abre.reduce<T3>" in pag and ": tot;" in pag
+
+
+def test_ocupacion_y_revpar_no_existen_por_canal():
+    """Un canal no tiene inventario propio: dividir su ingreso entre las
+    noches disponibles del hotel da un número sin significado."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert 'MEDIDAS.filter(([k]) => k !== "ocupacion" && k !== "revpar")' in pag
+
 
 def test_pdfplumber_esta_fijado_en_requirements():
     """⚠️ Sin versión fija, cada build de Railway resuelve la suya — y este

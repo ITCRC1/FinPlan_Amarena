@@ -71,6 +71,19 @@ class MarketCode(Base):
     orden: Mapped[int] = mapped_column(Integer, default=0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    #: ¿Este código entra a la BASE del ADR? (owner, 2026-09-09).
+    #:
+    #: Las cortesías y el uso interno se venden a cero y hunden el ADR sin
+    #: decir nada: en marzo 2026 CPL puso el 60.8% de las noches con el 0.7%
+    #: del ingreso, y el ADR del mes pasa de $317.66 a $125.44 según se lo
+    #: cuente o no.
+    #:
+    #: ⚠️ **No cambia noches, pax ni ingreso.** Los totales siguen siendo los
+    #: del archivo y siguen cuadrando contra el PDF; lo único que se mueve es
+    #: el denominador del ADR. Default `True`: sin que nadie desmarque nada,
+    #: el ADR es el mismo de siempre.
+    cuenta_para_adr: Mapped[bool] = mapped_column(Boolean, default=True)
+
     @property
     def canal_comision(self) -> str:
         """El canal de comisión al que rueda. Vacío si no tiene canal."""

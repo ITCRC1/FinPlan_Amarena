@@ -72,6 +72,10 @@ NO_VIAJAN = {
     # 'pl_snapshot', y desde el arreglo del copy tambien POR DEFECTO). Quedan
     # listadas aca solo por historia; la lista que manda es COPY_DATASETS.
     "actual_room_stats": "estadisticas reales",
+    # La apertura por canal de esas mismas estadisticas. Va donde va su total:
+    # si viajara sola, la version nueva tendria un mix de canales sin las
+    # noches que lo explican.
+    "actual_room_stat_canales": "apertura por canal — sigue a actual_room_stats",
     "actual_dept_fte": "FTE real por departamento — mismo motivo que actual_room_stats",
     "balance_sheet_lines": "balance real",
     "on_the_books_entries": "reservas en firme",

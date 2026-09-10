@@ -205,6 +205,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "room_stats.sin_bloques_mensuales": {
         "es": "El archivo no trae bloques mensuales de Room Stats.",
         "en": "The file carries no monthly Room Stats blocks."},
+    "skill4.canal_vacio": {
+        "es": "Falta el código del canal.",
+        "en": "The channel code is missing."},
     "skill4.archivo_vacio": {
         "es": "El archivo llegó vacío.",
         "en": "The file arrived empty."},

@@ -3372,9 +3372,18 @@ export interface RoomStatsEntry {
 export async function getRoomStatsEntry(scenarioId: string, month: number): Promise<RoomStatsEntry> {
   return api.get<RoomStatsEntry>(`/scenarios/${scenarioId}/room-stats-entry/${month}/`);
 }
+export interface RoomStatCanalIn {
+  room_type_name: string; canal_code: string;
+  nights_occupied: number; pax: number; revenue: number;
+}
+/** Guarda el mes. `canales` es opcional: la carga manual no lo manda y el
+ *  detalle por canal que hubiera queda como estaba. */
 export async function saveRoomStatsEntry(scenarioId: string, month: number,
-  rows: { room_type_name: string; units: number; nights_occupied: number; revenue: number; pax: number }[]): Promise<{ saved: boolean; month: number; rows_saved: number }> {
-  return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`, { rows });
+  rows: { room_type_name: string; units: number; nights_occupied: number; revenue: number; pax: number }[],
+  canales?: RoomStatCanalIn[],
+): Promise<{ saved: boolean; month: number; rows_saved: number; canales_saved?: number }> {
+  return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`,
+    canales ? { rows, canales } : { rows });
 }
 
 /**
@@ -3386,9 +3395,23 @@ export async function saveRoomStatsEntry(scenarioId: string, month: number,
  * después de que alguien revisó a qué categoría de la propiedad va cada
  * categoría del PDF.
  */
-export interface PdfRoomStatsAgencia {
+/** El calce de un código del PMS a `market_codes`. `canal: ""` = nadie decidió. */
+export interface CanalDelPms {
+  canal_code: string;
+  canal: string;
+  canal_comision: string;
+  /** false = este canal no entra a la BASE del ADR (cortesías, uso interno). */
+  cuenta_para_adr: boolean;
+  /** false = el código no está en `market_codes`. No se adivina: se reporta. */
+  conocido: boolean;
+}
+export interface PdfRoomStatsAgencia extends CanalDelPms {
   agencia: string; revenue: number; nights_occupied: number; pax: number;
   hab_entradas: number; cli_entradas: number; tarifa_promedio: number;
+}
+export interface PdfRoomStatsCanal extends CanalDelPms {
+  agencia: string; nights_occupied: number; pax: number; revenue: number;
+  hab_entradas: number; cli_entradas: number; adr: number;
 }
 export interface PdfRoomStatsFila {
   nombre_pdf: string;
@@ -3411,6 +3434,7 @@ export interface PdfRoomStatsLectura {
   categorias_sin_calce: string[];
   categorias_ausentes_en_el_pdf: string[];
   mes_ya_tiene_datos: boolean;
+  canales: PdfRoomStatsCanal[];
   totales: {
     nights_occupied: number; pax: number; revenue: number; adr: number;
     nights_available_config: number;
@@ -3433,6 +3457,45 @@ export async function leerPdfRoomStats(scenarioId: string, file: File): Promise<
   });
   if (!res.ok) { throw new Error(`API ${res.status}: ${await res.text()}`); }
   return res.json();
+}
+
+/** El año completo de estadística real, por categoría y por canal.
+ *
+ * ⚠️ Devuelve el dato POR MES, no el acumulado ya sumado: el YTD de una tasa
+ * —ADR, ocupación, RevPAR— se recalcula sobre los totales del período. El
+ * promedio de los ADR mensuales le daría el mismo peso a un mes de 20 noches
+ * que a uno de 150. */
+export interface AnioMesCategoria {
+  room_type_name: string; units: number; nights_available: number;
+  nights_occupied: number; pax: number; revenue: number;
+}
+export interface AnioMesCanal extends CanalDelPms {
+  room_type_name: string; nights_occupied: number; pax: number; revenue: number;
+}
+export interface AnioMes {
+  month: number; dias: number;
+  /** false = el mes no está cargado. NO es lo mismo que un mes en cero. */
+  cargado: boolean;
+  categorias: AnioMesCategoria[];
+  canales: AnioMesCanal[];
+}
+export interface AnioRoomStats {
+  scenario_id: string; year: number; escenario: string;
+  room_types: { name: string; code: string; units: number }[];
+  meses: AnioMes[];
+  meses_cargados: number[];
+  hay_apertura_por_canal: boolean;
+}
+export async function getAnioRoomStats(scenarioId: string): Promise<AnioRoomStats> {
+  return api.get<AnioRoomStats>(`/scenarios/${scenarioId}/room-stats/anio/`);
+}
+
+export async function getCanalesPms(): Promise<{ canales: (CanalDelPms & { nombre: string; activo: boolean })[] }> {
+  return api.get(`/room-stats/canales/`);
+}
+/** Prende o apaga un canal para la base del ADR. No toca ningún importe. */
+export async function marcarCanalParaAdr(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
+  return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/adr/`, { cuenta });
 }
 
 export async function importRoomStats(scenarioId: string, file: File, dryRun = false): Promise<ImportRoomStatsResult> {
