@@ -47,3 +47,7 @@ cantidades_*.xlsx
 
 # Salida de las verificaciones independientes (se regenera al correrlas)
 backend/scripts/_verif_salida.json
+
+# Permisos personales de Claude Code en esta máquina. NO se comparte: es de
+# quién puede hacer qué desde ESTE equipo, no del proyecto.
+.claude/settings.local.json
