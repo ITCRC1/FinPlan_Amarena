@@ -736,7 +736,7 @@ def test_el_total_de_por_canal_es_el_de_la_pantalla():
     noches y ingreso del archivo y un ADR que no salía de ellos.
     """
     pag = PAGINA.read_text(encoding="utf-8")
-    assert 'celdas={["TOTAL", "", n(baseTot[0]), pct(100), n(baseTot[1]),' in pag
+    assert 'celdas={["TOTAL", "", "", n(baseTot[0]), pct(100), n(baseTot[1]),' in pag
     assert 'usd(baseTot[2]), pct(100), adrDe(baseTot)]}' in pag
 
 
@@ -762,3 +762,100 @@ def test_el_excel_baja_la_misma_base_que_la_pantalla():
     cuerpo = src[src.index("async function bajarExcel"):src.index("function Calce")]
     assert "mes.baseTot[0], mes.baseTot[1]" in cuerpo, "el Excel totaliza sin filtrar"
     assert "Con todos los canales (PDF)" in cuerpo, "la hoja no se puede cuadrar"
+
+
+# ───────────── El canal de un código del PMS se asigna en la pantalla ───────
+
+def test_el_canal_de_un_codigo_se_puede_asignar_sin_tocar_la_base():
+    """⚠️ El mapeo código→canal sólo se podía sembrar o migrar.
+
+    `market_codes` venía con los 13 códigos de **Opera**. Amarena usa Skill4
+    y sus códigos son otros —`DIRECTOS`, `RESONLINE`, `EXPEDIA HOTEL
+    COLLECT`—: ninguno estaba. Con seis meses cargados, el 100% del ingreso
+    quedaba sin clasificar, y la única salida era que alguien escribiera una
+    migración. Cada propiedad trae códigos propios, así que eso no escala.
+
+    Owner, 2026-09-10, cuando se le preguntó a qué canal iba cada uno:
+    *«pero que debo decir»*. La respuesta correcta no es que lo diga: es que
+    lo pueda elegir donde está mirando el número.
+    """
+    from app.api import room_stats_pdf_api as api
+    assert hasattr(api, "asignar_canal_del_codigo")
+    rutas = [r for r in api.router.routes
+             if getattr(r, "path", "").endswith("/canal/")]
+    assert rutas, "no hay endpoint para asignar el canal"
+    assert "PUT" in rutas[0].methods
+
+
+def test_el_canal_vacio_es_valido_y_uno_inventado_no():
+    """Vacío significa «nadie lo decidió»: es el estado que la pantalla
+    reporta, no un error. Un canal mal escrito, en cambio, no rodaría a
+    ninguna comisión y se leería igual que sin decidir — silencioso."""
+    import inspect
+
+    from app.api import room_stats_pdf_api as api
+    src = inspect.getsource(api.asignar_canal_del_codigo)
+    assert "if canal and canal not in CANALES" in src, \
+        "no se valida el canal contra la lista canónica"
+    assert "skill4.canal_desconocido" in src
+    # Y no toca la casilla del ADR, que es otra decisión.
+    assert "cuenta_para_kpis =" not in src
+
+
+def test_los_codigos_del_skill4_estan_en_el_seed():
+    """Los nueve códigos que traen los PDF de marzo–agosto 2026.
+
+    ⚠️ Tres van SIN canal a propósito. El canal define a qué cubo de comisión
+    rueda el código, y de ahí sale el Net Rate: `RESONLINE` como `Website` no
+    paga comisión de intermediario y como `OTA` sí. `PROMOCIONES` y
+    `RESONLINE` juntos son el 35% del ingreso cargado — es la peor plata para
+    adivinar, porque el total cuadra igual en los dos casos.
+    """
+    import json
+
+    from app.seed_market_codes import ARCHIVO
+    codigos = {c["code"]: c for c in
+               json.loads(ARCHIVO.read_text(encoding="utf-8"))["codigos"]}
+    for code, canal in [("DIRECTOS", "Direct Client"), ("BOOKING", "OTA"),
+                        ("EXPEDIA", "OTA"), ("EXPEDIA HOTEL COLLECT", "OTA"),
+                        ("CPL", "INHOUSE"), ("PATROCINIO", "INHOUSE")]:
+        assert codigos[code]["canal"] == canal, f"{code} no rueda a {canal}"
+    for code in ("PROMOCIONES", "RESONLINE", "CAST CENTRAL AMERICA"):
+        assert codigos[code]["canal"] == "", f"{code} se adivinó"
+
+
+def test_el_seed_no_pisa_el_canal_que_eligio_el_owner():
+    """⚠️ Si el seed re-afirmara el canal, elegirlo en pantalla duraría hasta
+    el próximo deploy — el modo de falla del mapeo del P&L, otra vez: la
+    plata cambia de canal sola, el total sigue cuadrando, nadie se entera."""
+    import inspect
+
+    from app import seed_market_codes
+    src = inspect.getsource(seed_market_codes.seed_market_codes)
+    cuerpo = src[src.index("else:"):]
+    for campo in ("m.canal =", "m.nombre ="):
+        assert campo not in cuerpo, f"el seed pisa {campo}"
+    assert "m.orden =" in cuerpo
+
+
+def test_la_pantalla_avisa_de_los_codigos_sin_canal():
+    """Un código sin canal no rompe nada visible: se guarda, se ve en las
+    vistas del mes y suma a los totales. Lo único que NO hace es rodar al mix
+    — o sea que el mix se lee incompleto sin decir que lo está."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "const sinCanal" in pag
+    assert "ruedan al mix de canales ni al Net Rate" in pag
+    # Y el aviso viejo, que mandaba a «Master Data · Market Codes» —una pantalla
+    # que no existe— y sólo veía los códigos ausentes de la tabla, ya no está.
+    assert "Se asignan en Master Data" not in pag
+    assert "— sin decidir —" in pag, "no hay opción vacía en el desplegable"
+    assert 'const CANALES = ["Travel Agent", "Direct Client", "Website", "OTA", "INHOUSE"]' in pag
+
+
+def test_elegir_canal_se_revierte_si_no_guardo():
+    """Optimista en pantalla, pero si el PUT falla vuelve a lo que había: una
+    pantalla que dice que guardó algo que no guardó es peor que una lenta."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    cuerpo = pag[pag.index("async function elegirCanal"):pag.index("/** El mes YA GUARDADO")]
+    assert "const antes = canalDe[code]" in cuerpo
+    assert "setCanalDe(m => ({ ...m, [code]: antes }))" in cuerpo

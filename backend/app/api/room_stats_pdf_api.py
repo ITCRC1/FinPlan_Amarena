@@ -62,7 +62,7 @@ from app.hotel_actual import HOTEL_ID
 from app.importers.skill4_room_stats_pdf import leer_pdf_skill4, nombre_del_mes
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
-from app.models.market_code import MarketCode
+from app.models.market_code import CANALES, MarketCode
 from app.models.room_type_config import RoomTypeConfig
 from app.models.scenario import Scenario
 
@@ -512,6 +512,10 @@ class CuentaParaAdrIn(BaseModel):
     cuenta: bool
 
 
+class CanalDeCodigoIn(BaseModel):
+    canal: str
+
+
 @router.get("/room-stats/canales/")
 async def listar_canales(db: AsyncSession = Depends(get_db)):
     """Los códigos del PMS catalogados, con su canal y si cuentan para el ADR."""
@@ -552,3 +556,52 @@ async def marcar_canal_para_kpis(
     await db.commit()
     return {"canal_code": codigo, "cuenta_para_kpis": bool(fila.cuenta_para_kpis),
             "canal": fila.canal}
+
+
+@router.put("/room-stats/canales/{canal_code}/canal/")
+async def asignar_canal_del_codigo(
+    canal_code: str, body: CanalDeCodigoIn, db: AsyncSession = Depends(get_db)
+):
+    """A qué canal pertenece un código del PMS.
+
+    Es el mapeo que faltaba poder hacer sin tocar la base. Antes el `canal`
+    sólo se podía sembrar o migrar: un código nuevo del PMS —y cada propiedad
+    trae los suyos— quedaba sin canal hasta que alguien escribiera una
+    migración. Con seis meses cargados, el 100% del ingreso de Amarena estaba
+    sin clasificar por eso.
+
+    Va acá, al lado de la casilla del ADR, y no en una pantalla de
+    configuración aparte: es la misma razón que el alias de las categorías —
+    el dato correcto está sobre la mesa en el momento en que se mira el mes,
+    y un mapa que hay que ir a mantener a otro lado envejece peor que no
+    tenerlo.
+
+    ⚠️ **No mueve ninguna cifra de ningún mes.** `actual_room_stats` y
+    `actual_room_stat_canales` siguen con lo del archivo. Lo que cambia es a
+    qué cubo de COMISIÓN rueda el código (`CANAL_A_COMISION`) y, por ahí, el
+    mix y el Net Rate — que es justo por lo que el canal equivocado es caro:
+    el total sigue cuadrando y nada avisa.
+
+    Vaciar el canal es válido y significa «nadie lo decidió»: es el estado
+    que la pantalla reporta, no un error. Por eso `""` se acepta y cualquier
+    otro valor fuera de `CANALES` se rechaza — un canal mal escrito no
+    rodaría a ninguna comisión y se leería como sin decidir.
+    """
+    codigo = canal_code.strip().upper()
+    if not codigo:
+        raise ErrorApi(422, "skill4.canal_vacio")
+    canal = (body.canal or "").strip()
+    if canal and canal not in CANALES:
+        raise ErrorApi(422, "skill4.canal_desconocido", canal=canal,
+                       validos=", ".join(CANALES))
+    fila = (await db.execute(
+        select(MarketCode).where(MarketCode.code == codigo))).scalar_one_or_none()
+    if fila is None:
+        fila = MarketCode(code=codigo, nombre=canal_code.strip(), canal="",
+                          orden=0, activo=True)
+        db.add(fila)
+    fila.canal = canal
+    await db.commit()
+    return {"canal_code": codigo, "canal": fila.canal,
+            "canal_comision": fila.canal_comision,
+            "cuenta_para_kpis": bool(fila.cuenta_para_kpis)}

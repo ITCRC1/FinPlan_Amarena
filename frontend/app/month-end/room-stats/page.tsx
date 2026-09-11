@@ -45,8 +45,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  getAnioRoomStats, getRoomStatsEntry, getScenarios, guardarAliasPms,
-  leerPdfRoomStats, marcarCanalParaKpis, saveRoomStatsEntry,
+  asignarCanalPms, getAnioRoomStats, getRoomStatsEntry, getScenarios,
+  guardarAliasPms, leerPdfRoomStats, marcarCanalParaKpis, saveRoomStatsEntry,
   type AnioMes, type AnioRoomStats,
   type PdfRoomStatsLectura, type RoomStatCanalIn,
   type Scenario,
@@ -70,6 +70,10 @@ const MEDIDAS: [Medida, string][] = [
   ["ingreso", "Ingreso"], ["adr", "ADR"], ["revpar", "RevPAR"],
 ];
 const MEDIDAS_CANAL = MEDIDAS.filter(([k]) => k !== "ocupacion" && k !== "revpar");
+
+/** Los canales (KPI groups), en el mismo orden que `market_code.py::CANALES`.
+ *  Vacío es una opción: significa «nadie lo decidió», no «no tiene». */
+const CANALES = ["Travel Agent", "Direct Client", "Website", "OTA", "INHOUSE"];
 
 const SEL: React.CSSProperties = {
   padding: "5px 9px", fontSize: 12.5, borderRadius: 6,
@@ -159,6 +163,8 @@ export default function CierreRoomStatsPage() {
   const [categorias, setCategorias] = useState<{ name: string; units: number }[]>([]);
   /** Qué canal cuenta para el ADR, por código. Espejo de `market_codes`. */
   const [enAdr, setEnAdr] = useState<Record<string, boolean>>({});
+  /** Código del PMS → canal. Vacío = todavía nadie lo decidió. */
+  const [canalDe, setCanalDe] = useState<Record<string, string>>({});
 
   const [anio, setAnio] = useState<AnioRoomStats | null>(null);
   const [medida, setMedida] = useState<Medida>("ingreso");
@@ -226,6 +232,10 @@ export default function CierreRoomStatsPage() {
       return { ...prev, ...Object.fromEntries(
         falta.map(c => [c.canal_code, c.cuenta_para_kpis])) };
     });
+    // El canal viaja en el mismo endpoint. Lo que el usuario ya eligió en
+    // esta pantalla manda: `prev` va último.
+    setCanalDe(prev => ({ ...Object.fromEntries(
+      anio.meses.flatMap(m => m.canales).map(c => [c.canal_code, c.canal])), ...prev }));
   }, [anio]);
 
   const leer = useCallback(async (f: File) => {
@@ -236,6 +246,8 @@ export default function CierreRoomStatsPage() {
       setLectura(r);
       setCalce(Object.fromEntries(r.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""])));
       setEnAdr(Object.fromEntries(r.canales.map(c => [c.canal_code, c.cuenta_para_kpis])));
+      setCanalDe(m => ({ ...Object.fromEntries(
+        r.canales.map(c => [c.canal_code, c.canal])), ...m }));
       setAbierta({});
       if (vista === "acumulado") setVista("habitacion");
     } catch (e) {
@@ -255,6 +267,28 @@ export default function CierreRoomStatsPage() {
       if (anio) cargarAnio();
     } catch (e) {
       setEnAdr(m => ({ ...m, [code]: !cuenta }));  // se revierte si no guardó
+      setError(e instanceof Error ? e.message : "No se pudo guardar el canal");
+    }
+  }
+
+  /** A qué canal pertenece un código del PMS.
+   *
+   *  Se persiste al instante, igual que la casilla del ADR: es una decisión
+   *  de la propiedad y no de este mes.
+   *
+   *  ⚠️ Esto NO mueve ninguna cifra guardada. Cambia a qué cubo de comisión
+   *  rueda el código y, por ahí, el mix y el Net Rate — que es exactamente
+   *  por qué un canal equivocado es caro: el total sigue cuadrando y nada
+   *  avisa. Por eso vacío («— sin decidir —») es una opción legítima y no
+   *  se propone ninguna por parecido del nombre. */
+  async function elegirCanal(code: string, canal: string) {
+    const antes = canalDe[code] ?? "";
+    setCanalDe(m => ({ ...m, [code]: canal }));   // optimista
+    try {
+      await asignarCanalPms(code, canal);
+      if (anio) cargarAnio();
+    } catch (e) {
+      setCanalDe(m => ({ ...m, [code]: antes }));  // se revierte si no guardó
       setError(e instanceof Error ? e.message : "No se pudo guardar el canal");
     }
   }
@@ -384,6 +418,15 @@ export default function CierreRoomStatsPage() {
   const canalesFuera = useMemo(
     () => Object.entries(enAdr).filter(([, v]) => !v).map(([k]) => k).sort(),
     [enAdr]);
+
+  /** Los códigos que el PMS trajo y todavía nadie clasificó. */
+  const sinCanal = useMemo(() => {
+    const vistos = new Set<string>([
+      ...(anio?.meses ?? []).flatMap(m => m.canales.map(c => c.canal_code)),
+      ...(enPantalla?.canales ?? []).map(c => c.canal_code),
+    ]);
+    return [...vistos].filter(c => !(canalDe[c] ?? "")).sort();
+  }, [anio, enPantalla, canalDe]);
 
   const duplicadas = useMemo(() => {
     const c: Record<string, number> = {};
@@ -605,6 +648,16 @@ export default function CierreRoomStatsPage() {
 
       {error && <Aviso tono="err">{error}</Aviso>}
       {ok && <Aviso tono="ok">{ok}</Aviso>}
+      {sinCanal.length > 0 && (
+        <Aviso tono="info">
+          <b>{sinCanal.length === 1 ? "Un código del PMS no tiene canal"
+              : `${sinCanal.length} códigos del PMS no tienen canal`}</b>{" "}
+          ({sinCanal.join(" · ")}). Se guardan y se ven acá igual, pero no
+          ruedan al mix de canales ni al Net Rate hasta que se les asigne uno.
+          Se elige en la vista <b>Por canal</b>, en la columna «Canal».{" "}
+          No se adivina: el canal decide si ese ingreso paga comisión.
+        </Aviso>
+      )}
       {canalesFuera.length > 0 && (
         <Aviso tono="warn">
           <b>{canalesFuera.join(" · ")}</b>{" "}
@@ -628,14 +681,6 @@ export default function CierreRoomStatsPage() {
         <Aviso tono="warn">
           {lectura.mes_nombre} ya tiene estadística en esta versión. Guardar
           <b> reemplaza el mes completo</b>.
-        </Aviso>
-      )}
-      {lectura && lectura.canales.some(c => !c.conocido) && (
-        <Aviso tono="warn">
-          Códigos del PMS que no están en Market Codes:{" "}
-          <b>{lectura.canales.filter(c => !c.conocido).map(c => c.canal_code).join(", ")}</b>.
-          Se guardan igual, pero hasta que se les asigne canal no ruedan al mix
-          de canales. Se asignan en Master Data · Market Codes.
         </Aviso>
       )}
 
@@ -704,7 +749,8 @@ export default function CierreRoomStatsPage() {
                   </p>
                 )}
               </div>
-            : vista === "canal"   ? <PorCanal {...{ mes: mes!, enAdr, alternarAdr, pega }} />
+            : vista === "canal"   ? <PorCanal {...{ mes: mes!, enAdr, alternarAdr,
+                                                    canalDe, elegirCanal, pega }} />
             : vista === "matriz"  ? <Matriz {...{ lectura: enPantalla, mes: mes!, enAdr, pega, Calce }} />
             :                       <PorHabitacion {...{ lectura: enPantalla, mes: mes!, pega, Calce }} />}
       </div>
@@ -750,9 +796,11 @@ export default function CierreRoomStatsPage() {
 }
 
 /* ─────────────────────────── Vista 1 · Por canal ────────────────────────── */
-function PorCanal({ mes, enAdr, alternarAdr, pega }: {
+function PorCanal({ mes, enAdr, alternarAdr, canalDe, elegirCanal, pega }: {
   mes: MesAgregado; enAdr: MapaAdr;
   alternarAdr: (code: string, cuenta: boolean) => void;
+  canalDe: Record<string, string>;
+  elegirCanal: (code: string, canal: string) => void;
   pega: React.CSSProperties;
 }) {
   const { canales, porCan, total, baseTot, filtra } = mes;
@@ -763,6 +811,10 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
           <th style={{ ...TH, ...pega, textAlign: "left", background: "var(--bg-elevated)" }}>Canal</th>
           <th style={{ ...TH, textAlign: "center", width: 62 }}
               title="Marcado = este canal cuenta para ocupación, ADR y RevPAR">Cuenta</th>
+          <th style={{ ...TH, textAlign: "left", width: 150 }}
+              title="A qué canal pertenece este código del PMS. Define si el ingreso paga comisión.">
+            Canal
+          </th>
           <th style={TH}>Noches</th><th style={TH}>% noches</th>
           <th style={TH}>Pax</th>
           <th style={TH}>Ingreso</th><th style={TH}>% ingreso</th>
@@ -792,6 +844,17 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
                   aria-label={`Incluir ${code} en los indicadores`}
                   style={{ width: 14, height: 14, accentColor: "var(--brand)", cursor: "pointer" }} />
               </td>
+              <td style={{ ...TD, textAlign: "left" }}>
+                <select value={canalDe[code] ?? ""}
+                  onChange={e => elegirCanal(code, e.target.value)}
+                  aria-label={`Canal de ${code}`}
+                  style={{ ...SEL, padding: "3px 6px", fontSize: 11, width: "100%",
+                           borderColor: (canalDe[code] ?? "")
+                             ? "var(--border-medium)" : "var(--warning)" }}>
+                  <option value="">— sin decidir —</option>
+                  {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </td>
               <td style={{ ...TD, ...tenue }}>{n(no)}</td>
               <td style={{ ...TD, ...tenue, position: "relative" }}>
                 <i style={{ position: "absolute", left: 0, bottom: 3, height: 3,
@@ -811,13 +874,13 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
             </tr>
           );
         })}
-        <Total celdas={["TOTAL", "", n(baseTot[0]), pct(100), n(baseTot[1]),
+        <Total celdas={["TOTAL", "", "", n(baseTot[0]), pct(100), n(baseTot[1]),
                         usd(baseTot[2]), pct(100), adrDe(baseTot)]} pega={pega} />
         {/* ⚠️ La única fila con la otra base. Sin ella el cuadre contra el PDF
             no se puede hacer desde la pantalla, y el total filtrado se lee
             como si el archivo dijera eso. */}
         {filtra && (
-          <Stat celdas={["Con todos los canales (PDF)", "", n(total[0]), "",
+          <Stat celdas={["Con todos los canales (PDF)", "", "", n(total[0]), "",
                          n(total[1]), usd(total[2]), "", adrDe(total)]}
                 pega={pega} primera />
         )}

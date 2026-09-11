@@ -3517,6 +3517,12 @@ export async function guardarAliasPms(
   return api.put(`/room-stats/alias-pms/`, { aliases });
 }
 
+/** A qué canal pertenece un código del PMS. Cadena vacía = «sin decidir»,
+ *  que es un estado válido y visible, no un error. */
+export async function asignarCanalPms(canalCode: string, canal: string): Promise<CanalDelPms> {
+  return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/canal/`, { canal });
+}
+
 export async function marcarCanalParaKpis(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
   return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/kpis/`, { cuenta });
 }

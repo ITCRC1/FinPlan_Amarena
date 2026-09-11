@@ -208,6 +208,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "skill4.canal_vacio": {
         "es": "Falta el código del canal.",
         "en": "The channel code is missing."},
+    "skill4.canal_desconocido": {
+        "es": "«{canal}» no es un canal válido. Tiene que ser uno de: {validos} — o vacío, que significa que todavía no se decidió.",
+        "en": "“{canal}” is not a valid channel. It has to be one of: {validos} — or empty, which means it has not been decided yet."},
     "skill4.archivo_vacio": {
         "es": "El archivo llegó vacío.",
         "en": "The file arrived empty."},

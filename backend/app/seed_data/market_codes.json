@@ -1,28 +1,153 @@
 {
   "_nota": [
-    "Los market codes de Opera, tal como el owner los mando (2026-08-14) desde su",
-    "pantalla de Market Codes Mapping.",
+    "Los market codes tal como los manda el PMS.",
     "",
-    "El CODIGO es la llave y no se mueve. El nombre y el canal se editan en la app.",
+    "El CODIGO es la llave y no se mueve. El nombre y el canal se editan en la",
+    "app — en la vista «Por canal» del cierre de mes, al lado de la casilla del",
+    "ADR. El seed NO los pisa: solo inserta lo que falta y re-afirma el orden.",
     "",
-    "CORP y GRP vienen SIN canal a proposito: asi los tiene el owner hoy. No se",
-    "adivinan — un market code en el canal equivocado manda noches al lugar",
-    "equivocado y el total sigue cuadrando igual, que es la forma de fallar que",
-    "no avisa. Se muestran vacios y la pantalla los reporta."
+    "Los primeros 13 son de Opera. Del 101 en adelante son los de Skill4, que",
+    "es el PMS de Amarena, leidos de los PDF de marzo a agosto 2026.",
+    "",
+    "CORP, GRP, PROMOCIONES, RESONLINE y CAST CENTRAL AMERICA vienen SIN canal",
+    "a proposito. No se adivinan — el canal define a que cubo de COMISION rueda",
+    "el codigo, y de ahi sale el Net Rate: RESONLINE como Website no paga",
+    "comision de intermediario y como OTA si, son $26,286 que cambian de trato",
+    "segun una letra, y el total sigue cuadrando en los dos casos. Se muestran",
+    "vacios y la pantalla los reporta."
   ],
   "codigos": [
-    {"code": "BAR",     "nombre": "Best Available Rate",     "canal": "Direct Client", "orden": 1},
-    {"code": "COM",     "nombre": "Complimentary / Courtesy", "canal": "Direct Client", "orden": 2},
-    {"code": "CORP",    "nombre": "Corporativo",              "canal": "",              "orden": 3},
-    {"code": "DIR",     "nombre": "Direct Reservation",       "canal": "Direct Client", "orden": 4},
-    {"code": "FNF",     "nombre": "Friends & Family",         "canal": "Direct Client", "orden": 5},
-    {"code": "GRP",     "nombre": "Grupo",                    "canal": "",              "orden": 6},
-    {"code": "INHOUSE", "nombre": "In-House Guest",           "canal": "INHOUSE",       "orden": 7},
-    {"code": "OTA",     "nombre": "Online Travel Agency",     "canal": "OTA",           "orden": 8},
-    {"code": "SOC",     "nombre": "Social / Special Offer",   "canal": "Direct Client", "orden": 9},
-    {"code": "TA",      "nombre": "Travel Agent",             "canal": "Travel Agent",  "orden": 10},
-    {"code": "TAFIT",   "nombre": "Travel Agent FIT",         "canal": "Travel Agent",  "orden": 11},
-    {"code": "TAGP",    "nombre": "Travel Agent Group",       "canal": "Travel Agent",  "orden": 12},
-    {"code": "WEB",     "nombre": "Website",                  "canal": "Website",       "orden": 13}
+    {
+      "code": "BAR",
+      "nombre": "Best Available Rate",
+      "canal": "Direct Client",
+      "orden": 1
+    },
+    {
+      "code": "COM",
+      "nombre": "Complimentary / Courtesy",
+      "canal": "Direct Client",
+      "orden": 2
+    },
+    {
+      "code": "CORP",
+      "nombre": "Corporativo",
+      "canal": "",
+      "orden": 3
+    },
+    {
+      "code": "DIR",
+      "nombre": "Direct Reservation",
+      "canal": "Direct Client",
+      "orden": 4
+    },
+    {
+      "code": "FNF",
+      "nombre": "Friends & Family",
+      "canal": "Direct Client",
+      "orden": 5
+    },
+    {
+      "code": "GRP",
+      "nombre": "Grupo",
+      "canal": "",
+      "orden": 6
+    },
+    {
+      "code": "INHOUSE",
+      "nombre": "In-House Guest",
+      "canal": "INHOUSE",
+      "orden": 7
+    },
+    {
+      "code": "OTA",
+      "nombre": "Online Travel Agency",
+      "canal": "OTA",
+      "orden": 8
+    },
+    {
+      "code": "SOC",
+      "nombre": "Social / Special Offer",
+      "canal": "Direct Client",
+      "orden": 9
+    },
+    {
+      "code": "TA",
+      "nombre": "Travel Agent",
+      "canal": "Travel Agent",
+      "orden": 10
+    },
+    {
+      "code": "TAFIT",
+      "nombre": "Travel Agent FIT",
+      "canal": "Travel Agent",
+      "orden": 11
+    },
+    {
+      "code": "TAGP",
+      "nombre": "Travel Agent Group",
+      "canal": "Travel Agent",
+      "orden": 12
+    },
+    {
+      "code": "WEB",
+      "nombre": "Website",
+      "canal": "Website",
+      "orden": 13
+    },
+    {
+      "code": "DIRECTOS",
+      "nombre": "Directos",
+      "canal": "Direct Client",
+      "orden": 101
+    },
+    {
+      "code": "PROMOCIONES",
+      "nombre": "Promociones",
+      "canal": "",
+      "orden": 102
+    },
+    {
+      "code": "RESONLINE",
+      "nombre": "ResOnline",
+      "canal": "",
+      "orden": 103
+    },
+    {
+      "code": "BOOKING",
+      "nombre": "Booking.com",
+      "canal": "OTA",
+      "orden": 104
+    },
+    {
+      "code": "EXPEDIA",
+      "nombre": "Expedia",
+      "canal": "OTA",
+      "orden": 105
+    },
+    {
+      "code": "EXPEDIA HOTEL COLLECT",
+      "nombre": "Expedia Hotel Collect",
+      "canal": "OTA",
+      "orden": 106
+    },
+    {
+      "code": "CAST CENTRAL AMERICA",
+      "nombre": "CAST Central America",
+      "canal": "",
+      "orden": 107
+    },
+    {
+      "code": "CPL",
+      "nombre": "Cortesia / Complimentary",
+      "canal": "INHOUSE",
+      "orden": 108
+    },
+    {
+      "code": "PATROCINIO",
+      "nombre": "Patrocinio / Canje",
+      "canal": "INHOUSE",
+      "orden": 109
+    }
   ]
 }
