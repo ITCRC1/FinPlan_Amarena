@@ -3418,7 +3418,8 @@ export interface PdfRoomStatsFila {
   /** `null` = el nombre del PDF no calzó con ninguna categoría: lo elige el usuario. */
   room_type_name: string | null;
   room_type_code: string;
-  confianza: "exacto" | "probable" | "ninguno";
+  /** `alias` = calce recordado de una carga anterior; gana sobre el parecido. */
+  confianza: "alias" | "exacto" | "probable" | "ninguno";
   units: number; nights_available: number;
   nights_occupied: number; pax: number; revenue: number; adr: number;
   hab_entradas: number; cli_entradas: number;
@@ -3504,6 +3505,18 @@ export async function getCanalesPms(): Promise<{ canales: (CanalDelPms & { nombr
   return api.get(`/room-stats/canales/`);
 }
 /** Prende o apaga un canal para la base del ADR. No toca ningún importe. */
+/** Recuerda con qué nombre llama el PMS a cada categoría.
+ *
+ * La pantalla lo manda AL GUARDAR el mes, con el calce ya confirmado: no hay
+ * pantalla de configuración aparte, porque un mapa que hay que ir a mantener
+ * a otro lado envejece peor que no tenerlo. No mueve ninguna cifra — sólo
+ * cambia qué categoría se propone la próxima vez. */
+export async function guardarAliasPms(
+  aliases: { room_type_name: string; alias_pms: string }[],
+): Promise<{ guardados: number; categorias_desconocidas: string[] }> {
+  return api.put(`/room-stats/alias-pms/`, { aliases });
+}
+
 export async function marcarCanalParaKpis(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
   return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/kpis/`, { cuenta });
 }

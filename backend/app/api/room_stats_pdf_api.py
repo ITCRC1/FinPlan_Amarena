@@ -102,13 +102,24 @@ def _calce(nombre_pdf: str, categorias: list) -> tuple:
     """Elige la categoría de la propiedad que mejor calza con la del PDF.
 
     Devuelve `(RoomTypeConfig | None, confianza)`. `confianza` es
-    `'exacto'`, `'probable'` o `'ninguno'` — y la pantalla la muestra: un
-    calce por parecido que nadie revisó es la forma de archivar las noches
-    bajo la categoría equivocada.
+    `'alias'`, `'exacto'`, `'probable'` o `'ninguno'` — y la pantalla la
+    muestra: un calce por parecido que nadie revisó es la forma de archivar
+    las noches bajo la categoría equivocada.
+
+    ⚠️ **El alias guardado gana sobre cualquier parecido.** Es una decisión
+    que una persona ya tomó para esta propiedad; recalcularla por similitud
+    en cada carga la dejaría a merced de que alguien renombre una categoría.
+    Medido contra Amarena: con parecido, «BEACH FRONT DLXE VILLA» no calza
+    con «Beachfront Deluxe-Tented Villa» —el PMS parte «Beachfront» en dos
+    palabras— y dos de las tres categorías quedaban sin resolver cada mes.
     """
     objetivo = _tokens(nombre_pdf)
     if not objetivo:
         return None, "ninguno"
+    crudo = _normalizar(nombre_pdf)
+    for c in categorias:
+        if getattr(c, "alias_pms", "") and _normalizar(c.alias_pms) == crudo:
+            return c, "alias"
     for c in categorias:
         if _tokens(c.name) == objetivo or _tokens(c.short_name) == objetivo:
             return c, "exacto"
@@ -445,6 +456,54 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
         # salir — y hay que decirlo, no mostrar un cuadro vacío.
         "hay_apertura_por_canal": any(m["canales"] for m in meses),
     }
+
+
+# ──────────── Cómo llama el PMS a cada categoría (alias) ────────────────────
+
+class AliasPmsIn(BaseModel):
+    """Un alias: la categoría de la propiedad y el nombre que usa el PMS."""
+    room_type_name: str
+    alias_pms: str
+
+
+class AliasesPmsIn(BaseModel):
+    aliases: list[AliasPmsIn]
+
+
+@router.put("/room-stats/alias-pms/")
+async def guardar_alias_pms(body: AliasesPmsIn, db: AsyncSession = Depends(get_db)):
+    """Recuerda con qué nombre llama el PMS a cada categoría.
+
+    Lo llama la pantalla **al guardar el mes**, con el calce que la persona
+    confirmó. No hay pantalla de configuración aparte a propósito: un mapa
+    que hay que ir a mantener a otro lado envejece peor que no tenerlo, y
+    acá el dato correcto ya está sobre la mesa en el momento justo.
+
+    ⚠️ **No mueve ninguna cifra.** Sólo cambia qué categoría se va a proponer
+    la próxima vez; lo que se guarda del mes sigue siendo lo que confirmó la
+    persona en la pantalla.
+
+    Idempotente: guardar el mismo alias dos veces no hace nada. Un alias
+    vacío BORRA el que hubiera — es cómo se deshace un calce equivocado.
+    """
+    filas = {c.name: c for c in (await db.execute(
+        select(RoomTypeConfig).where(RoomTypeConfig.hotel_id == HOTEL_ID)
+    )).scalars().all()}
+
+    guardados, desconocidas = 0, []
+    for a in body.aliases:
+        cat = filas.get(a.room_type_name)
+        if cat is None:
+            # La categoría no es de esta propiedad. No se crea nada: crearla
+            # acá metería una categoría fantasma en Master Data.
+            desconocidas.append(a.room_type_name)
+            continue
+        nuevo = (a.alias_pms or "").strip()[:120]
+        if (cat.alias_pms or "") != nuevo:
+            cat.alias_pms = nuevo
+            guardados += 1
+    await db.commit()
+    return {"guardados": guardados, "categorias_desconocidas": desconocidas}
 
 
 # ───────────────── Qué canal cuenta para el ADR ─────────────────────────────

@@ -45,8 +45,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  getAnioRoomStats, getRoomStatsEntry, getScenarios, leerPdfRoomStats,
-  marcarCanalParaKpis, saveRoomStatsEntry,
+  getAnioRoomStats, getRoomStatsEntry, getScenarios, guardarAliasPms,
+  leerPdfRoomStats, marcarCanalParaKpis, saveRoomStatsEntry,
   type AnioMes, type AnioRoomStats,
   type PdfRoomStatsLectura, type RoomStatCanalIn,
   type Scenario,
@@ -302,6 +302,14 @@ export default function CierreRoomStatsPage() {
           nights_occupied: a.nights_occupied, pax: a.pax, revenue: a.revenue,
         })));
       const r = await saveRoomStatsEntry(scenarioId, lectura.month, rows, canales);
+      // El calce que se acaba de confirmar se RECUERDA para el mes que viene.
+      // Va despues de guardar y en su propio try: que el alias no se pueda
+      // escribir no puede tirar abajo un mes que ya entro bien.
+      try {
+        await guardarAliasPms(lectura.filas
+          .filter(f => calce[f.nombre_pdf])
+          .map(f => ({ room_type_name: calce[f.nombre_pdf], alias_pms: f.nombre_pdf })));
+      } catch { /* el mes ya esta guardado; el alias se reintenta solo la proxima */ }
       setOk(`Guardado: ${lectura.mes_nombre} ${lectura.year} · ${r.rows_saved} categoría(s)`
             + `${r.canales_saved ? `, ${r.canales_saved} línea(s) de canal` : ""}. `
             + "El PDF no se almacenó.");
@@ -351,7 +359,9 @@ export default function CierreRoomStatsPage() {
   function Calce({ i, comoCelda }: { i: number; comoCelda: boolean }) {
     const f = lectura!.filas[i];
     const sel = calce[f.nombre_pdf] ?? "";
-    const pide = !sel || f.confianza !== "exacto";
+    // `alias` y `exacto` no piden nada: el primero porque alguien ya lo
+    // decidio para esta propiedad, el segundo porque los nombres coinciden.
+    const pide = !sel || (f.confianza !== "exacto" && f.confianza !== "alias");
     const rotulo = comoCelda ? (sel || "— sin categoría —") : f.nombre_pdf;
     return (
       <>
@@ -375,6 +385,11 @@ export default function CierreRoomStatsPage() {
             {!sel && <span style={{ display: "block", marginTop: 3, fontSize: 9.5,
                                     fontWeight: 600, textTransform: "uppercase",
                                     color: "var(--negative)" }}>sin calce</span>}
+            {sel && f.confianza === "alias" && (
+              <span style={{ display: "block", marginTop: 3, fontSize: 9.5, fontWeight: 600,
+                             textTransform: "uppercase", color: "var(--positive)" }}>
+                recordado
+              </span>)}
             {sel && f.confianza === "probable" && (
               <span style={{ display: "block", marginTop: 3, fontSize: 9.5, fontWeight: 600,
                              textTransform: "uppercase", color: "var(--warning)" }}>

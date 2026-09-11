@@ -35,6 +35,22 @@ class RoomTypeConfig(Base):
     # entre sus hijos (Villas, Residencias) según las noches vendidas: sin este
     # vínculo el reparto no sabe qué noches son de cada uno.
     dept_code: Mapped[str] = mapped_column(String(10), default="")
+    #: Cómo llama el PMS a esta categoría (owner, 2026-09-10: *«no era que
+    #: íbamos a realizar un mapping… de las habitaciones»*).
+    #:
+    #: El PDF de Skill4 escribe «BEACH FRONT DLXE VILLA» y acá la categoría se
+    #: llama «Beachfront Deluxe-Tented Villa». El parecido no alcanza —el PMS
+    #: parte «Beachfront» en dos palabras— así que sin esto hay que elegir a
+    #: mano la categoría en CADA carga, todos los meses.
+    #:
+    #: Vive en esta tabla y no en una nueva por el mismo motivo que
+    #: `market_codes.cuenta_para_kpis`: es un dato DE la categoría, no una
+    #: entidad aparte. Vacío = no hay alias y se cae al parecido de siempre.
+    #:
+    #: ⚠️ Se APRENDE al guardar el mes, no se configura en otra pantalla: el
+    #: alias que nadie mantiene envejece peor que no tenerlo.
+    alias_pms: Mapped[str] = mapped_column(String(120), default="")
+
     units: Mapped[int] = mapped_column(Integer)
     pax_min: Mapped[int] = mapped_column(Integer, default=1)
     pax_max: Mapped[int] = mapped_column(Integer, default=2)

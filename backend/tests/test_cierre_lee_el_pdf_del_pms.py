@@ -137,6 +137,113 @@ def test_una_categoria_desconocida_queda_SIN_calce():
     assert cat is None and confianza == "ninguno"
 
 
+class _CatAlias(_Cat):
+    def __init__(self, name, short_name, alias_pms="", units=4, code="RT01"):
+        super().__init__(name, short_name, units, code)
+        self.alias_pms = alias_pms
+
+
+#: Los nombres REALES de Amarena contra los del PDF real de marzo 2026. Son
+#: el caso que motivó el alias: el PMS parte «Beachfront» en dos palabras.
+AMARENA_REAL = [
+    _CatAlias("Garden View Deluxe-Tented Villa", "Garden View", "GARDEN VIEW DLXE VILLA", 8),
+    _CatAlias("Beachfront Deluxe-Tented Villa", "BF Deluxe", "BEACH FRONT DLXE VILLA", 5),
+    _CatAlias("Beachfront Master-Suite Tented Villa", "BF Master", "BEACH FRONT MASTER VILLA", 2),
+    _CatAlias("Garden View Deluxe-Tented Villa · Accesible", "GV Accesible", "", 1),
+]
+
+
+@pytest.mark.parametrize("del_pdf,esperado", [
+    ("GARDEN VIEW DLXE VILLA", "Garden View Deluxe-Tented Villa"),
+    ("BEACH FRONT DLXE VILLA", "Beachfront Deluxe-Tented Villa"),
+    ("BEACH FRONT MASTER VILLA", "Beachfront Master-Suite Tented Villa"),
+])
+def test_el_alias_resuelve_lo_que_el_parecido_no(del_pdf, esperado):
+    """⚠️ Sin alias, DOS de estas tres quedan sin calce todos los meses.
+
+    «BEACH FRONT DLXE VILLA» contra «Beachfront Deluxe-Tented Villa»: el PMS
+    escribe «Beachfront» en dos palabras, así que para el comparador son
+    tokens distintos y el parecido no llega al umbral. Es correcto que no
+    adivine —adivinar archiva las noches en otra categoría y el total del
+    hotel sigue cuadrando— pero obliga a elegir a mano en cada carga.
+    """
+    from app.api.room_stats_pdf_api import _calce
+    cat, confianza = _calce(del_pdf, AMARENA_REAL)
+    assert cat is not None and cat.name == esperado
+    assert confianza == "alias"
+
+
+def test_sin_alias_esas_mismas_no_calzan():
+    """La contraparte del test de arriba: es lo que pasaba antes del alias."""
+    from app.api.room_stats_pdf_api import _calce
+    sin_alias = [_CatAlias(c.name, c.short_name, "", c.units) for c in AMARENA_REAL]
+    for del_pdf in ("BEACH FRONT DLXE VILLA", "BEACH FRONT MASTER VILLA"):
+        cat, confianza = _calce(del_pdf, sin_alias)
+        assert confianza == "ninguno", f"{del_pdf} ya no necesita alias: revisar el test"
+
+
+def test_el_alias_le_gana_al_parecido():
+    """⚠️ Una decisión que una persona tomó no se recalcula por similitud.
+
+    Si el parecido pudiera ganarle, renombrar una categoría en Master Data
+    movería el calce de un mes para otro sin que nadie lo pida.
+    """
+    from app.api.room_stats_pdf_api import _calce
+    cats = [
+        _CatAlias("Garden View Deluxe-Tented Villa", "Garden", "BEACH FRONT DLXE VILLA", 8),
+        _CatAlias("Beachfront Deluxe Villa", "Beachfront", "", 5),
+    ]
+    cat, confianza = _calce("BEACH FRONT DLXE VILLA", cats)
+    assert confianza == "alias"
+    assert cat.name == "Garden View Deluxe-Tented Villa"
+
+
+def test_el_alias_se_aprende_al_guardar_y_no_en_otra_pantalla():
+    """Un mapa que hay que ir a mantener a otro lado envejece peor que no
+    tenerlo. El calce confirmado se guarda en el mismo momento."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "guardarAliasPms(" in pag
+    guardado = pag[pag.index("async function guardar()"):pag.index("async function bajarExcel")]
+    assert "guardarAliasPms" in guardado, "el alias no se aprende al guardar"
+    # Y en su propio try: que falle el alias no puede tirar el mes ya guardado.
+    assert guardado.index("saveRoomStatsEntry") < guardado.index("guardarAliasPms")
+
+
+def test_guardar_el_alias_no_mueve_ninguna_cifra():
+    src = API.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def guardar_alias_pms"):]
+    cuerpo = cuerpo[:cuerpo.index("# ─────")] if "# ─────" in cuerpo else cuerpo
+    for campo in ("nights_occupied", "revenue", "pax", "ActualRoomStat"):
+        assert campo not in cuerpo, f"el alias toca {campo}"
+
+
+def test_una_categoria_ajena_no_se_crea_sola():
+    """Guardar un alias para una categoría que no es de esta propiedad
+    metería una categoría fantasma en Master Data."""
+    src = API.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async def guardar_alias_pms"):]
+    assert "desconocidas.append" in cuerpo
+    assert "RoomTypeConfig(" not in cuerpo
+
+
+def test_los_tres_alias_de_amarena_quedan_sembrados():
+    """La migración los deja puestos para que la PRIMERA carga tampoco pida
+    elegir: el owner ya vio y confirmó ese mapa.
+
+    ⚠️ Por NOMBRE y no por código: los códigos son canónicos del grupo y los
+    comparten todas las propiedades con nombres distintos.
+    """
+    mig = (BACKEND / "alembic/versions/141_alias_pms_de_las_categorias.py").read_text(encoding="utf-8")
+    for nombre, alias in (
+        ("Garden View Deluxe-Tented Villa", "GARDEN VIEW DLXE VILLA"),
+        ("Beachfront Deluxe-Tented Villa", "BEACH FRONT DLXE VILLA"),
+        ("Beachfront Master-Suite Tented Villa", "BEACH FRONT MASTER VILLA"),
+    ):
+        assert f'("{nombre}", "{alias}")' in mig
+    assert "WHERE name = :nombre" in mig
+    assert "dept_code" not in mig and "code = " not in mig
+
+
 def test_un_parecido_parcial_se_marca_para_revisar():
     from app.api.room_stats_pdf_api import _calce
     cat, confianza = _calce("GARDEN VIEW VILLA", AMARENA)
