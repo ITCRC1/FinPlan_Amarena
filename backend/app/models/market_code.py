@@ -59,9 +59,16 @@ CANAL_A_COMISION = {
 class MarketCode(Base):
     __tablename__ = "market_codes"
 
-    #: El código tal como viene de Opera. Es la LLAVE y no se mueve — igual que
+    #: El código tal como viene del PMS. Es la LLAVE y no se mueve — igual que
     #: los códigos de tipo de habitación.
-    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    #:
+    #: ⚠️ 40, no 20. Con 20 entraban los códigos cortos de Opera (`TAFIT`,
+    #: `WEB`) pero no los de Skill4, que son frases: `EXPEDIA HOTEL COLLECT`
+    #: tiene 21 y `CAST CENTRAL AMERICA` justo 20. Se alinea con
+    #: `actual_room_stat_canales.canal_code`, que es la MISMA cadena y ya era
+    #: `String(40)`: tenerlas distintas significaba que un código se podía
+    #: guardar en un mes y no se podía catalogar.
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
     nombre: Mapped[str] = mapped_column(String(120), default="")
 
     #: El canal al que pertenece. VACÍO es un estado válido y visible: significa

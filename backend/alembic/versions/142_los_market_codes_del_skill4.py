@@ -88,6 +88,20 @@ CODIGOS = [
 
 
 def upgrade() -> None:
+    # ⚠️ PRIMERO ensanchar. `code` era `varchar(20)`: entraban los códigos
+    # cortos de Opera (`TAFIT`, `WEB`) pero no los de Skill4, que son frases.
+    # `EXPEDIA HOTEL COLLECT` tiene 21 caracteres y `CAST CENTRAL AMERICA`
+    # justo 20 — o sea que el límite ya estaba rozado y el próximo código del
+    # PMS lo pasaba igual.
+    #
+    # Es la MISMA cadena que `actual_room_stat_canales.canal_code`, que ya era
+    # `String(40)`. Tenerlas distintas significaba que un código se podía
+    # guardar en un mes y no se podía catalogar — el mes entraba y el canal
+    # quedaba sin clasificar para siempre, sin que nada avisara.
+    op.alter_column("market_codes", "code",
+                    existing_type=sa.String(20), type_=sa.String(40),
+                    existing_nullable=False)
+
     for code, nombre, canal, orden in CODIGOS:
         # Inserta el que falte. `ON CONFLICT DO NOTHING` y no un UPDATE: si la
         # fila ya está, su canal es del owner y no se toca.
@@ -112,9 +126,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Sólo los que esta migración pudo haber creado. Se dejan los que el owner
-    # ya haya tocado: borrar por código a ciegas se llevaría su trabajo.
     for code, _nombre, _canal, _orden in CODIGOS:
         op.execute(sa.text(
             "DELETE FROM market_codes WHERE code = :code"
         ).bindparams(code=code))
+    # Se angosta al final, y sólo después de sacar los códigos largos: al
+    # revés, Postgres rechaza el ALTER.
+    op.alter_column("market_codes", "code",
+                    existing_type=sa.String(40), type_=sa.String(20),
+                    existing_nullable=False)
