@@ -405,8 +405,8 @@ def test_excluir_un_canal_no_cambia_lo_que_se_guarda():
     for filtrado in ("baseCat", "baseTot", "enAdr"):
         assert filtrado not in guardado, f"el guardado filtra por {filtrado}"
     assert "nights_occupied: f.nights_occupied" in guardado
-    # Y la fila de conciliación existe en las dos vistas del mes.
-    assert pag.count("Con todos los canales (PDF)") == 2
+    # Y la fila de conciliación existe en las CUATRO vistas y en el Excel.
+    assert pag.count("Con todos los canales (PDF)") >= 5
 
 
 def test_ocupacion_y_revpar_no_existen_por_canal():
@@ -533,15 +533,19 @@ def test_el_mes_guardado_no_finge_el_detalle_del_pdf():
     """⚠️ Lo guardado son totales; el rótulo del PMS, su resumen de ocupación y
     los avisos de cuadre sólo existen en el archivo.
 
-    Rellenar esos campos con ceros para poder pintar las tres vistas del mes
-    haría que un mes guardado se lea como un mes sin ventas — el mismo error
-    que `anio_room_stats` evita con `cargado: false`. Mientras las vistas no
-    sepan pintar sin archivo, la pantalla dice CUÁNTO hay y no inventa el
-    detalle.
+    `guardado` es el resumen que usa el cartel del mes vacío: cuántas noches,
+    cuánto ingreso, cuántas filas por canal. No debe inventar los campos que
+    sólo trae el PDF — rellenarlos con ceros hace que un mes guardado se lea
+    como un mes sin ventas, el mismo error que `anio_room_stats` evita con
+    `cargado: false`.
+
+    Pintar las vistas sin archivo es OTRA cosa y vive en
+    `guardadoComoLectura`, que deja el resumen del PDF en cero **y no lo
+    dibuja** (ver `test_el_mes_guardado_no_dibuja_el_resumen_del_pdf_en_cero`).
     """
     src = PAGINA.read_text(encoding="utf-8")
     desde = src.index("const guardado = useMemo")
-    hasta = src.index("const fueraDelAdr", desde)
+    hasta = src.index("const canalesFuera", desde)
     cuerpo = src[desde:hasta]
     for inventado in ("nombre_pdf", "resumen_pdf", "avisos_de_cuadre",
                       "hab_entradas", "cli_entradas"):
@@ -671,3 +675,90 @@ def test_la_casilla_del_adr_se_siembra_de_lo_guardado():
         "la siembra de enAdr pisa lo que el usuario ya eligió"
     assert "anio.meses.flatMap(m => m.canales)" in src, \
         "enAdr no se siembra de los canales guardados"
+
+
+def test_destildar_un_canal_lo_saca_de_las_seis_medidas_no_solo_de_las_tasas():
+    """Una sola base por pantalla.
+
+    Owner, 2026-09-10: *«pero hay que sacar los CPL en todos los tabs una vez
+    que se decide quitar el check»*.
+
+    ⚠️ El filtro tocaba ocupación, ADR y RevPAR, y dejaba noches, pax e
+    ingreso con el canal adentro. Eso pone DOS BASES en la misma fila: el ADR
+    deja de salir de dividir el ingreso de al lado entre las noches de al
+    lado, y la diferencia se lee como un error de cálculo del sistema. Es el
+    modo de falla caro — los dos números están bien por separado y nadie
+    puede decir cuál mirar.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    # Acumulado: las seis medidas sobre `base`.
+    for caso in ('case "noches":    return n(c.base[0]);',
+                 'case "pax":       return n(c.base[1]);',
+                 'case "ingreso":   return usd(c.base[2]);',
+                 'case "adr":       return adrDe(c.base);'):
+        assert caso in pag, f"Acumulado no filtra: {caso}"
+    assert "c.tot[0]" not in pag.split("const valor = ")[1].split("};")[0], \
+        "Acumulado mezcla `tot` con `base` en la misma medida"
+    # Vista por habitación: la fila entera, no sólo las tasas.
+    assert "const [no, pa, ing] = baseCat[i];" in pag, \
+        "la vista por habitación muestra el volumen con el canal adentro"
+    # Canal × habitación: los totales por categoría y el general.
+    assert "{baseCat.map((v, g) => (" in pag, "la matriz totaliza con el canal adentro"
+    assert "celdas(baseTot, undefined, true)" in pag
+
+
+def test_el_canal_excluido_se_sigue_viendo_donde_es_una_fila():
+    """Sacarlo de los totales no es esconderlo.
+
+    Por canal, Canal × habitación y Acumulado-por-canal tienen una fila POR
+    canal: ahí el canal excluido se muestra con sus cifras reales —para eso
+    se mira esa vista, para ver cuánto es lo que se sacó— y marcado, pero no
+    entra en el TOTAL. Un canal que desaparece de la lista no se puede volver
+    a tildar.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    # Acumulado: la fila del canal se muestra entera (base = su propio total).
+    i = pag.index('if (filas === "canal") {')
+    bloque = pag[i:pag.index("} else {", i)]
+    assert "base = tot;" in bloque, "la fila del canal excluido saldría en cero"
+    assert "if (dentro(c)) base = mas(base" not in bloque
+    # Y el TOTAL sí lo excluye.
+    j = pag.index("function totalMes(")
+    assert "dentro(c)" in pag[j:pag.index("const valor", j)]
+    # Marcado en las tres vistas donde es una fila.
+    assert pag.count("inset 3px 0 0 var(--warning)") >= 3
+
+
+def test_el_total_de_por_canal_es_el_de_la_pantalla():
+    """⚠️ El TOTAL decía una base y el ADR de esa misma fila decía otra.
+
+    Con el canal fuera de las tasas pero dentro del total, la fila TOTAL traía
+    noches y ingreso del archivo y un ADR que no salía de ellos.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert 'celdas={["TOTAL", "", n(baseTot[0]), pct(100), n(baseTot[1]),' in pag
+    assert 'usd(baseTot[2]), pct(100), adrDe(baseTot)]}' in pag
+
+
+def test_el_aviso_de_canales_fuera_no_depende_de_tener_un_pdf():
+    """El aviso sale de `enAdr`, no de `mes`.
+
+    ⚠️ `mes` es nulo en Acumulado y sin archivo en pantalla. Colgando el
+    aviso de ahí, la vista donde más se mira el número —el acumulado del
+    año— era justo la única que no decía que había un canal afuera.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "const canalesFuera" in pag
+    assert "Object.entries(enAdr).filter(([, v]) => !v)" in pag
+    assert "sufijoKpi" not in pag, \
+        "quedó el sufijo «s/ CPL» en unas columnas y no en otras"
+    assert "rotuloAdr" not in pag
+
+
+def test_el_excel_baja_la_misma_base_que_la_pantalla():
+    """Una hoja que no coincide con la pantalla es peor que no tenerla: se
+    manda por correo y discute con lo que el otro está viendo."""
+    src = PAGINA.read_text(encoding="utf-8")
+    cuerpo = src[src.index("async function bajarExcel"):src.index("function Calce")]
+    assert "mes.baseTot[0], mes.baseTot[1]" in cuerpo, "el Excel totaliza sin filtrar"
+    assert "Con todos los canales (PDF)" in cuerpo, "la hoja no se puede cuadrar"

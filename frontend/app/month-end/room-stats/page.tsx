@@ -369,15 +369,21 @@ export default function CierreRoomStatsPage() {
     return { noches, pax, ingreso, disp, canales: m.canales.length };
   }, [anio, mesSel]);
 
-  const fueraDelAdr = useMemo(
-    () => (mes?.canales ?? []).filter(c => !(enAdr[c] ?? true)), [mes, enAdr]);
-  /** Sufijo para los indicadores cuando hay canales fuera de la base. */
-  const sufijoKpi = fueraDelAdr.length === 0 ? ""
-    : fueraDelAdr.length === 1 ? ` s/ ${fueraDelAdr[0].split(" ")[0]}`
-    : ` s/ ${fueraDelAdr.length} canales`;
-  const rotuloAdr = fueraDelAdr.length === 0 ? "ADR"
-    : fueraDelAdr.length === 1 ? `ADR s/ ${fueraDelAdr[0].split(" ")[0]}`
-    : `ADR s/ ${fueraDelAdr.length} canales`;
+  /** Los canales que la propiedad decidió dejar fuera.
+   *
+   *  Sale de `enAdr` —ya sembrado de lo guardado—, así que vale mirando un
+   *  PDF, un mes archivado o el acumulado. Antes se sacaba de `mes`, que no
+   *  existe en Acumulado: ahí el aviso nunca aparecía.
+   *
+   *  ⚠️ Antes el filtro sólo tocaba ocupación, ADR y RevPAR, y las columnas
+   *  de noches, pax e ingreso seguían trayendo el canal. Eso dejaba dos bases
+   *  MEZCLADAS en la misma fila: el ADR no se podía reconstruir dividiendo el
+   *  ingreso de al lado entre las noches de al lado, y la diferencia se leía
+   *  como un error de cálculo. Owner, 2026-09-10: «hay que sacar los CPL en
+   *  todos los tabs una vez que se decide quitar el check». */
+  const canalesFuera = useMemo(
+    () => Object.entries(enAdr).filter(([, v]) => !v).map(([k]) => k).sort(),
+    [enAdr]);
 
   const duplicadas = useMemo(() => {
     const c: Record<string, number> = {};
@@ -464,8 +470,13 @@ export default function CierreRoomStatsPage() {
               mes.porCan[i][0], mes.porCan[i][1], mes.porCan[i][2],
               mes.porCan[i][0] ? mes.porCan[i][2] / mes.porCan[i][0] : 0],
           })),
-          { label: "TOTAL", es_total: true, valores: ["", mes.total[0], mes.total[1],
-            mes.total[2], mes.baseTot[0] ? mes.baseTot[2] / mes.baseTot[0] : 0] },
+          // El TOTAL es el de la pantalla —la base—, y debajo va la otra
+          // para que la hoja se pueda cuadrar contra el PDF sin la app.
+          { label: "TOTAL", es_total: true, valores: ["", mes.baseTot[0], mes.baseTot[1],
+            mes.baseTot[2], mes.baseTot[0] ? mes.baseTot[2] / mes.baseTot[0] : 0] },
+          ...(mes.filtra ? [{ label: "Con todos los canales (PDF)",
+            valores: ["", mes.total[0], mes.total[1], mes.total[2],
+                      mes.total[0] ? mes.total[2] / mes.total[0] : 0] }] : []),
         ],
       });
     }
@@ -594,6 +605,17 @@ export default function CierreRoomStatsPage() {
 
       {error && <Aviso tono="err">{error}</Aviso>}
       {ok && <Aviso tono="ok">{ok}</Aviso>}
+      {canalesFuera.length > 0 && (
+        <Aviso tono="warn">
+          <b>{canalesFuera.join(" · ")}</b>{" "}
+          {canalesFuera.length > 1 ? "no cuentan" : "no cuenta"}: los números de
+          las cuatro vistas {canalesFuera.length > 1 ? "los" : "lo"} excluyen —
+          noches, pax, ingreso, ocupación, ADR y RevPAR.{" "}
+          <b>Lo que se guarda no cambia:</b> a la base van las cifras del archivo,
+          y la fila «Con todos los canales (PDF)» de cada cuadro las muestra para
+          poder cuadrar contra el PMS.
+        </Aviso>
+      )}
       {lectura?.avisos_de_cuadre.length ? (
         <Aviso tono="err">
           <b>El archivo y lo leído no cuadran.</b> No guardes esto sin revisar el PDF:
@@ -683,8 +705,8 @@ export default function CierreRoomStatsPage() {
                 )}
               </div>
             : vista === "canal"   ? <PorCanal {...{ mes: mes!, enAdr, alternarAdr, pega }} />
-            : vista === "matriz"  ? <Matriz {...{ lectura: enPantalla, mes: mes!, rotuloAdr, enAdr, pega, Calce }} />
-            :                       <PorHabitacion {...{ lectura: enPantalla, mes: mes!, sufijo: sufijoKpi, pega, Calce }} />}
+            : vista === "matriz"  ? <Matriz {...{ lectura: enPantalla, mes: mes!, enAdr, pega, Calce }} />
+            :                       <PorHabitacion {...{ lectura: enPantalla, mes: mes!, pega, Calce }} />}
       </div>
 
       {enPantalla && (
@@ -751,8 +773,11 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
         {canales.map((code, i) => {
           const [no, pa, ing] = porCan[i];
           const dentro = enAdr[code] ?? true;
-          const pn = total[0] ? no / total[0] * 100 : 0;
-          const pi = total[2] ? ing / total[2] * 100 : 0;
+          // El reparto se lee sobre la BASE: un canal excluido no tiene
+          // parte de un total del que no forma parte, y darle una haría que
+          // las de los demás no sumen 100.
+          const pn = dentro && baseTot[0] ? no / baseTot[0] * 100 : 0;
+          const pi = dentro && baseTot[2] ? ing / baseTot[2] * 100 : 0;
           const tenue = dentro ? {} : { color: "var(--text-disabled)" };
           return (
             <tr key={code}>
@@ -772,7 +797,7 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
                 <i style={{ position: "absolute", left: 0, bottom: 3, height: 3,
                             width: `${pn.toFixed(1)}%`, borderRadius: 2,
                             background: dentro ? "rgba(36,83,196,.16)" : "rgba(99,92,83,.14)" }} />
-                <span style={{ position: "relative" }}>{pct(pn)}</span>
+                <span style={{ position: "relative" }}>{dentro ? pct(pn) : "—"}</span>
               </td>
               <td style={{ ...TD, ...tenue }}>{n(pa)}</td>
               <td style={{ ...TD, ...tenue }}>{usd(ing)}</td>
@@ -780,22 +805,21 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
                 <i style={{ position: "absolute", left: 0, bottom: 3, height: 3,
                             width: `${pi.toFixed(1)}%`, borderRadius: 2,
                             background: dentro ? "rgba(36,83,196,.16)" : "rgba(99,92,83,.14)" }} />
-                <span style={{ position: "relative" }}>{pct(pi)}</span>
+                <span style={{ position: "relative" }}>{dentro ? pct(pi) : "—"}</span>
               </td>
               <td style={{ ...TD, ...tenue }}>{no ? usd(ing / no) : "—"}</td>
             </tr>
           );
         })}
-        <Total celdas={["TOTAL", "", n(total[0]), pct(100), n(total[1]),
-                        usd(total[2]), pct(100), adrDe(baseTot)]} pega={pega} />
+        <Total celdas={["TOTAL", "", n(baseTot[0]), pct(100), n(baseTot[1]),
+                        usd(baseTot[2]), pct(100), adrDe(baseTot)]} pega={pega} />
+        {/* ⚠️ La única fila con la otra base. Sin ella el cuadre contra el PDF
+            no se puede hacer desde la pantalla, y el total filtrado se lee
+            como si el archivo dijera eso. */}
         {filtra && (
-          <>
-            <Stat celdas={["Base de indicadores (canales marcados)", "",
-                           n(baseTot[0]), "", n(baseTot[1]), usd(baseTot[2]), "",
-                           adrDe(baseTot)]} pega={pega} primera />
-            <Stat celdas={["Con todos los canales (PDF)", "", n(total[0]), "",
-                           n(total[1]), usd(total[2]), "", adrDe(total)]} pega={pega} />
-          </>
+          <Stat celdas={["Con todos los canales (PDF)", "", n(total[0]), "",
+                         n(total[1]), usd(total[2]), "", adrDe(total)]}
+                pega={pega} primera />
         )}
       </tbody>
     </table>
@@ -803,11 +827,11 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
 }
 
 /* ──────────────────────── Vista 2 · Por habitación ──────────────────────── */
-function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
-  lectura: LecturaEnPantalla; mes: MesAgregado; sufijo: string;
+function PorHabitacion({ lectura, mes, pega, Calce }: {
+  lectura: LecturaEnPantalla; mes: MesAgregado;
   pega: React.CSSProperties; Calce: CalceComp;
 }) {
-  const { porCat, baseCat, total, baseTot, disp, dispTot, filtra } = mes;
+  const { baseCat, total, baseTot, disp, dispTot, filtra } = mes;
   const r = lectura.resumen_pdf;
   return (
     <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "100%" }}>
@@ -818,14 +842,17 @@ function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
           </th>
           <th style={{ ...TH, textAlign: "left" }}>Va a (Master Data)</th>
           <th style={TH}>Noches disp.</th><th style={TH}>Noches ocup.</th>
-          <th style={TH}>% Ocup.{sufijo}</th><th style={TH}>Pax</th>
-          <th style={TH}>Ingreso</th><th style={TH}>ADR{sufijo}</th>
-          <th style={TH}>RevPAR{sufijo}</th><th style={TH}>Ya guardado</th>
+          <th style={TH}>% Ocup.</th><th style={TH}>Pax</th>
+          <th style={TH}>Ingreso</th><th style={TH}>ADR</th>
+          <th style={TH}>RevPAR</th><th style={TH}>Ya guardado</th>
         </tr>
       </thead>
       <tbody>
         {lectura.filas.map((f, i) => {
-          const [no, pa, ing] = porCat[i];
+          // ⚠️ La fila entera va sobre la BASE. Con `porCat` acá y `baseCat`
+          // en las tasas, el ADR de la fila no salía de dividir el ingreso de
+          // al lado entre las noches de al lado.
+          const [no, pa, ing] = baseCat[i];
           const d = disp[i];
           return (
             <tr key={f.nombre_pdf}>
@@ -850,8 +877,8 @@ function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
             </tr>
           );
         })}
-        <Total pega={pega} celdas={["TOTAL", "", n(dispTot), n(total[0]),
-          dispTot ? pct(baseTot[0] / dispTot * 100) : "—", n(total[1]), usd(total[2]),
+        <Total pega={pega} celdas={["TOTAL", "", n(dispTot), n(baseTot[0]),
+          dispTot ? pct(baseTot[0] / dispTot * 100) : "—", n(baseTot[1]), usd(baseTot[2]),
           adrDe(baseTot), dispTot ? usd(baseTot[2] / dispTot) : "—", ""]} />
         {/* ⚠️ Las dos bases juntas: sin esta fila, la ocupación de la pantalla
             y la del PDF no se pueden conciliar y una de las dos parece un error. */}
@@ -885,12 +912,12 @@ function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
 }
 
 /* ─────────────────── Vista 3 · Canal × habitación ───────────────────────── */
-function Matriz({ lectura, mes, rotuloAdr, enAdr, pega, Calce }: {
-  lectura: LecturaEnPantalla; mes: MesAgregado; rotuloAdr: string;
+function Matriz({ lectura, mes, enAdr, pega, Calce }: {
+  lectura: LecturaEnPantalla; mes: MesAgregado;
   enAdr: MapaAdr; pega: React.CSSProperties; Calce: CalceComp;
 }) {
-  const { canales, porCat, baseCat, total, baseTot } = mes;
-  const MED = ["Noches", "Pax", "Ingreso", rotuloAdr];
+  const { canales, porCat, baseCat, total, baseTot, filtra } = mes;
+  const MED = ["Noches", "Pax", "Ingreso", "ADR"];
   const g0 = { borderLeft: "1px solid var(--border-medium)" };
 
   const celdas = (v: T3 | null, base?: T3, tot = false) => {
@@ -961,11 +988,25 @@ function Matriz({ lectura, mes, rotuloAdr, enAdr, pega, Calce }: {
         <tr>
           <td style={{ ...TD, ...pega, fontWeight: 700, background: "var(--bg-elevated)",
                        borderTop: "2px solid var(--border-medium)" }}>TOTAL</td>
-          {porCat.map((v, g) => (
-            <Fragment key={g}>{celdas(v, baseCat[g])}</Fragment>
+          {baseCat.map((v, g) => (
+            <Fragment key={g}>{celdas(v)}</Fragment>
           ))}
-          <Fragment>{celdas(total, baseTot, true)}</Fragment>
+          <Fragment>{celdas(baseTot, undefined, true)}</Fragment>
         </tr>
+        {/* La otra base, para cuadrar contra el archivo. Las filas de arriba
+            ya muestran el canal excluido; esto dice cuánto suma. */}
+        {filtra && (
+          <tr>
+            <td style={{ ...TD, ...pega, background: "var(--bg-elevated)",
+                         color: "var(--text-secondary)", fontSize: 12 }}>
+              Con todos los canales (PDF)
+            </td>
+            {porCat.map((v, g) => (
+              <Fragment key={g}>{celdas(v)}</Fragment>
+            ))}
+            <Fragment>{celdas(total, undefined, true)}</Fragment>
+          </tr>
+        )}
       </tbody>
     </table>
   );
@@ -997,6 +1038,8 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
 
   const dentro = (c: { canal_code: string; cuenta_para_kpis: boolean }) =>
     enAdr[c.canal_code] ?? c.cuenta_para_kpis;
+  const fuera = [...new Set(anio.meses.flatMap(m => m.canales)
+    .filter(c => !dentro(c)).map(c => c.canal_code))];
 
   /** Filas de la dimensión elegida, en orden estable. */
   const claves: string[] = filas === "canal"
@@ -1010,8 +1053,11 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
     if (filas === "canal") {
       m.canales.filter(c => c.canal_code === clave).forEach(c => {
         tot = mas(tot, [c.nights_occupied, c.pax, c.revenue]);
-        if (dentro(c)) base = mas(base, [c.nights_occupied, c.pax, c.revenue]);
       });
+      // La fila ES el canal: se muestra entera aunque esté excluida —para eso
+      // se mira esta vista, para ver cuánto es lo que se sacó. Lo que NO lo
+      // incluye es el TOTAL de abajo (ver `totalMes`).
+      base = tot;
     } else {
       m.categorias.filter(c => c.room_type_name === clave).forEach(c => {
         tot = mas(tot, [c.nights_occupied, c.pax, c.revenue]);
@@ -1042,15 +1088,18 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
     return { tot, base, disp };
   }
 
+  /** ⚠️ Las SEIS medidas van sobre la BASE, no sólo las tres tasas.
+   *
+   *  Un canal que no cuenta no cuenta en ninguna: mostrar las noches con el
+   *  canal adentro y el ADR con el canal afuera dejaba dos bases en la misma
+   *  columna, y el ADR no se podía reconstruir de las celdas de al lado. */
   const valor = (c: Ingredientes | null) => {
     if (!c) return null;
     switch (medida) {
-      case "noches":    return n(c.tot[0]);
-      case "pax":       return n(c.tot[1]);
-      case "ingreso":   return usd(c.tot[2]);
+      case "noches":    return n(c.base[0]);
+      case "pax":       return n(c.base[1]);
+      case "ingreso":   return usd(c.base[2]);
       case "adr":       return adrDe(c.base);
-      // ⚠️ Ocupación y RevPAR van sobre la BASE, igual que el ADR: un canal
-      // que no cuenta, no cuenta en ninguno de los tres.
       case "ocupacion": return c.disp ? pct(c.base[0] / c.disp * 100) : "—";
       case "revpar":    return c.disp ? usd(c.base[2] / c.disp) : "—";
     }
@@ -1091,10 +1140,16 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
       <tbody>
         {claves.map(clave => {
           const cs = anio.meses.map(m => celda(m, clave));
+          // Un canal fuera de la base se marca igual que en las otras vistas:
+          // sus cifras son reales pero NO están en el TOTAL de abajo.
+          const afuera = filas === "canal" && fuera.includes(clave);
           return (
             <tr key={clave}>
-              <td style={{ ...TD, ...pega, background: "var(--bg-surface)", fontWeight: 500 }}>
-                {clave}
+              <td style={{ ...TD, ...pega, background: "var(--bg-surface)", fontWeight: 500,
+                           fontStyle: afuera ? "italic" : "normal",
+                           color: afuera ? "var(--text-secondary)" : undefined,
+                           boxShadow: afuera ? "inset 3px 0 0 var(--warning)" : undefined }}>
+                {clave}{afuera ? " · fuera" : ""}
               </td>
               {cs.map((c, i) => (
                 <td key={i} style={{ ...TD, ...(c ? {} : rayado) }}>{valor(c) ?? ""}</td>
@@ -1139,11 +1194,14 @@ function Acumulado({ anio, medida, filas, enAdr, pega }: {
                 </td>
               </tr>
               {pie("Noches disponibles", c => n(c.disp))}
-              {pie("Noches ocupadas", c => n(c.tot[0]))}
+              {pie("Noches ocupadas", c => n(c.base[0]))}
               {pie("% Ocupación", c => c.disp ? pct(c.base[0] / c.disp * 100) : "—")}
-              {pie("Ingreso", c => usd(c.tot[2]))}
+              {pie("Ingreso", c => usd(c.base[2]))}
               {pie("ADR", c => adrDe(c.base))}
               {pie("RevPAR", c => c.disp ? usd(c.base[2] / c.disp) : "—")}
+              {/* La otra base, en una línea: es el cuadre contra el PMS. */}
+              {fuera.length > 0 && pie("Con todos los canales (PDF)",
+                c => `${n(c.tot[0])} n · ${usd(c.tot[2])} · ADR ${adrDe(c.tot)}`)}
             </>
           );
         })()}
