@@ -137,6 +137,14 @@ export default function CierreRoomStatsPage() {
    *  imperfecto. */
   const mesTocado = useRef(false);
   const [lectura, setLectura] = useState<PdfRoomStatsLectura | null>(null);
+  /** ¿El mes que está en pantalla ya se guardó en ESTA sesión? La lectura
+   *  sigue viva —las cuatro vistas la usan— pero el botón no debe invitar a
+   *  guardar de nuevo como si faltara.
+   *
+   *  ⚠️ No confundir con `guardado` (más abajo), que es lo que la BASE ya
+   *  tiene para el mes elegido. Una cosa es «lo acabo de guardar yo», otra
+   *  «esto es lo que hay archivado». */
+  const [reciénGuardado, setReciénGuardado] = useState(false);
   const [calce, setCalce] = useState<Record<string, string>>({});
   const [abierta, setAbierta] = useState<Record<string, boolean>>({});
   const [categorias, setCategorias] = useState<{ name: string; units: number }[]>([]);
@@ -195,7 +203,7 @@ export default function CierreRoomStatsPage() {
 
   const leer = useCallback(async (f: File) => {
     if (!scenarioId) { setError("Elegí primero la versión donde va el mes."); return; }
-    setLeyendo(true); setError(null); setOk(null); setLectura(null);
+    setLeyendo(true); setError(null); setOk(null); setLectura(null); setReciénGuardado(false);
     try {
       const r = await leerPdfRoomStats(scenarioId, f, mesSel);
       setLectura(r);
@@ -313,7 +321,17 @@ export default function CierreRoomStatsPage() {
       setOk(`Guardado: ${lectura.mes_nombre} ${lectura.year} · ${r.rows_saved} categoría(s)`
             + `${r.canales_saved ? `, ${r.canales_saved} línea(s) de canal` : ""}. `
             + "El PDF no se almacenó.");
-      setLectura(null);
+      // ⚠️ La lectura NO se descarta (owner, 2026-09-10: «tengo que subir 4
+      // veces para que todos los tabs se actualicen»).
+      //
+      // Antes acá iba `setLectura(null)`, y al guardar las tres vistas del
+      // mes —por canal, por habitación, el cruce— se quedaban vacías con un
+      // cartel que decía «Subí el PDF de Abril para ver esta vista». O sea:
+      // justo despues de revisar el mes, la pantalla lo escondia y parecia
+      // pedir una subida por pestaña. Una sola lectura alimenta las cuatro y
+      // tiene que seguir en pantalla despues de guardar; para limpiarla esta
+      // el boton Descartar, que es una decision de quien mira.
+      setReciénGuardado(true);
       // Se RECARGA el ano, no se descarta. Descartarlo dejaba la pantalla sin
       // saber que el mes recien guardado ya esta: el cartel del vacio no podia
       // decir cuanto hay, y el selector no podia avanzar al mes que sigue —
@@ -557,17 +575,22 @@ export default function CierreRoomStatsPage() {
         <div style={{ marginTop: 13, display: "flex", gap: 9, alignItems: "center",
                       flexWrap: "wrap" }}>
           <button onClick={guardar} disabled={!puedeGuardar}
-            style={{ ...SEL, border: "none", padding: "8px 16px", fontWeight: 600,
+            style={{ ...SEL, padding: "8px 16px", fontWeight: 600,
                      cursor: puedeGuardar ? "pointer" : "not-allowed",
-                     background: puedeGuardar ? "var(--positive)" : "var(--bg-elevated)",
-                     color: puedeGuardar ? "#fff" : "var(--text-disabled)" }}>
-            {guardando ? "Guardando…" : `Guardar ${lectura.mes_nombre} ${lectura.year}`}
+                     background: !puedeGuardar ? "var(--bg-elevated)"
+                                 : reciénGuardado ? "var(--bg-surface)" : "var(--positive)",
+                     border: reciénGuardado && puedeGuardar ? "1px solid var(--border-medium)" : "none",
+                     color: !puedeGuardar ? "var(--text-disabled)"
+                            : reciénGuardado ? "var(--text-secondary)" : "#fff" }}>
+            {guardando ? "Guardando…"
+             : reciénGuardado ? `✓ ${lectura.mes_nombre} guardado — volver a guardar`
+             : `Guardar ${lectura.mes_nombre} ${lectura.year}`}
           </button>
           <button onClick={bajarExcel} style={{ ...SEL, cursor: "pointer", fontWeight: 600,
                     border: "none", background: "var(--accent-excel)", color: "#fff" }}>
             ⬇ Excel
           </button>
-          <button onClick={() => { setLectura(null); setOk(null); setError(null); }}
+          <button onClick={() => { setLectura(null); setReciénGuardado(false); setOk(null); setError(null); }}
                   style={{ ...SEL, cursor: "pointer" }}>Descartar</button>
           <span style={{ fontSize: 11.5, color: "var(--negative)" }}>
             {duplicadas.length ? `Dos categorías van a «${duplicadas[0]}» — una pisaría a la otra.`
