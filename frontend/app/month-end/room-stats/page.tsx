@@ -52,6 +52,7 @@ import {
   type Scenario,
 } from "@/lib/api";
 import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
+import { cuadrosDelAnio } from "@/lib/roomStatsExcel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
 
@@ -528,6 +529,32 @@ export default function CierreRoomStatsPage() {
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
   }
 
+  /** El año entero: una hoja por mes cargado y el consolidado al final.
+   *
+   *  Owner, 2026-09-11: *«un tab por mes… y uno final donde este consolidado
+   *  y se vaya actualizando conforme se van agregando mas meses»*.
+   *
+   *  Se arma con lo que la base tiene en el momento de bajarlo, así que
+   *  sumar un mes y volver a bajar el archivo alcanza — no hay nada que
+   *  mantener del lado del Excel.
+   *
+   *  ⚠️ Usa el MISMO criterio de base que la pantalla (`dentro`). Un Excel
+   *  que no coincide con lo que el otro está viendo es peor que no tenerlo:
+   *  se manda por correo y discute contra la pantalla. */
+  async function bajarElAnio() {
+    if (!anio || !anio.meses_cargados.length) {
+      setError("Todavía no hay ningún mes guardado en esta versión.");
+      return;
+    }
+    setError(null);
+    try {
+      await bajarCuadros(`RoomStats_PMS_${anio.year}`,
+        cuadrosDelAnio(anio, c => enAdr[c.canal_code] ?? c.cuenta_para_kpis));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo generar el Excel");
+    }
+  }
+
   // ── el calce, visible sólo cuando hay algo que decidir ────────────────
   function Calce({ i, comoCelda }: { i: number; comoCelda: boolean }) {
     const f = enPantalla!.filas[i];
@@ -773,8 +800,14 @@ export default function CierreRoomStatsPage() {
              : `Guardar ${lectura.mes_nombre} ${lectura.year}`}
           </button>}
           <button onClick={bajarExcel} style={{ ...SEL, cursor: "pointer", fontWeight: 600,
-                    border: "none", background: "var(--accent-excel)", color: "#fff" }}>
-            ⬇ Excel
+                    border: "none", background: "var(--accent-excel)", color: "#fff" }}
+                  title="Sólo el mes que estás viendo">
+            ⬇ Excel del mes
+          </button>
+          <button onClick={bajarElAnio} style={{ ...SEL, cursor: "pointer", fontWeight: 600,
+                    border: "none", background: "var(--accent-excel)", color: "#fff" }}
+                  title="Una hoja por mes cargado, más el consolidado del año">
+            ⬇ Excel del año ({anio?.meses_cargados.length ?? 0} meses)
           </button>
           {lectura && <button onClick={() => { setLectura(null); setReciénGuardado(false); setOk(null); setError(null); }}
                   style={{ ...SEL, cursor: "pointer" }}>Descartar</button>}
