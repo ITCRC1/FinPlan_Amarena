@@ -118,6 +118,15 @@ interface MesAgregado {
 interface Ingredientes { tot: T3; base: T3; disp: number }
 
 type MapaAdr = Record<string, boolean>;
+
+/** Lo que las vistas del mes pintan. Puede venir de un PDF recién leído o
+ *  **reconstruido de la base** para un mes ya guardado.
+ *
+ *  ⚠️ `desdeLaBase` no es cosmético: lo guardado NO incluye el resumen del
+ *  PDF —habitaciones bloqueadas, otros ingresos, total del hotel— porque eso
+ *  nunca se archivó. Pintar esas filas en cero diría que el hotel no tuvo
+ *  otros ingresos, que es distinto de «no lo sabemos». */
+type LecturaEnPantalla = PdfRoomStatsLectura & { desdeLaBase?: boolean };
 type CalceComp = (p: { i: number; comoCelda: boolean }) => React.ReactElement;
 
 export default function CierreRoomStatsPage() {
@@ -201,6 +210,24 @@ export default function CierreRoomStatsPage() {
   }, [anio]);
   useEffect(() => { if (vista === "acumulado") cargarAnio(); }, [vista, cargarAnio]);
 
+  /** La casilla del ADR también se conoce sin PDF.
+   *
+   *  ⚠️ `enAdr` sólo se llenaba al leer un archivo, y lo que falta se lee
+   *  como `?? true`. Mirando un mes archivado eso decía que TODOS los canales
+   *  entran al ADR —el CPL incluido— y la base filtrada salía igual a la del
+   *  archivo, sin que nada avisara. Se siembra de lo guardado, y sin pisar lo
+   *  que el usuario ya tocó en esta pantalla. */
+  useEffect(() => {
+    if (!anio) return;
+    setEnAdr(prev => {
+      const falta = anio.meses.flatMap(m => m.canales)
+        .filter(c => !(c.canal_code in prev));
+      if (!falta.length) return prev;
+      return { ...prev, ...Object.fromEntries(
+        falta.map(c => [c.canal_code, c.cuenta_para_kpis])) };
+    });
+  }, [anio]);
+
   const leer = useCallback(async (f: File) => {
     if (!scenarioId) { setError("Elegí primero la versión donde va el mes."); return; }
     setLeyendo(true); setError(null); setOk(null); setLectura(null); setReciénGuardado(false);
@@ -232,28 +259,96 @@ export default function CierreRoomStatsPage() {
     }
   }
 
-  // ── el mes leído, agregado de una sola forma ──────────────────────────
+  /** El mes YA GUARDADO, con la forma de una lectura, para que las vistas
+   *  no tengan que saber de dónde vino el dato.
+   *
+   *  ⚠️ Sin esto, cerrar un mes lo volvía invisible: las tres vistas sólo
+   *  sabían pintar desde el PDF en memoria, así que al recargar la pantalla
+   *  quedaban vacías aunque el mes estuviera archivado, y la única salida
+   *  era volver a subir el archivo para MIRAR algo que ya estaba. */
+  const guardadoComoLectura = useMemo<LecturaEnPantalla | null>(() => {
+    const m = anio?.meses?.[mesSel - 1];
+    if (!m || !m.cargado) return null;
+    return {
+      guardado: false, desdeLaBase: true,
+      archivo: "", entidad: "", scenario_id: anio!.scenario_id,
+      year: anio!.year, month: m.month, mes_nombre: MESES[m.month - 1],
+      moneda: "USD", dias_del_mes: m.dias,
+      filas: m.categorias.map(c => {
+        const ags = m.canales.filter(x => x.room_type_name === c.room_type_name);
+        return {
+          nombre_pdf: c.room_type_name, room_type_name: c.room_type_name,
+          room_type_code: "", confianza: "exacto" as const,
+          units: c.units, nights_available: c.nights_available,
+          nights_occupied: c.nights_occupied, pax: c.pax, revenue: c.revenue,
+          adr: c.nights_occupied ? c.revenue / c.nights_occupied : 0,
+          hab_entradas: 0, cli_entradas: 0,
+          agencias: ags.map(a => ({
+            agencia: a.canal_code, revenue: a.revenue,
+            nights_occupied: a.nights_occupied, pax: a.pax,
+            hab_entradas: 0, cli_entradas: 0,
+            tarifa_promedio: a.nights_occupied ? a.revenue / a.nights_occupied : 0,
+            canal_code: a.canal_code, canal: a.canal,
+            canal_comision: a.canal_comision,
+            cuenta_para_kpis: a.cuenta_para_kpis, conocido: a.conocido,
+          })),
+          actual_guardado: null,
+        };
+      }),
+      canales: [...new Map(m.canales.map(a => [a.canal_code, a])).values()].map(a => ({
+        agencia: a.canal_code, nights_occupied: 0, pax: 0, revenue: 0,
+        hab_entradas: 0, cli_entradas: 0, adr: 0,
+        canal_code: a.canal_code, canal: a.canal,
+        canal_comision: a.canal_comision,
+        cuenta_para_kpis: a.cuenta_para_kpis, conocido: a.conocido,
+      })),
+      categorias_sin_calce: [], categorias_ausentes_en_el_pdf: [],
+      mes_ya_tiene_datos: true, avisos_de_cuadre: [],
+      totales: { nights_occupied: 0, pax: 0, revenue: 0, adr: 0,
+                 nights_available_config: 0 },
+      // Nunca se archivó: se deja en cero y las vistas NO lo dibujan.
+      resumen_pdf: {
+        dias: m.dias, capacidad_hab: 0, habitaciones_totales: 0,
+        habitaciones_disponibles: 0, habitaciones_bloqueadas: 0,
+        ocupacion_sobre_total: 0, ocupacion_sobre_disponibles: 0,
+        ingreso_hospedaje: 0, ingreso_puntos_venta: 0, ingreso_otros: 0,
+        ingreso_total_hotel: 0,
+      },
+    };
+  }, [anio, mesSel]);
+
+  /** Lo que se está mirando: el PDF recién leído si lo hay, si no lo guardado. */
+  const enPantalla: LecturaEnPantalla | null = lectura ?? guardadoComoLectura;
+
+  /** A qué categoría va cada fila. Desde un PDF lo dice el calce; desde la
+   *  base ya viene resuelto. */
+  const destinoDe = useCallback((f: { nombre_pdf: string; room_type_name: string | null }) =>
+    calce[f.nombre_pdf] || f.room_type_name || "", [calce]);
+
+  // ── el mes en pantalla, agregado de una sola forma ────────────────────
   const mes = useMemo(() => {
-    if (!lectura) return null;
-    const canales = lectura.canales.map(c => c.canal_code);
-    const porCat: T3[] = lectura.filas.map(f => [f.nights_occupied, f.pax, f.revenue]);
-    const baseCat: T3[] = lectura.filas.map(f =>
+    if (!enPantalla) return null;
+    const canales = enPantalla.canales.map(c => c.canal_code);
+    const porCat: T3[] = enPantalla.filas.map(f => [f.nights_occupied, f.pax, f.revenue]);
+    const baseCat: T3[] = enPantalla.filas.map(f =>
       f.agencias.reduce<T3>((a, ag) => (enAdr[ag.canal_code] ?? ag.cuenta_para_kpis)
         ? mas(a, [ag.nights_occupied, ag.pax, ag.revenue]) : a, cero()));
     const porCan: T3[] = canales.map(code =>
-      lectura.filas.reduce<T3>((a, f) => {
+      enPantalla.filas.reduce<T3>((a, f) => {
         const ag = f.agencias.find(x => x.canal_code === code);
         return ag ? mas(a, [ag.nights_occupied, ag.pax, ag.revenue]) : a;
       }, cero()));
     const total = porCat.reduce(mas, cero());
     const baseTot = baseCat.reduce(mas, cero());
-    const disp = lectura.filas.map((f) =>
-      (categorias.find(c => c.name === calce[f.nombre_pdf])?.units ?? f.units)
-      * lectura.dias_del_mes * (calce[f.nombre_pdf] ? 1 : 0));
+    const disp = enPantalla.filas.map((f) => {
+      const dest = destinoDe(f);
+      return (categorias.find(c => c.name === dest)?.units ?? f.units)
+        * enPantalla.dias_del_mes * (dest ? 1 : 0);
+    });
     return { canales, porCat, baseCat, porCan, total, baseTot, disp,
              dispTot: disp.reduce((a, v) => a + v, 0),
              filtra: canales.some(c => !(enAdr[c] ?? true)) };
-  }, [lectura, enAdr, calce, categorias]);
+  }, [enPantalla, enAdr, destinoDe, categorias]);
 
   /** Lo que la base ya tiene en el mes elegido. Sale de `/anio/`, que es el
    *  MISMO endpoint que alimenta Acumulado — no una segunda fuente.
@@ -344,11 +439,17 @@ export default function CierreRoomStatsPage() {
 
   async function bajarExcel() {
     const cuadros: Cuadro[] = [];
-    if (lectura && mes) {
+    // Baja lo que se está VIENDO: el PDF si lo hay, si no el mes guardado.
+    // Atarlo a `lectura` dejaba el botón contestando «no hay nada leído»
+    // con la tabla llena en pantalla.
+    const src = enPantalla;
+    if (src && mes) {
       cuadros.push({
-        titulo: `Estadística de habitaciones · ${lectura.mes_nombre} ${lectura.year}`,
-        subtitulo: `${lectura.entidad} · ${lectura.moneda} · leído de ${lectura.archivo}`,
-        hoja: `Canal ${lectura.mes_nombre}`.slice(0, 31),
+        titulo: `Estadística de habitaciones · ${src.mes_nombre} ${src.year}`,
+        subtitulo: src.desdeLaBase
+          ? `Guardado en esta versión · ${src.moneda}`
+          : `${src.entidad} · ${src.moneda} · leído de ${src.archivo}`,
+        hoja: `Canal ${src.mes_nombre}`.slice(0, 31),
         columnas: [
           { label: "Canal", ancho: 30, formato: "texto" },
           { label: "Cuenta", ancho: 9, formato: "texto" },
@@ -369,14 +470,14 @@ export default function CierreRoomStatsPage() {
       });
     }
     if (!cuadros.length) { setError("No hay nada leído para bajar."); return; }
-    try { await bajarCuadros(`RoomStats_PMS_${lectura?.year}_${String(lectura?.month).padStart(2, "0")}`, cuadros); }
+    try { await bajarCuadros(`RoomStats_PMS_${src?.year}_${String(src?.month).padStart(2, "0")}`, cuadros); }
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
   }
 
   // ── el calce, visible sólo cuando hay algo que decidir ────────────────
   function Calce({ i, comoCelda }: { i: number; comoCelda: boolean }) {
-    const f = lectura!.filas[i];
-    const sel = calce[f.nombre_pdf] ?? "";
+    const f = enPantalla!.filas[i];
+    const sel = destinoDe(f);
     // `alias` y `exacto` no piden nada: el primero porque alguien ya lo
     // decidio para esta propiedad, el segundo porque los nombres coinciden.
     const pide = !sel || (f.confianza !== "exacto" && f.confianza !== "alias");
@@ -474,6 +575,21 @@ export default function CierreRoomStatsPage() {
             </span>
           </>
         )}
+        {/* Sin PDF en pantalla pero con el mes archivado: se dice de dónde
+            salen los números, porque el cuadre contra el archivo ya no
+            se puede rehacer desde acá. */}
+        {!lectura && enPantalla?.desdeLaBase && (
+          <>
+            <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+              {enPantalla.mes_nombre} {enPantalla.year}
+            </span>
+            <span style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 4,
+                           fontWeight: 600, textTransform: "uppercase",
+                           background: "rgba(20,107,92,.12)", color: "var(--positive)" }}>
+              Guardado
+            </span>
+          </>
+        )}
       </div>
 
       {error && <Aviso tono="err">{error}</Aviso>}
@@ -543,7 +659,7 @@ export default function CierreRoomStatsPage() {
                     background: "var(--bg-surface)" }}>
         {vista === "acumulado"
           ? <Acumulado anio={anio} medida={medida} filas={filas} enAdr={enAdr} pega={pega} />
-          : !lectura
+          : !enPantalla
             ? <div style={{ padding: "26px 16px", fontSize: 12.5,
                             color: "var(--text-secondary)" }}>
                 <p style={{ margin: 0 }}>
@@ -566,15 +682,17 @@ export default function CierreRoomStatsPage() {
                   </p>
                 )}
               </div>
-            : vista === "canal"   ? <PorCanal {...{ lectura, mes: mes!, enAdr, alternarAdr, pega }} />
-            : vista === "matriz"  ? <Matriz {...{ lectura, mes: mes!, rotuloAdr, enAdr, pega, Calce }} />
-            :                       <PorHabitacion {...{ lectura, mes: mes!, sufijo: sufijoKpi, pega, Calce }} />}
+            : vista === "canal"   ? <PorCanal {...{ mes: mes!, enAdr, alternarAdr, pega }} />
+            : vista === "matriz"  ? <Matriz {...{ lectura: enPantalla, mes: mes!, rotuloAdr, enAdr, pega, Calce }} />
+            :                       <PorHabitacion {...{ lectura: enPantalla, mes: mes!, sufijo: sufijoKpi, pega, Calce }} />}
       </div>
 
-      {lectura && (
+      {enPantalla && (
         <div style={{ marginTop: 13, display: "flex", gap: 9, alignItems: "center",
                       flexWrap: "wrap" }}>
-          <button onClick={guardar} disabled={!puedeGuardar}
+          {/* Guardar solo tiene sentido con un PDF leído: mirando lo archivado
+              no hay nada nuevo que escribir. */}
+          {lectura && <button onClick={guardar} disabled={!puedeGuardar}
             style={{ ...SEL, padding: "8px 16px", fontWeight: 600,
                      cursor: puedeGuardar ? "pointer" : "not-allowed",
                      background: !puedeGuardar ? "var(--bg-elevated)"
@@ -585,13 +703,18 @@ export default function CierreRoomStatsPage() {
             {guardando ? "Guardando…"
              : reciénGuardado ? `✓ ${lectura.mes_nombre} guardado — volver a guardar`
              : `Guardar ${lectura.mes_nombre} ${lectura.year}`}
-          </button>
+          </button>}
           <button onClick={bajarExcel} style={{ ...SEL, cursor: "pointer", fontWeight: 600,
                     border: "none", background: "var(--accent-excel)", color: "#fff" }}>
             ⬇ Excel
           </button>
-          <button onClick={() => { setLectura(null); setReciénGuardado(false); setOk(null); setError(null); }}
-                  style={{ ...SEL, cursor: "pointer" }}>Descartar</button>
+          {lectura && <button onClick={() => { setLectura(null); setReciénGuardado(false); setOk(null); setError(null); }}
+                  style={{ ...SEL, cursor: "pointer" }}>Descartar</button>}
+          {enPantalla.desdeLaBase && (
+            <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+              Mostrando lo guardado de {enPantalla.mes_nombre}. Para cambiarlo,
+              subí el PDF de ese mes.
+            </span>)}
           <span style={{ fontSize: 11.5, color: "var(--negative)" }}>
             {duplicadas.length ? `Dos categorías van a «${duplicadas[0]}» — una pisaría a la otra.`
              : faltanCalce ? `${faltanCalce} categoría(s) sin calce en Master Data${
@@ -681,7 +804,7 @@ function PorCanal({ mes, enAdr, alternarAdr, pega }: {
 
 /* ──────────────────────── Vista 2 · Por habitación ──────────────────────── */
 function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
-  lectura: PdfRoomStatsLectura; mes: MesAgregado; sufijo: string;
+  lectura: LecturaEnPantalla; mes: MesAgregado; sufijo: string;
   pega: React.CSSProperties; Calce: CalceComp;
 }) {
   const { porCat, baseCat, total, baseTot, disp, dispTot, filtra } = mes;
@@ -739,18 +862,23 @@ function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
             adrDe(total), dispTot ? usd(total[2] / dispTot) : "—", ""]} />
         )}
         {/* El PDF no abre estas por categoría: son del hotel. */}
-        <Stat pega={pega} celdas={["Habitaciones-noche (inventario)", "",
-          n(r.habitaciones_totales), "", "", "", "", "", "", ""]} />
-        <Stat pega={pega} celdas={["Habitaciones disponibles", "",
-          n(r.habitaciones_disponibles), "", "", "", "", "", "", ""]} />
-        <Stat pega={pega} celdas={["Habitaciones bloqueadas", "",
-          n(r.habitaciones_bloqueadas), "", "", "", "", "", "", ""]} />
-        <Stat pega={pega} celdas={["% Ocupación s/ disponibles", "", "",
-          "", pct(r.ocupacion_sobre_disponibles), "", "", "", "", ""]} />
-        <Stat pega={pega} celdas={["Otros ingresos", "", "", "", "", "",
-          usd(r.ingreso_otros), "", "", ""]} />
-        <Stat pega={pega} celdas={["Ingreso total del hotel", "", "", "", "", "",
-          usd(r.ingreso_total_hotel), "", "", ""]} />
+        {/* ⚠️ Estas salen del resumen del PDF y NO se archivan. Mirando un
+            mes guardado no existen, y dibujarlas en cero diría que el hotel
+            no tuvo otros ingresos — que es distinto de «no lo sabemos». */}
+        {!lectura.desdeLaBase && <>
+          <Stat pega={pega} celdas={["Habitaciones-noche (inventario)", "",
+            n(r.habitaciones_totales), "", "", "", "", "", "", ""]} />
+          <Stat pega={pega} celdas={["Habitaciones disponibles", "",
+            n(r.habitaciones_disponibles), "", "", "", "", "", "", ""]} />
+          <Stat pega={pega} celdas={["Habitaciones bloqueadas", "",
+            n(r.habitaciones_bloqueadas), "", "", "", "", "", "", ""]} />
+          <Stat pega={pega} celdas={["% Ocupación s/ disponibles", "", "",
+            "", pct(r.ocupacion_sobre_disponibles), "", "", "", "", ""]} />
+          <Stat pega={pega} celdas={["Otros ingresos", "", "", "", "", "",
+            usd(r.ingreso_otros), "", "", ""]} />
+          <Stat pega={pega} celdas={["Ingreso total del hotel", "", "", "", "", "",
+            usd(r.ingreso_total_hotel), "", "", ""]} />
+        </>}
       </tbody>
     </table>
   );
@@ -758,7 +886,7 @@ function PorHabitacion({ lectura, mes, sufijo, pega, Calce }: {
 
 /* ─────────────────── Vista 3 · Canal × habitación ───────────────────────── */
 function Matriz({ lectura, mes, rotuloAdr, enAdr, pega, Calce }: {
-  lectura: PdfRoomStatsLectura; mes: MesAgregado; rotuloAdr: string;
+  lectura: LecturaEnPantalla; mes: MesAgregado; rotuloAdr: string;
   enAdr: MapaAdr; pega: React.CSSProperties; Calce: CalceComp;
 }) {
   const { canales, porCat, baseCat, total, baseTot } = mes;

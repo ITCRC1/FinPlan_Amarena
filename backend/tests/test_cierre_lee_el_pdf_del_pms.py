@@ -575,3 +575,99 @@ def test_el_selector_avanza_solo_al_primer_mes_que_falta():
     src = PAGINA.read_text(encoding="utf-8")
     assert "mesTocado" in src
     assert "anio.meses.find(m => !m.cargado)" in src
+
+
+def test_las_vistas_del_mes_pintan_lo_guardado_sin_volver_a_subir_el_pdf():
+    """Un mes cerrado se puede MIRAR sin el archivo en la mano.
+
+    Owner, 2026-09-10, después de guardar abril y recargar la pantalla:
+    *«solo veo datos en Acumulado nada mas. donde estan los datos de los
+    meses de los otros tabs»*.
+
+    ⚠️ Las tres vistas del mes —Por canal, Por habitación, Canal × habitación—
+    sólo sabían pintar desde el PDF que estaba en memoria. Cerrar el mes lo
+    volvía invisible: los datos estaban en la base, Acumulado los mostraba, y
+    las otras tres pantallas quedaban en blanco. La única salida era volver a
+    subir un archivo para ver algo que ya estaba guardado — y volver a subirlo
+    es justamente lo que reemplaza el mes.
+
+    El arreglo es reconstruir una lectura desde `/anio/` y que las vistas
+    reciban «lo que haya en pantalla», no «el PDF».
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "guardadoComoLectura" in src, "no se reconstruye el mes guardado"
+    assert "const enPantalla" in src, "las vistas no tienen de dónde leer sin PDF"
+    assert "lectura ?? guardadoComoLectura" in src, \
+        "el PDF tiene que ganarle a lo guardado, pero lo guardado debe estar"
+    for vista in ("<Matriz", "<PorHabitacion"):
+        i = src.index(f"{vista} {{...{{")
+        props = src[i:src.index("/>", i)]
+        assert "lectura: enPantalla" in props, f"{vista} sigue atada al PDF"
+
+
+def test_el_mes_guardado_no_dibuja_el_resumen_del_pdf_en_cero():
+    """Lo que no se archivó no se inventa.
+
+    El resumen del PDF —habitaciones bloqueadas, otros ingresos, ingreso total
+    del hotel— nunca se guarda: `actual_room_stats` sólo tiene noches, pax e
+    ingreso de hospedaje por categoría.
+
+    ⚠️ Reconstruir la lectura desde la base deja ese resumen en cero. Pintarlo
+    igual diría, con la misma tipografía que el resto, que el hotel **no tuvo**
+    otros ingresos ese mes — que es distinto de «no lo sabemos», y es el modo
+    de falla caro: el número se ve, no hay error, y nadie lo cuestiona.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "desdeLaBase" in src
+    assert "{!lectura.desdeLaBase && <>" in src, \
+        "las filas del resumen del PDF se dibujan aunque no haya PDF"
+    i = src.index("{!lectura.desdeLaBase && <>")
+    bloque = src[i:src.index("</>}", i)]
+    for fila in ("habitaciones_bloqueadas", "ingreso_otros", "ingreso_total_hotel",
+                 "ocupacion_sobre_disponibles"):
+        assert fila in bloque, f"{fila} quedó fuera del bloque que sólo aplica al PDF"
+
+
+def test_mirando_lo_guardado_no_se_ofrece_guardar_de_nuevo():
+    """Guardar necesita un PDF; mirar, no.
+
+    Con la barra de acciones atada a `lectura`, un mes archivado no tenía ni
+    Excel. Atada a `enPantalla`, el botón de guardar tiene que quedar atado al
+    PDF igual: ofrecer «Guardar» sin archivo leído invitaría a reescribir el
+    mes con lo que ya tiene — un viaje redondo que no cambia nada y que puede
+    pisar el detalle por canal si algo se reconstruyó distinto.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    i = src.index("{enPantalla && (")
+    barra = src[i:src.index("</div>", i)]
+    assert "{lectura && <button onClick={guardar}" in barra, \
+        "se ofrece guardar sin PDF leído"
+    assert "⬇ Excel" in barra, "el Excel no está disponible mirando lo guardado"
+
+
+def test_el_excel_baja_lo_que_se_esta_viendo():
+    """El botón de Excel sigue a la pantalla, no al archivo.
+
+    ⚠️ `bajarExcel` armaba el cuadro sólo `if (lectura && mes)` y si no había
+    contestaba «No hay nada leído para bajar» — con la tabla llena delante.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    desde = src.index("async function bajarExcel")
+    cuerpo = src[desde:src.index("function Calce", desde)]
+    assert "const src = enPantalla" in cuerpo
+    assert "if (lectura && mes)" not in cuerpo, "el Excel sigue atado al PDF"
+
+
+def test_la_casilla_del_adr_se_siembra_de_lo_guardado():
+    """Sin PDF, `enAdr` está vacío y todo se lee como `?? true`.
+
+    ⚠️ Eso diría que TODOS los canales entran al ADR —el CPL incluido— y la
+    base filtrada saldría idéntica a la del archivo, sin que nada avise. La
+    decisión vive en `market_codes.cuenta_para_kpis` y viaja en `/anio/`:
+    hay que sembrarla, y sin pisar lo que el usuario ya tocó en la pantalla.
+    """
+    src = PAGINA.read_text(encoding="utf-8")
+    assert "!(c.canal_code in prev)" in src, \
+        "la siembra de enAdr pisa lo que el usuario ya eligió"
+    assert "anio.meses.flatMap(m => m.canales)" in src, \
+        "enAdr no se siembra de los canales guardados"
