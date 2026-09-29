@@ -211,8 +211,15 @@ def _rutas_de_subida() -> tuple[list[str], list[str]]:
 # a MIRAR. Lo que sí registra es el guardado, que va por `room-stats-entry`.
 # Que este endpoint siga sin escribir lo vigila
 # `test_cierre_lee_el_pdf_del_pms.py::test_el_endpoint_de_lectura_no_escribe_en_la_base`.
+#
+# ⚠️ `leer_excel_room_stats` es el mismo caso con la base plana en vez del PDF,
+# y el motivo pesa MÁS acá: ese archivo trae los doce meses, así que registrarlo
+# frenaría volver a abrirlo para mirar el mes siguiente. Se lee, se devuelven
+# los meses y el archivo se descarta; lo que registra es el guardado.
+# Lo vigila `test_cierre_lee_la_base_plana.py::test_el_endpoint_existe_y_no_guarda_nada`.
 NO_REGISTRAN = {"audit_api.py:validate_upload",
-                "room_stats_pdf_api.py:leer_pdf_room_stats"}
+                "room_stats_pdf_api.py:leer_pdf_room_stats",
+                "room_stats_pdf_api.py:leer_excel_room_stats"}
 
 
 def test_TODA_puerta_de_subida_QUE_ESCRIBE_registra_el_archivo():

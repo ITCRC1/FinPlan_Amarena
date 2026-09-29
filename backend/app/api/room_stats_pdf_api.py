@@ -59,6 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.errores import ErrorApi
 from app.hotel_actual import HOTEL_ID
+from app.importers.datos_planos_room_stats import cuadre_interno, leer_datos_planos
 from app.importers.skill4_room_stats_pdf import leer_pdf_skill4, nombre_del_mes
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
@@ -241,6 +242,20 @@ async def leer_pdf_room_stats(
     # guardado reemplaza el mes entero.
     _validar_mes_elegido(mes, lectura.month)
 
+    return await _armar_mes(lectura, scenario_id, file.filename or "", db,
+                            avisos=lectura.cuadre())
+
+
+async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
+                     db: AsyncSession, avisos: list) -> dict:
+    """De una `LecturaSkill4` a lo que la pantalla necesita.
+
+    Es lo que comparten el lector de PDF y el de la base plana. Vive en una
+    sola función a propósito: el calce de categorías, el de canales y la fila
+    «lo que hoy hay guardado» son decisiones que no pueden divergir según de
+    qué archivo vino el mes — si divergieran, el mismo dato entraría distinto
+    según el camino y nadie lo notaría hasta comparar dos cargas.
+    """
     categorias = (await db.execute(
         select(RoomTypeConfig)
         .where(RoomTypeConfig.hotel_id == HOTEL_ID, RoomTypeConfig.active == True)  # noqa: E712
@@ -305,7 +320,7 @@ async def leer_pdf_room_stats(
     r = lectura.resumen
     return {
         "guardado": False,           # este endpoint NUNCA guarda
-        "archivo": file.filename,
+        "archivo": nombre_archivo,
         "entidad": lectura.entidad,
         "scenario_id": scenario_id,
         "year": lectura.year,
@@ -343,7 +358,65 @@ async def leer_pdf_room_stats(
         "canales": _canales_del_mes(lectura, catalogo),
         # Vacío = la suma del detalle da los totales que el propio archivo
         # declara. Con algo adentro, el archivo y lo leído se separaron.
-        "avisos_de_cuadre": lectura.cuadre(),
+        "avisos_de_cuadre": avisos,
+    }
+
+
+# ──────────────────── La base plana: un archivo, todos los meses ────────────
+
+@router.post("/scenarios/{scenario_id}/room-stats/leer-excel/")
+async def leer_excel_room_stats(
+    scenario_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lee la base plana (Excel o CSV) y devuelve **todos** los meses. No guarda.
+
+    Owner, 2026-09-28: *«se podra configurar para que en vez de leer el pdf,
+    ahora lea el excel de datos, en la misma estructura»*.
+
+    El PDF trae un mes y hay que subirlo doce veces al año; la base plana los
+    trae todos en una tabla. Cada mes vuelve con exactamente la misma forma
+    que devuelve el lector de PDF —mismo calce, mismos canales, mismos
+    totales— así que la pantalla y el guardado no cambian.
+
+    ⚠️ **Este camino no tiene cuadre contra una segunda fuente.** El PDF cierra
+    con un resumen del hotel y se verifica contra él por tres vías; la base
+    plana es sólo el detalle y se cree entera. A cambio se corre
+    `cuadre_interno`, que compara la tarifa impresa de cada fila contra
+    ingreso/noches — detecta una celda editada a mano, no una transcripción
+    mal hecha del PDF. Los avisos viajan en `avisos_de_cuadre` igual que los
+    del PDF, así que la pantalla los muestra sin saber de dónde vinieron.
+
+    No se valida el mes elegido en la pantalla como en el PDF: acá no hay un
+    mes, hay varios, y el que se guarda es el que la persona elige de los que
+    el archivo trajo.
+    """
+    sc = await _escenario(scenario_id, db)
+    raw = await file.read()
+    if not raw:
+        raise ErrorApi(422, "skill4.archivo_vacio")
+    try:
+        lecturas = leer_datos_planos(raw, file.filename or "", year_esperado=sc.year)
+    except ValueError as e:
+        raise ErrorApi(422, "skill4.no_se_pudo_leer", detalle=str(e))
+    except Exception as e:  # noqa: BLE001 - un Excel corrupto no debe ser un 500
+        raise ErrorApi(422, "skill4.no_se_pudo_leer", detalle=str(e))
+
+    meses = []
+    for lec in lecturas:
+        # Los avisos de estructura que juntó el lector (filas repetidas, filas
+        # de total descartadas) van junto a los de coherencia: para quien mira
+        # la pantalla son lo mismo — razones para revisar antes de guardar.
+        avisos = list(getattr(lec, "avisos_del_archivo", [])) + cuadre_interno(lec)
+        meses.append(await _armar_mes(lec, scenario_id, file.filename or "",
+                                      db, avisos=avisos))
+    return {
+        "archivo": file.filename,
+        "scenario_id": scenario_id,
+        "year": sc.year,
+        "meses": meses,
+        "meses_en_el_archivo": [m["month"] for m in meses],
     }
 
 

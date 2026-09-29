@@ -46,7 +46,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import {
   asignarCanalPms, getAnioRoomStats, getRoomStatsEntry, getScenarios,
-  guardarAliasPms, leerPdfRoomStats, marcarCanalParaKpis, saveRoomStatsEntry,
+  guardarAliasPms, leerExcelRoomStats, leerPdfRoomStats, marcarCanalParaKpis,
+  saveRoomStatsEntry,
   type AnioMes, type AnioRoomStats,
   type PdfRoomStatsLectura, type RoomStatCanalIn,
   type Scenario,
@@ -151,6 +152,14 @@ export default function CierreRoomStatsPage() {
    *  imperfecto. */
   const mesTocado = useRef(false);
   const [lectura, setLectura] = useState<PdfRoomStatsLectura | null>(null);
+  /** Los meses que trajo el último archivo, por número de mes.
+   *
+   *  El PDF trae uno; la base plana trae todos. Se guardan en memoria para
+   *  que cambiar de mes en el selector no obligue a volver a subir el mismo
+   *  archivo seis veces — que es exactamente lo que este camino viene a
+   *  evitar. No se persiste nada acá: es la misma lectura en RAM que ya
+   *  existía, sólo que indexada. */
+  const [delArchivo, setDelArchivo] = useState<Record<number, PdfRoomStatsLectura>>({});
   /** ¿El mes que está en pantalla ya se guardó en ESTA sesión? La lectura
    *  sigue viva —las cuatro vistas la usan— pero el botón no debe invitar a
    *  guardar de nuevo como si faltara.
@@ -239,25 +248,75 @@ export default function CierreRoomStatsPage() {
       anio.meses.flatMap(m => m.canales).map(c => [c.canal_code, c.canal])), ...prev }));
   }, [anio]);
 
+  /** Deja en pantalla una lectura recién llegada: el calce, los canales y
+   *  la vista. Lo comparten los dos lectores para que un mes entre igual
+   *  venga del PDF o de la base plana. */
+  const montar = useCallback((r: PdfRoomStatsLectura) => {
+    setLectura(r);
+    setCalce(c => ({ ...Object.fromEntries(
+      r.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""])), ...c }));
+    setEnAdr(m => ({ ...Object.fromEntries(
+      r.canales.map(c => [c.canal_code, c.cuenta_para_kpis])), ...m }));
+    setCanalDe(m => ({ ...Object.fromEntries(
+      r.canales.map(c => [c.canal_code, c.canal])), ...m }));
+    setAbierta({});
+  }, []);
+
+  /** Sube el archivo. El PDF trae un mes; la base plana trae todos.
+   *
+   *  Owner, 2026-09-28: *«se podra configurar para que en vez de leer el pdf,
+   *  ahora lea el excel de datos, en la misma estructura»*. Es el mismo botón
+   *  y la misma pantalla: lo único que cambia es a qué endpoint va el archivo,
+   *  y eso lo decide la extensión. */
   const leer = useCallback(async (f: File) => {
     if (!scenarioId) { setError("Elegí primero la versión donde va el mes."); return; }
-    setLeyendo(true); setError(null); setOk(null); setLectura(null); setReciénGuardado(false);
+    const esPlano = /\.(xlsx|xlsm|xls|csv)$/i.test(f.name);
+    setLeyendo(true); setError(null); setOk(null); setLectura(null);
+    setDelArchivo({}); setReciénGuardado(false);
     try {
-      const r = await leerPdfRoomStats(scenarioId, f, mesSel);
-      setLectura(r);
-      setCalce(Object.fromEntries(r.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""])));
-      setEnAdr(Object.fromEntries(r.canales.map(c => [c.canal_code, c.cuenta_para_kpis])));
-      setCanalDe(m => ({ ...Object.fromEntries(
-        r.canales.map(c => [c.canal_code, c.canal])), ...m }));
-      setAbierta({});
+      if (esPlano) {
+        const r = await leerExcelRoomStats(scenarioId, f);
+        if (!r.meses.length) { setError("El archivo no trajo ningún mes."); return; }
+        const porMes = Object.fromEntries(r.meses.map(m => [m.month, m]));
+        setDelArchivo(porMes);
+        // ⚠️ El calce se siembra con las categorías de TODOS los meses, no
+        // con las del que se muestra. Agosto trae la Accesible y marzo no:
+        // sembrando sólo el mes visible, «Guardar los 6» mandaba esa fila
+        // sin categoría y el mes entraba incompleto.
+        setCalce(c => ({ ...Object.fromEntries(r.meses.flatMap(m =>
+          m.filas.map(x => [x.nombre_pdf, x.room_type_name ?? ""]))), ...c }));
+        // Se queda en el mes elegido si el archivo lo trae; si no, en el
+        // primero. Cambiar el selector solo seria peor: el mes elegido dice
+        // donde se guarda, y moverlo sin que nadie lo pida es como se pisa
+        // un mes que estaba bien.
+        const elegido = porMes[mesSel] ? mesSel : r.meses[0].month;
+        if (elegido !== mesSel) { mesTocado.current = true; setMesSel(elegido); }
+        montar(porMes[elegido]);
+        setOk(`${r.meses.length} mes(es) en el archivo: `
+              + r.meses.map(m => m.mes_nombre).join(", ")
+              + ". Nada se guardó todavía.");
+      } else {
+        montar(await leerPdfRoomStats(scenarioId, f, mesSel));
+      }
       if (vista === "acumulado") setVista("habitacion");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo leer el PDF");
+      setError(e instanceof Error ? e.message
+               : `No se pudo leer el ${esPlano ? "archivo" : "PDF"}`);
     } finally {
       setLeyendo(false);
       if (archivo.current) archivo.current.value = "";  // se puede volver a subir
     }
-  }, [scenarioId, vista, mesSel]);
+  }, [scenarioId, vista, mesSel, montar]);
+
+  /** Cambiar de mes en el selector cambia lo que se mira, sin volver a subir.
+   *
+   *  ⚠️ Sólo mientras haya un archivo con varios meses en memoria. Sin esto,
+   *  un Excel de seis meses obligaba a subirlo seis veces — el mismo trabajo
+   *  que se venía a sacar. */
+  useEffect(() => {
+    const otro = delArchivo[mesSel];
+    if (otro && otro !== lectura) { montar(otro); setReciénGuardado(false); }
+  }, [mesSel, delArchivo, lectura, montar]);
 
   /** La casilla del ADR. Se persiste al instante: es una decisión de la
    *  propiedad, no de este mes, y tiene que valer para todos los meses. */
@@ -434,38 +493,78 @@ export default function CierreRoomStatsPage() {
     Object.values(calce).forEach(v => { if (v) c[v] = (c[v] ?? 0) + 1; });
     return Object.entries(c).filter(([, k]) => k > 1).map(([v]) => v);
   }, [calce]);
-  const faltanCalce = (lectura?.filas ?? []).filter(f => !calce[f.nombre_pdf]).length;
+  /** Categorías sin calce. Con un archivo de varios meses se cuentan las de
+   *  TODOS: el botón «Guardar los N» escribe los N, así que habilitarlo
+   *  mirando sólo el mes visible dejaría entrar un mes con una fila huérfana. */
+  const faltanCalce = useMemo(() => {
+    const fuentes = Object.keys(delArchivo).length
+      ? Object.values(delArchivo) : (lectura ? [lectura] : []);
+    const nombres = new Set(fuentes.flatMap(l => l.filas.map(f => f.nombre_pdf)));
+    return [...nombres].filter(n => !calce[n]).length;
+  }, [delArchivo, lectura, calce]);
   const puedeGuardar = !!lectura && !leyendo && !guardando
     && faltanCalce === 0 && duplicadas.length === 0;
+
+  /** Escribe UN mes. Lo comparten el botón de un mes y el de todos: si el
+   *  guardado masivo armara las filas por su cuenta, un mes entraría distinto
+   *  según qué botón se apretó y nada lo avisaría. */
+  async function guardarUno(lec: PdfRoomStatsLectura) {
+    const rows = lec.filas.map(f => ({
+      room_type_name: calce[f.nombre_pdf],
+      units: categorias.find(c => c.name === calce[f.nombre_pdf])?.units ?? f.units,
+      nights_occupied: f.nights_occupied, revenue: f.revenue, pax: f.pax,
+    }));
+    const canales: RoomStatCanalIn[] = lec.filas.flatMap(f =>
+      f.agencias.map(a => ({
+        room_type_name: calce[f.nombre_pdf], canal_code: a.canal_code,
+        nights_occupied: a.nights_occupied, pax: a.pax, revenue: a.revenue,
+      })));
+    const r = await saveRoomStatsEntry(scenarioId!, lec.month, rows, canales);
+    try {
+      await guardarAliasPms(lec.filas
+        .filter(f => calce[f.nombre_pdf])
+        .map(f => ({ room_type_name: calce[f.nombre_pdf], alias_pms: f.nombre_pdf })));
+    } catch { /* el mes ya esta guardado; el alias se reintenta solo la proxima */ }
+    return r;
+  }
+
+  /** Los meses del archivo, de una. Sólo aparece con más de uno en memoria. */
+  async function guardarTodos() {
+    const meses = Object.values(delArchivo).sort((a, b) => a.month - b.month);
+    if (!meses.length || !scenarioId) return;
+    setGuardando(true); setError(null); setOk(null);
+    const hechos: string[] = [];
+    try {
+      // ⚠️ En serie y no en paralelo. Cada guardado REEMPLAZA el mes entero
+      // y recalcula; mandarlos juntos deja el orden de escritura al azar y
+      // un fallo a mitad de camino sin forma de decir cuáles entraron.
+      for (const m of meses) {
+        const r = await guardarUno(m);
+        hechos.push(`${m.mes_nombre} (${r.rows_saved})`);
+      }
+      setOk(`Guardados ${hechos.length} meses: ${hechos.join(", ")}. `
+            + "El archivo no se almacenó.");
+      setReciénGuardado(true);
+      cargarAnio();
+    } catch (e) {
+      setError((hechos.length ? `Entraron ${hechos.join(", ")}. Se cortó en el `
+                + `siguiente: ` : "")
+               + (e instanceof Error ? e.message : "No se pudo guardar"));
+      cargarAnio();
+    } finally { setGuardando(false); }
+  }
 
   async function guardar() {
     if (!lectura || !scenarioId) return;
     setGuardando(true); setError(null); setOk(null);
     try {
-      const rows = lectura.filas.map(f => ({
-        room_type_name: calce[f.nombre_pdf],
-        units: categorias.find(c => c.name === calce[f.nombre_pdf])?.units ?? f.units,
-        nights_occupied: f.nights_occupied, revenue: f.revenue, pax: f.pax,
-      }));
-      // La apertura por canal viaja con el mismo guardado: si se escribiera
-      // aparte, el mix podría quedar describiendo un mes que ya cambió.
-      const canales: RoomStatCanalIn[] = lectura.filas.flatMap(f =>
-        f.agencias.map(a => ({
-          room_type_name: calce[f.nombre_pdf], canal_code: a.canal_code,
-          nights_occupied: a.nights_occupied, pax: a.pax, revenue: a.revenue,
-        })));
-      const r = await saveRoomStatsEntry(scenarioId, lectura.month, rows, canales);
-      // El calce que se acaba de confirmar se RECUERDA para el mes que viene.
-      // Va despues de guardar y en su propio try: que el alias no se pueda
-      // escribir no puede tirar abajo un mes que ya entro bien.
-      try {
-        await guardarAliasPms(lectura.filas
-          .filter(f => calce[f.nombre_pdf])
-          .map(f => ({ room_type_name: calce[f.nombre_pdf], alias_pms: f.nombre_pdf })));
-      } catch { /* el mes ya esta guardado; el alias se reintenta solo la proxima */ }
+      // Un solo camino de escritura, compartido con «Guardar los N meses»
+      // (ver `guardarUno`): dos copias divergen y el mes entra distinto
+      // segun que boton se apreto.
+      const r = await guardarUno(lectura);
       setOk(`Guardado: ${lectura.mes_nombre} ${lectura.year} · ${r.rows_saved} categoría(s)`
             + `${r.canales_saved ? `, ${r.canales_saved} línea(s) de canal` : ""}. `
-            + "El PDF no se almacenó.");
+            + "El archivo no se almacenó.");
       // ⚠️ La lectura NO se descarta (owner, 2026-09-10: «tengo que subir 4
       // veces para que todos los tabs se actualicen»).
       //
@@ -633,8 +732,12 @@ export default function CierreRoomStatsPage() {
         </select>
         <label style={{ ...SEL, cursor: leyendo ? "wait" : "pointer", fontWeight: 600,
                         background: "var(--brand)", color: "#fff", border: "none" }}>
-          {leyendo ? "Leyendo…" : "Subir PDF"}
-          <input ref={archivo} type="file" accept="application/pdf,.pdf" hidden
+          {leyendo ? "Leyendo…" : "Subir archivo"}
+          {/* El PDF del PMS (un mes) o la base plana (todos). Lo decide la
+              extensión: pedirle a la persona que elija el tipo antes de subir
+              es un paso que se puede equivocar y que el archivo ya responde. */}
+          <input ref={archivo} type="file" hidden
+                 accept="application/pdf,.pdf,.xlsx,.xlsm,.xls,.csv"
                  disabled={leyendo || !scenarioId}
                  onChange={e => { const f = e.target.files?.[0]; if (f) leer(f); }} />
         </label>
@@ -675,6 +778,15 @@ export default function CierreRoomStatsPage() {
 
       {error && <Aviso tono="err">{error}</Aviso>}
       {ok && <Aviso tono="ok">{ok}</Aviso>}
+      {Object.keys(delArchivo).length > 1 && (
+        <Aviso tono="info">
+          El archivo trae <b>{Object.keys(delArchivo).length} meses</b>:{" "}
+          {Object.values(delArchivo).sort((a, b) => a.month - b.month)
+            .map(m => m.mes_nombre).join(" · ")}. Cambiá de mes en el selector
+          para revisarlos sin volver a subirlo, o guardalos todos de una.{" "}
+          <b>Nada se guarda hasta que apretés Guardar.</b>
+        </Aviso>
+      )}
       {sinCanal.length > 0 && (
         <Aviso tono="info">
           <b>{sinCanal.length === 1 ? "Un código del PMS no tiene canal"
@@ -809,7 +921,17 @@ export default function CierreRoomStatsPage() {
                   title="Una hoja por mes cargado, más el consolidado del año">
             ⬇ Excel del año ({anio?.meses_cargados.length ?? 0} meses)
           </button>
-          {lectura && <button onClick={() => { setLectura(null); setReciénGuardado(false); setOk(null); setError(null); }}
+          {Object.keys(delArchivo).length > 1 && (
+            <button onClick={guardarTodos}
+              disabled={guardando || leyendo || faltanCalce > 0 || duplicadas.length > 0}
+              style={{ ...SEL, padding: "8px 16px", fontWeight: 600,
+                       cursor: guardando ? "wait" : "pointer",
+                       background: "var(--brand)", border: "none", color: "#fff",
+                       opacity: (faltanCalce > 0 || duplicadas.length > 0) ? .5 : 1 }}>
+              {guardando ? "Guardando…"
+               : `Guardar los ${Object.keys(delArchivo).length} meses`}
+            </button>)}
+          {lectura && <button onClick={() => { setLectura(null); setDelArchivo({}); setReciénGuardado(false); setOk(null); setError(null); }}
                   style={{ ...SEL, cursor: "pointer" }}>Descartar</button>}
           {enPantalla.desdeLaBase && (
             <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>

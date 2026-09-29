@@ -60,7 +60,11 @@ def test_la_pantalla_guarda_por_el_camino_de_la_carga_manual():
     escritura a `actual_room_stats` es cómo terminan conviviendo dos verdades
     para el mismo mes."""
     pag = PAGINA.read_text(encoding="utf-8")
-    assert "saveRoomStatsEntry(scenarioId, lectura.month, rows, canales)" in pag
+    # La escritura vive en `guardarUno`, que comparten el boton de un mes y el
+    # de «Guardar los N meses» de la base plana. Dos copias divergen y el mes
+    # entra distinto segun que boton se apreto.
+    assert "saveRoomStatsEntry(scenarioId!, lec.month, rows, canales)" in pag
+    assert pag.count("saveRoomStatsEntry(") == 1, "hay mas de un camino de escritura"
     assert "leerPdfRoomStats" in pag
 
 
@@ -203,7 +207,10 @@ def test_el_alias_se_aprende_al_guardar_y_no_en_otra_pantalla():
     tenerlo. El calce confirmado se guarda en el mismo momento."""
     pag = PAGINA.read_text(encoding="utf-8")
     assert "guardarAliasPms(" in pag
-    guardado = pag[pag.index("async function guardar()"):pag.index("async function bajarExcel")]
+    # Mira `guardarUno`, que es donde vive la escritura desde que el boton de
+    # un mes y el de todos los meses comparten camino.
+    guardado = pag[pag.index("async function guardarUno("):
+                   pag.index("async function guardarTodos(")]
     assert "guardarAliasPms" in guardado, "el alias no se aprende al guardar"
     # Y en su propio try: que falle el alias no puede tirar el mes ya guardado.
     assert guardado.index("saveRoomStatsEntry") < guardado.index("guardarAliasPms")
@@ -401,7 +408,8 @@ def test_excluir_un_canal_no_cambia_lo_que_se_guarda():
     poder conciliarlas.
     """
     pag = PAGINA.read_text(encoding="utf-8")
-    guardado = pag[pag.index("async function guardar()"):pag.index("async function bajarExcel")]
+    guardado = pag[pag.index("async function guardarUno("):
+                   pag.index("async function guardarTodos(")]
     for filtrado in ("baseCat", "baseTot", "enAdr"):
         assert filtrado not in guardado, f"el guardado filtra por {filtrado}"
     assert "nights_occupied: f.nights_occupied" in guardado

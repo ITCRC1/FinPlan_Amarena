@@ -3523,6 +3523,31 @@ export async function asignarCanalPms(canalCode: string, canal: string): Promise
   return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/canal/`, { canal });
 }
 
+/** Lo que devuelve la base plana: la misma lectura del PDF, una por mes. */
+export interface ExcelRoomStatsLectura {
+  archivo: string;
+  scenario_id: string;
+  year: number;
+  meses: PdfRoomStatsLectura[];
+  meses_en_el_archivo: number[];
+}
+
+/** Lee la base plana (Excel o CSV) y devuelve TODOS los meses que traiga.
+ *
+ * No guarda nada, igual que el lector de PDF: el archivo se descarta al
+ * terminar la petición y lo que vuelve alcanza para pintar la pantalla. */
+export async function leerExcelRoomStats(
+  scenarioId: string, file: File,
+): Promise<ExcelRoomStatsLectura> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/scenarios/${scenarioId}/room-stats/leer-excel/`, {
+    method: "POST", body: form, headers: authHeaders(),
+  });
+  if (!res.ok) { throw new Error(`API ${res.status}: ${await res.text()}`); }
+  return res.json();
+}
+
 export async function marcarCanalParaKpis(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
   return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/kpis/`, { cuenta });
 }
