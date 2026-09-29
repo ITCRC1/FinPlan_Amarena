@@ -77,6 +77,10 @@ NO_VIAJAN = {
     # noches que lo explican.
     "actual_room_stat_canales": "apertura por canal — sigue a actual_room_stats",
     "actual_dept_fte": "FTE real por departamento — mismo motivo que actual_room_stats",
+    # El conteo de membresias del club es un hecho del mes, como las
+    # estadisticas reales: copiarlo a un Forecast haria que la version nueva
+    # naciera afirmando un conteo que nadie hizo para ella.
+    "membresias_mes": "conteo real del club — mismo motivo que actual_room_stats",
     "balance_sheet_lines": "balance real",
     "on_the_books_entries": "reservas en firme",
     "otb_daily_occ": "ocupacion diaria real",

@@ -54,6 +54,7 @@ import {
 } from "@/lib/api";
 import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import { cuadrosDelAnio } from "@/lib/roomStatsExcel";
+import Membresias from "@/components/Membresias";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
 
@@ -62,7 +63,7 @@ const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-type Vista = "canal" | "habitacion" | "matriz" | "acumulado";
+type Vista = "canal" | "habitacion" | "matriz" | "acumulado" | "membresias";
 type Medida = "noches" | "ocupacion" | "pax" | "ingreso" | "adr" | "revpar";
 
 /** Ocupación y RevPAR se dividen por noches disponibles, y un canal no tiene
@@ -797,7 +798,7 @@ export default function CierreRoomStatsPage() {
           <b>Nada se guarda hasta que apretés Guardar.</b>
         </Aviso>
       )}
-      {sinCanal.length > 0 && (
+      {vista !== "membresias" && sinCanal.length > 0 && (
         <Aviso tono="info">
           <b>{sinCanal.length === 1 ? "Un código del PMS no tiene canal"
               : `${sinCanal.length} códigos del PMS no tienen canal`}</b>{" "}
@@ -807,7 +808,7 @@ export default function CierreRoomStatsPage() {
           No se adivina: el canal decide si ese ingreso paga comisión.
         </Aviso>
       )}
-      {canalesFuera.length > 0 && (
+      {vista !== "membresias" && canalesFuera.length > 0 && (
         <Aviso tono="warn">
           <b>{canalesFuera.join(" · ")}</b>{" "}
           {canalesFuera.length > 1 ? "no cuentan" : "no cuenta"}: los números de
@@ -837,7 +838,11 @@ export default function CierreRoomStatsPage() {
       <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "flex-end",
                                    borderBottom: "1px solid var(--border-medium)" }}>
         {([["canal", "Por canal"], ["habitacion", "Por habitación"],
-           ["matriz", "Canal × habitación"], ["acumulado", "Acumulado"]] as [Vista, string][])
+           ["matriz", "Canal × habitación"], ["acumulado", "Acumulado"],
+           // Membresías NO sale del PMS: es el conteo de la cuota de
+           // mantenimiento que lleva la propiedad. Va acá porque es parte del
+           // mismo cierre de mes, y es la única pestaña donde se escribe.
+           ["membresias", "Membresías"]] as [Vista, string][])
           .map(([k, r]) => (
           <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)}
             style={{ background: "none", border: "none", padding: "7px 15px",
@@ -875,6 +880,8 @@ export default function CierreRoomStatsPage() {
                     background: "var(--bg-surface)" }}>
         {vista === "acumulado"
           ? <Acumulado anio={anio} medida={medida} filas={filas} enAdr={enAdr} pega={pega} />
+          : vista === "membresias"
+          ? <Membresias scenarioId={scenarioId} mesSel={mesSel} SEL={SEL} />
           : !enPantalla
             ? <div style={{ padding: "26px 16px", fontSize: 12.5,
                             color: "var(--text-secondary)" }}>
@@ -904,7 +911,7 @@ export default function CierreRoomStatsPage() {
             :                       <PorHabitacion {...{ lectura: enPantalla, mes: mes!, pega, Calce }} />}
       </div>
 
-      {enPantalla && (
+      {vista !== "membresias" && enPantalla && (
         <div style={{ marginTop: 13, display: "flex", gap: 9, alignItems: "center",
                       flexWrap: "wrap" }}>
           {/* Guardar solo tiene sentido con un PDF leído: mirando lo archivado

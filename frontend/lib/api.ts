@@ -3633,6 +3633,58 @@ export async function leerExcelRoomStats(
   return res.json();
 }
 
+/* ─────────────────── Membresías del club (cuota de mantenimiento) ───────── */
+
+export interface MembresiaConcepto {
+  concepto: string;
+  /** El rótulo ya armado. El de `activas` lleva la fecha del cierre. */
+  rotulo: string;
+  cantidad: number;
+  /** true = no está en la lista canónica; se muestra igual, al final. */
+  desconocido?: boolean;
+}
+export interface MembresiaMes {
+  month: number; mes_nombre: string;
+  /** «31 de agosto 2026» */
+  cierre: string;
+  /** ⚠️ `false` = nadie escribió este mes. NO es lo mismo que un mes en cero. */
+  cargado: boolean;
+  conceptos: MembresiaConcepto[];
+  /** Calculado, nunca guardado: es la suma de los conceptos. */
+  total: number;
+}
+export interface MembresiasAnio {
+  scenario_id: string; year: number; escenario: string;
+  meses: MembresiaMes[];
+  meses_cargados: number[];
+}
+
+export async function getMembresias(scenarioId: string): Promise<MembresiasAnio> {
+  return api.get(`/scenarios/${scenarioId}/membresias/`);
+}
+
+/** Guarda (REEMPLAZA) un mes. Mandar la lista incompleta borra lo que falte. */
+export async function saveMembresias(
+  scenarioId: string, month: number,
+  conceptos: { concepto: string; cantidad: number }[],
+): Promise<{ saved: boolean; month: number; conceptos_saved: number }> {
+  return api.put(`/scenarios/${scenarioId}/membresias/${month}/`, { conceptos });
+}
+
+/** Sube el Excel que bajó esta misma pantalla. Sólo escribe los meses que el
+ *  archivo trae con algún número: una columna vacía se deja como está. */
+export async function importarMembresias(
+  scenarioId: string, file: File,
+): Promise<{ saved: boolean; meses: number[]; meses_nombre: string[] }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/scenarios/${scenarioId}/membresias/importar/`, {
+    method: "POST", body: form, headers: authHeaders(),
+  });
+  if (!res.ok) { throw new Error(`API ${res.status}: ${await res.text()}`); }
+  return res.json();
+}
+
 export async function marcarCanalParaKpis(canalCode: string, cuenta: boolean): Promise<CanalDelPms> {
   return api.put(`/room-stats/canales/${encodeURIComponent(canalCode)}/kpis/`, { cuenta });
 }

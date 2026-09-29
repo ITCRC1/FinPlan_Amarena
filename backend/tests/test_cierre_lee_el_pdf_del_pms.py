@@ -650,7 +650,9 @@ def test_mirando_lo_guardado_no_se_ofrece_guardar_de_nuevo():
     pisar el detalle por canal si algo se reconstruyó distinto.
     """
     src = PAGINA.read_text(encoding="utf-8")
-    i = src.index("{enPantalla && (")
+    # La barra tambien se esconde en la pestaña de Membresias, que no sale
+    # del archivo: dos botones «Guardar» haciendo cosas distintas.
+    i = src.index('{vista !== "membresias" && enPantalla && (')
     barra = src[i:src.index("</div>", i)]
     assert "{lectura && <button onClick={guardar}" in barra, \
         "se ofrece guardar sin PDF leído"

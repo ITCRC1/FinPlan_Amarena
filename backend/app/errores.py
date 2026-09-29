@@ -208,6 +208,21 @@ MENSAJES: dict[str, dict[str, str]] = {
     "skill4.canal_vacio": {
         "es": "Falta el código del canal.",
         "en": "The channel code is missing."},
+    "membresias.no_se_pudo_leer": {
+        "es": "No se pudo leer el archivo de membresías: {detalle}",
+        "en": "The memberships file could not be read: {detalle}"},
+    "membresias.sin_meses": {
+        "es": "El archivo no tiene ninguna columna de mes. La primera fila tiene que traer los meses — «Ene», «Enero» o «Enero 2026», da igual.",
+        "en": "The file has no month column. The first row must carry the months."},
+    "membresias.sin_datos": {
+        "es": "El archivo trae los conceptos pero ninguna cantidad. No se tocó nada.",
+        "en": "The file carries the concepts but no quantities. Nothing was changed."},
+    "membresias.concepto_desconocido": {
+        "es": "Estos conceptos no se reconocen: {desconocidos}. Los válidos son: {validos}. No se adivina a cuál se parecen — mandaría el conteo al renglón equivocado y el total daría lo mismo igual.",
+        "en": "These concepts are not recognised: {desconocidos}. Valid ones are: {validos}. They are not guessed — that would file the count under the wrong row while the total still matched."},
+    "membresias.cantidad_negativa": {
+        "es": "«{concepto}» viene con {cantidad}. Un conteo de membresías no puede ser negativo.",
+        "en": "“{concepto}” came as {cantidad}. A membership count cannot be negative."},
     "room_stats.categoria_desconocida": {
         "es": "Estas categorías no existen en la propiedad: {desconocidas}. Las válidas son: {validas}. Si el PMS cambió un rótulo, calzalo a una de estas en la pantalla — desde acá no se crea una categoría nueva.",
         "en": "These room categories do not exist for this property: {desconocidas}. Valid ones are: {validas}. If the PMS renamed one, map it to one of these on screen — a new category is never created from here."},

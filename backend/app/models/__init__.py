@@ -140,3 +140,6 @@ from app.models.import_registro import ImportBatch, ImportFile, ESTADOS, MODOS
 # Guillermo Fase 1: configuración, latido, manifiesto y cola de excepciones.
 from app.models.guillermo import (
     GuillermoConfig, GuillermoHeartbeat, ExpectedReport, ImportException)
+# Las membresías del club (cuota de mantenimiento). No sale del PMS: lo carga
+# la propiedad a mano o por Excel, un conteo por mes.
+from app.models.membresia_mes import CONCEPTOS, MembresiaMes
