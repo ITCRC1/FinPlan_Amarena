@@ -3452,12 +3452,25 @@ export interface RoomStatRowIn {
 }
 /** Guarda el mes. `canales` es opcional: la carga manual no lo manda y el
  *  detalle por canal que hubiera queda como estaba. */
+/** El bloque del hotel que cierra el PDF. Todo opcional: la base plana no lo
+ *  trae y la carga manual tampoco. Omitirlo CONSERVA lo guardado. */
+export interface RoomStatResumenIn {
+  capacidad_hab?: number;
+  habitaciones_totales?: number;
+  habitaciones_disponibles?: number;
+  habitaciones_bloqueadas?: number;
+  ingreso_puntos_venta?: number;
+  ingreso_total_hotel?: number;
+}
+
 export async function saveRoomStatsEntry(scenarioId: string, month: number,
   rows: RoomStatRowIn[],
   canales?: RoomStatCanalIn[],
+  resumen?: RoomStatResumenIn,
 ): Promise<{ saved: boolean; month: number; rows_saved: number; canales_saved?: number }> {
-  return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`,
-    canales ? { rows, canales } : { rows });
+  return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`, {
+    rows, ...(canales ? { canales } : {}), ...(resumen ? { resumen } : {}),
+  });
 }
 
 /**
@@ -3568,12 +3581,26 @@ export interface AnioMesCanal extends CanalDelPms {
   ingreso_ayb: number; ingreso_otros: number;
   hab_entradas: number; cli_entradas: number;
 }
+/** El bloque del hotel que cierra el reporte del PMS. No es por categoría.
+ *
+ *  ⚠️ `null` = ese mes no lo trajo. Sólo lo trae el PDF: la base plana es sólo
+ *  el detalle por agencia. Las bloqueadas en cero afirmarían que el hotel tuvo
+ *  todo el inventario en servicio. */
+export interface AnioMesResumen {
+  capacidad_hab: number;
+  habitaciones_totales: number;
+  habitaciones_disponibles: number;
+  habitaciones_bloqueadas: number;
+  ingreso_puntos_venta: number;
+  ingreso_total_hotel: number;
+}
 export interface AnioMes {
   month: number; dias: number;
   /** false = el mes no está cargado. NO es lo mismo que un mes en cero. */
   cargado: boolean;
   categorias: AnioMesCategoria[];
   canales: AnioMesCanal[];
+  resumen: AnioMesResumen | null;
 }
 export interface AnioRoomStats {
   scenario_id: string; year: number; escenario: string;

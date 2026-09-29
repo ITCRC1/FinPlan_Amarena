@@ -63,7 +63,9 @@ def test_la_pantalla_guarda_por_el_camino_de_la_carga_manual():
     # La escritura vive en `guardarUno`, que comparten el boton de un mes y el
     # de «Guardar los N meses» de la base plana. Dos copias divergen y el mes
     # entra distinto segun que boton se apreto.
-    assert "saveRoomStatsEntry(scenarioId!, lec.month, rows, canales)" in pag
+    # El resumen del hotel —disponibles, bloqueadas, ingreso total— viaja con
+    # el mes desde 2026-09-29: es del mismo archivo y del mismo mes.
+    assert "saveRoomStatsEntry(scenarioId!, lec.month, rows, canales, {" in pag
     assert pag.count("saveRoomStatsEntry(") == 1, "hay mas de un camino de escritura"
     assert "leerPdfRoomStats" in pag
 

@@ -530,7 +530,19 @@ export default function CierreRoomStatsPage() {
         ingreso_ayb: a.ingreso_ayb, ingreso_otros: a.ingreso_otros,
         hab_entradas: a.hab_entradas, cli_entradas: a.cli_entradas,
       })));
-    const r = await saveRoomStatsEntry(scenarioId!, lec.month, rows, canales);
+    // El resumen del hotel viaja con el mes. ⚠️ Desde la base plana viene en
+    // cero —ese archivo no lo trae— y el backend NO lo escribe si está todo en
+    // cero: si lo escribiera, subir el Excel borraría las habitaciones
+    // bloqueadas que dejó el PDF del mismo mes.
+    const rp = lec.resumen_pdf;
+    const r = await saveRoomStatsEntry(scenarioId!, lec.month, rows, canales, {
+      capacidad_hab: rp.capacidad_hab,
+      habitaciones_totales: rp.habitaciones_totales,
+      habitaciones_disponibles: rp.habitaciones_disponibles,
+      habitaciones_bloqueadas: rp.habitaciones_bloqueadas,
+      ingreso_puntos_venta: rp.ingreso_puntos_venta,
+      ingreso_total_hotel: rp.ingreso_total_hotel,
+    });
     try {
       await guardarAliasPms(lec.filas
         .filter(f => calce[f.nombre_pdf])

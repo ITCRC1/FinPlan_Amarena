@@ -8,6 +8,7 @@ import { getScenarios, getPLMonthly, getFlowThrough, type Scenario, type PLMonth
 import { bajarCuadros, type Cuadro, type FilaCuadro, type FormatoCol } from "@/lib/exportCuadro";
 import { HOTEL_ID } from "@/lib/hotel";
 import EstadisticaHabitaciones from "@/components/EstadisticaHabitaciones";
+import ResumenConsolidado from "@/components/ResumenConsolidado";
 import { useHotel } from "@/lib/useHotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
@@ -575,6 +576,11 @@ export default function DashboardPage() {
           estadistica vive en el ACTUAL, asi que mirando un Budget el bloque
           lo dice en vez de dibujar ceros. */}
       <EstadisticaHabitaciones scenarioId={mainId} scenarios={scenarios} month={month} />
+
+      {/* El Resumen Consolidado del reporte del PMS, al final del todo:
+          owner, 2026-09-29, «lo pongas al final de aca». Son las cifras del
+          ARCHIVO, sin filtrar cortesias — al reves que el cierre. */}
+      <ResumenConsolidado scenarioId={mainId} scenarios={scenarios} month={month} />
     </div>
   );
 }

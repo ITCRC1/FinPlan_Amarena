@@ -76,6 +76,11 @@ NO_VIAJAN = {
     # si viajara sola, la version nueva tendria un mix de canales sin las
     # noches que lo explican.
     "actual_room_stat_canales": "apertura por canal — sigue a actual_room_stats",
+    # El resumen del hotel del mismo reporte: disponibles, bloqueadas y el
+    # ingreso total. Va donde va su detalle — copiarlo a un Forecast haria
+    # que la version nueva naciera afirmando cuantas habitaciones estuvieron
+    # fuera de servicio en un mes que nadie cerro para ella.
+    "actual_room_stats_mes": "resumen del hotel — sigue a actual_room_stats",
     "actual_dept_fte": "FTE real por departamento — mismo motivo que actual_room_stats",
     # El conteo de membresias del club es un hecho del mes, como las
     # estadisticas reales: copiarlo a un Forecast haria que la version nueva

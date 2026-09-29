@@ -63,6 +63,7 @@ from app.importers.datos_planos_room_stats import cuadre_interno, leer_datos_pla
 from app.importers.skill4_room_stats_pdf import leer_pdf_skill4, nombre_del_mes
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
+from app.models.actual_room_stat_mes import ActualRoomStatMes
 from app.models.market_code import CANALES, MarketCode
 from app.models.room_type_config import RoomTypeConfig
 from app.models.scenario import Scenario
@@ -512,6 +513,9 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
         ActualRoomStat.scenario_id == scenario_id))).scalars().all()
     aperturas = (await db.execute(select(ActualRoomStatCanal).where(
         ActualRoomStatCanal.scenario_id == scenario_id))).scalars().all()
+    # El resumen del hotel, por mes. Puede no estar: sólo lo trae el PDF.
+    resumenes = {r.month: r for r in (await db.execute(select(ActualRoomStatMes).where(
+        ActualRoomStatMes.scenario_id == scenario_id))).scalars().all()}
     catalogo = await _codigos_de_canal(db)
 
     por_mes: dict = {m: {"categorias": [], "canales": []} for m in range(1, 13)}
@@ -578,10 +582,22 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
             # esconderlo haría desaparecer ingreso de una carga vieja.
             completas.extend(por_nombre.values())
             d["categorias"] = completas
+        # ⚠️ `None` y no ceros: un mes sin resumen es un mes cuyo archivo no
+        # lo dijo, y las habitaciones bloqueadas en cero afirmarían que el
+        # hotel tuvo todo el inventario en servicio.
+        rm = resumenes.get(m)
         meses.append({
             "month": m, "dias": dias, "cargado": cargado,
             "categorias": d["categorias"],
             "canales": d["canales"],
+            "resumen": None if rm is None else {
+                "capacidad_hab": int(rm.capacidad_hab or 0),
+                "habitaciones_totales": float(rm.habitaciones_totales),
+                "habitaciones_disponibles": float(rm.habitaciones_disponibles),
+                "habitaciones_bloqueadas": float(rm.habitaciones_bloqueadas),
+                "ingreso_puntos_venta": float(rm.ingreso_puntos_venta),
+                "ingreso_total_hotel": float(rm.ingreso_total_hotel),
+            },
         })
 
     return {

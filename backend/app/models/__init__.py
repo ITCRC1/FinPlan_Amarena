@@ -58,6 +58,9 @@ from app.models.club_membership_stat import ClubMembershipStat
 from app.models.club_fee_budget import ClubFeeBudget
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
+# El resumen del hotel que cierra el reporte del PMS: disponibles,
+# bloqueadas y el ingreso total. No es por categoria — es del hotel.
+from app.models.actual_room_stat_mes import ActualRoomStatMes
 from app.models.actual_dept_fte import ActualDeptFte
 from app.models.on_the_books import OnTheBooksEntry
 from app.models.otb_daily_occ import OtbDailyOcc

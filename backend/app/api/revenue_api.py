@@ -60,6 +60,7 @@ from app.models.historical_kpi import HistoricalKpi
 from app.models.scenario_stat import ScenarioStat
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
+from app.models.actual_room_stat_mes import ActualRoomStatMes
 from app.models.on_the_books import OnTheBooksEntry
 from app.models.otb_daily_occ import OtbDailyOcc
 from app.models.otb_week_param import OtbWeekParam
@@ -1107,8 +1108,22 @@ class RoomStatCanalIn(BaseModel):
     cli_entradas: float | None = None
 
 
+class RoomStatResumenIn(BaseModel):
+    """El bloque del hotel que cierra el PDF. Todo opcional: la base plana no
+    lo trae y la carga manual tampoco."""
+    capacidad_hab: int | None = None
+    habitaciones_totales: float | None = None
+    habitaciones_disponibles: float | None = None
+    habitaciones_bloqueadas: float | None = None
+    ingreso_puntos_venta: float | None = None
+    ingreso_total_hotel: float | None = None
+
+
 class RoomStatsEntryIn(BaseModel):
     rows: list[RoomStatRowIn]
+    #: El resumen del hotel. `None` = quien guarda no sabe de esto y lo que
+    #: hubiera se CONSERVA — misma regla que las cuatro medidas nuevas.
+    resumen: RoomStatResumenIn | None = None
     #: La apertura por canal, cuando el mes viene del PDF del PMS. Opcional:
     #: la carga MANUAL no la tiene y sigue funcionando igual que siempre.
     canales: list[RoomStatCanalIn] | None = None
@@ -1251,6 +1266,28 @@ async def put_room_stats_entry(
                 hab_entradas=_o(c, prev_c, "hab_entradas"),
                 cli_entradas=_o(c, prev_c, "cli_entradas")))
             canales_guardados += 1
+
+    # ── El resumen del hotel ────────────────────────────────────────────
+    #
+    # ⚠️ Sólo se escribe si viene, y **sólo si trae algo**. Un cuerpo con el
+    # resumen en ceros —lo que manda la base plana, que no lo tiene— borraría
+    # las habitaciones bloqueadas que dejó el PDF del mismo mes.
+    if body.resumen is not None:
+        r = body.resumen
+        campos = ("capacidad_hab", "habitaciones_totales",
+                  "habitaciones_disponibles", "habitaciones_bloqueadas",
+                  "ingreso_puntos_venta", "ingreso_total_hotel")
+        if any(getattr(r, c) for c in campos):
+            fila = (await db.execute(select(ActualRoomStatMes).where(
+                ActualRoomStatMes.scenario_id == scenario_id,
+                ActualRoomStatMes.month == month))).scalar_one_or_none()
+            if fila is None:
+                fila = ActualRoomStatMes(scenario_id=scenario_id, month=month)
+                db.add(fila)
+            for c in campos:
+                v = getattr(r, c)
+                if v is not None:
+                    setattr(fila, c, v)
 
     await db.commit()
     return {"saved": True, "month": month, "rows_saved": saved,
