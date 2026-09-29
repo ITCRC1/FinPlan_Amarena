@@ -8,12 +8,25 @@ import type { AnioMes } from "@/lib/api";
  * arma a mano. Una tabla financiera que sólo se puede verificar mirándola es
  * una tabla que nadie verifica.
  *
- * ## ⚠️ Este cuadro NO filtra las cortesías
+ * ## ⚠️ Las dos bases, y cuál manda
  *
- * Reproduce lo que dice el **archivo del PMS**: las 51 noches de marzo, no las
- * 20 que quedan al sacar el CPL. Es el papel contra el que la propiedad
- * cuadra, y por eso lleva su propio renglón de cortesías — para que la
- * diferencia con el cierre se vea en vez de parecer un error.
+ * Owner, 2026-09-29: *«Total habitaciones pagadas, total habitaciones
+ * cortesias, total noches ocupadas con cortesias, no se usa para los
+ * indicadores»*.
+ *
+ * Los indicadores —ocupación, ADR, RevPAR— van sobre las noches **pagadas**,
+ * igual que el cierre. Antes iban sobre el total con cortesías, porque así los
+ * calcula el archivo del PMS, y eso dejaba dos pantallas de la misma app
+ * contestando distinto: el cierre decía ADR $317.66 para marzo y este cuadro
+ * $125.44 — las dos bien según su base, y nada explicaba la diferencia.
+ *
+ * Las cifras del archivo **no se pierden**: van en su propio bloque al pie,
+ * en gris. Sin ellas el cuadro dejaría de cuadrar contra el papel del PMS y
+ * nadie podría explicar por qué.
+ *
+ * Y las tres noches van explícitas y en este orden —pagadas, cortesías, total—
+ * porque la tercera es la suma de las dos primeras: así se ve de dónde sale
+ * cada indicador sin restar de cabeza.
  *
  * ## ⚠️ El acumulado de una TASA se recalcula
  *
@@ -48,9 +61,27 @@ export const porCat = (m: AnioMes, campo: "revenue" | "ingreso_ayb" | "ingreso_o
                 | "nights_occupied" | "pax" | "hab_entradas" | "cli_entradas") =>
   m.categorias.reduce((a, c) => a + ((c[campo] as number) ?? 0), 0);
 
-/** Noches de los canales que la propiedad dejó fuera de los indicadores. */
+/** Noches de cortesía: los canales que la propiedad dejó fuera de los
+ *  indicadores. En Amarena es el CPL. */
 export const nochesFuera = (m: AnioMes) =>
   m.canales.reduce((a, c) => a + (c.cuenta_para_kpis ? 0 : c.nights_occupied), 0);
+
+/** Noches PAGADAS: las que entran a los indicadores.
+ *
+ *  ⚠️ Sin apertura por canal no se puede separar, y no se inventa: se usa el
+ *  total. Descontar «lo que suele ser cortesía» sería fabricar un número. Un
+ *  mes así se lee con pagadas = total y cortesías = 0, que es exactamente lo
+ *  que se sabe de él. */
+export const nochesPagadas = (m: AnioMes) =>
+  m.canales.length
+    ? m.canales.reduce((a, c) => a + (c.cuenta_para_kpis ? c.nights_occupied : 0), 0)
+    : porCat(m, "nights_occupied");
+
+/** Ingreso de las noches pagadas. Mismo criterio y mismo respaldo. */
+export const ingresoPagado = (m: AnioMes) =>
+  m.canales.length
+    ? m.canales.reduce((a, c) => a + (c.cuenta_para_kpis ? c.revenue : 0), 0)
+    : porCat(m, "revenue");
 
 /** Las disponibles del período. `null` si algún mes no las trajo: sumar sólo
  *  los que sí daría un denominador que no corresponde al numerador. */
@@ -72,14 +103,25 @@ export const RENGLONES: Renglon[] = [
 
   { clave: "habEnt", rotulo: "Habitaciones — Entradas", formato: "num",
     espacioAntes: true, valor: ms => sum(ms, m => porCat(m, "hab_entradas")) },
-  { clave: "habEst", rotulo: "Habitaciones — Estancias (noches)", formato: "num",
-    banda: true, valor: ms => sum(ms, m => porCat(m, "nights_occupied")) },
+  // ⚠️ Owner, 2026-09-29: *«Total habitaciones pagadas, total habitaciones
+  // cortesias, total noches ocupadas con cortesias, no se usa para los
+  // indicadores»*.
+  //
+  // Los tres juntos y en este orden porque el tercero es la SUMA de los dos
+  // primeros: así se ve de dónde sale cada indicador sin tener que restar de
+  // cabeza. El renglón de arriba es el que manda — lo dice su propio rótulo,
+  // no una nota al pie que nadie lee.
+  { clave: "pagadas", rotulo: "Total habitaciones pagadas (base de los indicadores)",
+    formato: "num", banda: true, valor: ms => sum(ms, nochesPagadas) },
+  { clave: "cortesias", rotulo: "Total habitaciones cortesías", formato: "num",
+    valor: ms => sum(ms, nochesFuera) },
+  { clave: "habEst", rotulo: "Total noches ocupadas con cortesías — no entra a los indicadores",
+    formato: "num", tenue: true,
+    valor: ms => sum(ms, m => porCat(m, "nights_occupied")) },
   { clave: "cliEnt", rotulo: "Clientes — Entradas", formato: "num",
     valor: ms => sum(ms, m => porCat(m, "cli_entradas")) },
   { clave: "cliEst", rotulo: "Clientes — Estancias", formato: "num",
     valor: ms => sum(ms, m => porCat(m, "pax")) },
-  { clave: "fuera", rotulo: "Habitaciones — cortesías (fuera de los indicadores)",
-    formato: "num", tenue: true, valor: ms => sum(ms, nochesFuera) },
 
   { clave: "dias", rotulo: "Días del mes", formato: "num", tenue: true,
     espacioAntes: true, valor: ms => sum(ms, m => m.dias) },
@@ -92,28 +134,55 @@ export const RENGLONES: Renglon[] = [
   { clave: "bloq", rotulo: "Habitaciones bloqueadas", formato: "num", tenue: true,
     valor: ms => (ms.length && ms.every(m => m.resumen)
       ? sum(ms, m => m.resumen!.habitaciones_bloqueadas) : null) },
+  // ⚠️ Los tres indicadores van sobre las noches PAGADAS.
+  //
+  // Antes iban sobre el total con cortesías, porque así los calcula el archivo
+  // del PMS. Eso dejaba dos pantallas de la misma app contestando distinto: el
+  // cierre decía ADR $317.66 para marzo y este cuadro $125.44, las dos bien
+  // según su base, y nada explicaba la diferencia. Owner: *«no se usa para los
+  // indicadores»*.
+  //
+  // Las cifras del archivo no se pierden: van abajo, en su propio bloque.
   { clave: "ocupTot", rotulo: "% Ocupación s/ total habitaciones", formato: "pct",
     banda: true,
     valor: (ms, c) => {
       const cap = sum(ms, m => c.unidades * m.dias);
-      return cap ? sum(ms, m => porCat(m, "nights_occupied")) / cap : null;
+      return cap ? sum(ms, nochesPagadas) / cap : null;
     } },
   { clave: "ocupDisp", rotulo: "% Ocupación s/ habitaciones disponibles",
     formato: "pct", banda: true,
     valor: ms => {
       const d = disponibles(ms);
-      return d ? sum(ms, m => porCat(m, "nights_occupied")) / d : null;
+      return d ? sum(ms, nochesPagadas) / d : null;
     } },
 
-  { clave: "adr", rotulo: "ADR — Tarifa promedio (Hospedaje / noches)",
+  { clave: "adr", rotulo: "ADR — Tarifa promedio (Hospedaje / noches pagadas)",
     formato: "usd", espacioAntes: true,
     valor: ms => {
-      const n = sum(ms, m => porCat(m, "nights_occupied"));
-      return n ? sum(ms, m => porCat(m, "revenue")) / n : null;
+      const n = sum(ms, nochesPagadas);
+      return n ? sum(ms, ingresoPagado) / n : null;
     } },
   { clave: "revpar", rotulo: "RevPAR (Hospedaje / total hab.-noche)", formato: "usd",
     valor: (ms, c) => {
       const cap = sum(ms, m => c.unidades * m.dias);
-      return cap ? sum(ms, m => porCat(m, "revenue")) / cap : null;
+      return cap ? sum(ms, ingresoPagado) / cap : null;
+    } },
+
+  // ── La otra base, para cuadrar contra el papel ──────────────────────────
+  //
+  // ⚠️ Sin esto el cuadro dejaría de cuadrar contra el archivo del PMS y
+  // nadie podría explicar por qué. Van en gris: son la conciliación, no el
+  // indicador.
+  { clave: "ocupConCort", rotulo: "% Ocupación con cortesías (archivo del PMS)",
+    formato: "pct", tenue: true, espacioAntes: true,
+    valor: (ms, c) => {
+      const cap = sum(ms, m => c.unidades * m.dias);
+      return cap ? sum(ms, m => porCat(m, "nights_occupied")) / cap : null;
+    } },
+  { clave: "adrConCort", rotulo: "ADR con cortesías (archivo del PMS)",
+    formato: "usd", tenue: true,
+    valor: ms => {
+      const n = sum(ms, m => porCat(m, "nights_occupied"));
+      return n ? sum(ms, m => porCat(m, "revenue")) / n : null;
     } },
 ];

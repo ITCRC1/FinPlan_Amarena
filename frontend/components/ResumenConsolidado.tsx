@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 
-import { getAnioRoomStats, type AnioMes, type AnioRoomStats, type Scenario } from "@/lib/api";
+import { getAnioRoomStats, type AnioRoomStats, type Scenario } from "@/lib/api";
 import { bajarCuadros, type Cuadro, type FilaCuadro } from "@/lib/exportCuadro";
 import { RENGLONES, type Ctx, type Formato } from "@/lib/resumenConsolidado";
 
@@ -14,15 +14,12 @@ import { RENGLONES, type Ctx, type Formato } from "@/lib/resumenConsolidado";
  * Es la hoja «Resumen» del Excel de segmentación: un renglón por indicador y
  * una columna por mes, con el acumulado al final.
  *
- * ## ⚠️ Este cuadro NO filtra el CPL
+ * ## ⚠️ Las tres noches, y cuál alimenta los indicadores
  *
- * Y eso es a propósito, aunque la pantalla del cierre sí lo filtre.
- *
- * Este reporte reproduce lo que dice el **archivo del PMS**: las 51 noches de
- * marzo, no las 20 que quedan al sacar las cortesías. Es el papel contra el
- * que la propiedad cuadra. Por eso lleva su propio renglón de
- * «Habitaciones — cortesías», para que la diferencia con el cierre se vea en
- * vez de parecer un error.
+ * Pagadas, cortesías y el total —que es la suma de las dos— van como tres
+ * renglones separados. Los indicadores salen de las **pagadas**, igual que el
+ * cierre; las cifras del archivo del PMS quedan al pie, en gris, para poder
+ * cuadrar contra el papel.
  *
  * ## ⚠️ Disponibles y bloqueadas sólo vienen del PDF
  *
@@ -112,7 +109,8 @@ export default function ResumenConsolidado({ scenarioId, scenarios, month }: {
     }));
     const cuadro: Cuadro = {
       titulo: `Resumen consolidado ${anio.year} · estadística del PMS`,
-      subtitulo: `${anio.escenario} — cifras del archivo, sin filtrar cortesías.`
+      subtitulo: `${anio.escenario} — los indicadores van sobre las noches`
+        + ` pagadas; las cifras con cortesías del archivo del PMS, al pie.`
         + ` Las columnas en blanco son meses sin cargar.`,
       hoja: `Resumen ${anio.year}`,
       columnas: [
@@ -186,10 +184,11 @@ export default function ResumenConsolidado({ scenarioId, scenarios, month }: {
         <div style={{ padding: "10px 16px", fontSize: 11, lineHeight: 1.5,
                       color: "var(--text-secondary)",
                       borderTop: "1px solid var(--border-subtle)" }}>
-          <b>Son las cifras del archivo, sin filtrar.</b> El cierre excluye las
-          cortesías de sus indicadores y este cuadro no: por eso lleva su propio
-          renglón de cortesías, para que la diferencia se vea en vez de parecer
-          un error. · El acumulado de ADR, RevPAR y las ocupaciones se{" "}
+          <b>Los indicadores salen de las noches pagadas</b>, igual que el
+          cierre: las cortesías no entran. El total con cortesías está arriba
+          como renglón propio, y las dos cifras del archivo del PMS —ocupación
+          y ADR con cortesías— al pie del cuadro, para poder cuadrar contra el
+          papel. · El acumulado de ADR, RevPAR y las ocupaciones se{" "}
           <b>recalcula</b> sobre los totales, nunca se promedia.
           {sinResumen.length > 0 && (
             <>

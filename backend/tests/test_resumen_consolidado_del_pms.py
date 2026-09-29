@@ -89,14 +89,15 @@ def test_estan_los_diecisiete_renglones_del_reporte():
     src = LOGICA.read_text(encoding="utf-8")
     for rotulo in ("Ingreso Hospedaje", "Ingreso A y B", "Ingreso Otros",
                    "Total Ingresos", "Habitaciones — Entradas",
-                   "Habitaciones — Estancias (noches)", "Clientes — Entradas",
+                   "Total habitaciones pagadas (base de los indicadores)",
+                   "Total habitaciones cortesías", "Clientes — Entradas",
                    "Clientes — Estancias", "Días del mes",
                    "Capacidad de habitaciones",
                    "Total habitaciones-noche (capacidad)",
                    "Habitaciones disponibles", "Habitaciones bloqueadas",
                    "% Ocupación s/ total habitaciones",
                    "% Ocupación s/ habitaciones disponibles",
-                   "ADR — Tarifa promedio (Hospedaje / noches)",
+                   "ADR — Tarifa promedio (Hospedaje / noches pagadas)",
                    "RevPAR (Hospedaje / total hab.-noche)"):
         assert f'rotulo: "{rotulo}"' in src, f"falta el renglon {rotulo}"
 
@@ -123,21 +124,58 @@ def test_las_disponibles_del_periodo_son_null_si_falta_un_mes():
     assert "if (!ms.length || ms.some(m => !m.resumen)) return null;" in src
 
 
-def test_el_cuadro_NO_filtra_las_cortesias_y_lo_dice():
-    """⚠️ Este reporte reproduce el ARCHIVO del PMS: las 51 noches de marzo, no
-    las 20 que quedan al sacar el CPL. Es el papel contra el que la propiedad
-    cuadra.
+def test_las_tres_noches_van_explicitas_y_suman():
+    """Owner, 2026-09-29: *«Total habitaciones pagadas, total habitaciones
+    cortesias, total noches ocupadas con cortesias, no se usa para los
+    indicadores»*.
 
-    Como el cierre SI las filtra, el cuadro lleva su propio renglon de
-    cortesias — sin el, la diferencia entre dos pantallas de la misma app
-    parece un error.
+    Las tres, en ese orden, porque la tercera es la SUMA de las dos primeras:
+    asi se ve de donde sale cada indicador sin restar de cabeza. Medido contra
+    produccion: 20+31=51, 46+14=60, 202+16=218, y 523+113=636.
     """
     src = LOGICA.read_text(encoding="utf-8")
-    assert "NO filtra las cortesías" in src
-    assert 'clave: "fuera"' in src
-    assert "c.cuenta_para_kpis ? 0 : c.nights_occupied" in src
-    comp = COMP.read_text(encoding="utf-8")
-    assert "Son las cifras del archivo, sin filtrar." in comp
+    assert 'clave: "pagadas"' in src
+    assert 'clave: "cortesias"' in src
+    assert "no entra a los indicadores" in src
+    # Y el orden en que se leen.
+    assert src.index('clave: "pagadas"') < src.index('clave: "cortesias"')
+    assert src.index('clave: "cortesias"') < src.index('clave: "habEst"')
+
+
+def test_los_indicadores_van_sobre_las_noches_PAGADAS():
+    """⚠️ Antes iban sobre el total con cortesias, porque asi los calcula el
+    archivo del PMS. Eso dejaba dos pantallas de la misma app contestando
+    distinto: el cierre decia ADR $317.66 para marzo y este cuadro $125.44 —
+    las dos bien segun su base, y nada explicaba la diferencia.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "export const nochesPagadas" in src
+    assert "export const ingresoPagado" in src
+    for clave in ('clave: "ocupTot"', 'clave: "ocupDisp"', 'clave: "adr"',
+                  'clave: "revpar"'):
+        i = src.index(clave)
+        bloque = src[i:i + 420]
+        assert "nochesPagadas" in bloque or "ingresoPagado" in bloque,             f"{clave} sigue sobre el total con cortesias"
+
+
+def test_las_cifras_del_archivo_no_se_pierden():
+    """⚠️ Sin ellas el cuadro dejaria de cuadrar contra el papel del PMS y
+    nadie podria explicar por que. Van en gris: son la conciliacion, no el
+    indicador."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert 'clave: "ocupConCort"' in src
+    assert 'clave: "adrConCort"' in src
+    assert src.count("archivo del PMS") >= 2
+
+
+def test_sin_apertura_por_canal_no_se_inventan_las_cortesias():
+    """⚠️ Descontar «lo que suele ser cortesia» seria fabricar un numero. Un
+    mes sin apertura se lee con pagadas = total y cortesias = 0, que es
+    exactamente lo que se sabe de el."""
+    src = LOGICA.read_text(encoding="utf-8")
+    i = src.index("export const nochesPagadas")
+    assert "m.canales.length" in src[i:i + 360]
+    assert 'porCat(m, "nights_occupied")' in src[i:i + 360]
 
 
 def test_la_aritmetica_vive_aparte_del_render():
