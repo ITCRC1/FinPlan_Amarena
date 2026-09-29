@@ -189,6 +189,16 @@ export default function PLFullPage() {
   const [ytd, setYtd] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Lo que el recálculo tuvo para decir.
+   *
+   *  ⚠️ NO es un error y no puede ir a `setError`: abajo, `error` reemplaza la
+   *  pantalla entera por el mensaje. Owner, 2026-09-29, recalculando el
+   *  Forecast Final: *«corri esto.. pero no se si es un error»* — el P&L
+   *  desapareció y quedó un renglón rojo que decía que los meses cerrados no
+   *  se habían tocado, que es el Forecast funcionando exactamente como debe.
+   *
+   *  Se pinta ARRIBA del P&L y se puede cerrar. */
+  const [aviso, setAviso] = useState<string | null>(null);
   const [newFcModal, setNewFcModal] = useState(false);
   const [newFcSaving, setNewFcSaving] = useState(false);
   const [closingMonth, setClosingMonth] = useState(false);
@@ -241,11 +251,14 @@ export default function PLFullPage() {
   const handleRecalc = useCallback(async (scenarioId: string) => {
     setBusy("recalc");
     try {
-      const aviso = await recalcularYContar(scenarioId);
+      const msg = await recalcularYContar(scenarioId);
       await refreshScenarioPL(scenarioId);
       // Un recálculo a medias devuelve 200. Sin esto, el P&L se refrescaba con
-      // datos incompletos y la pantalla no decía nada.
-      if (aviso.startsWith("⚠")) setError(aviso);
+      // datos incompletos y la pantalla no decía nada. Pero el mensaje va a un
+      // aviso, no a `error`: hay avisos que sólo describen lo que el recálculo
+      // respetó —los meses cerrados de un Forecast— y perder el P&L por eso es
+      // peor que el aviso.
+      setAviso(msg.startsWith("⚠") ? msg : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errorRecalcular"));
     } finally {
@@ -420,6 +433,8 @@ export default function PLFullPage() {
   }, [scenarios, col1Id, col2Id, col3Id, month, ytd, maps, kpiMaps, grouped, hotel, t, tc]);
 
   if (loading) return <div style={{ padding: 32, color: "var(--text-dim)" }}>{t("loadingScenarios")}</div>;
+  // ⚠️ `error` sí reemplaza la pantalla: significa que no hay P&L que mostrar.
+  // Un AVISO del recálculo no llega acá — ver `aviso`.
   if (error)   return <div style={{ padding: 32, color: "var(--negative)" }}>{error}</div>;
 
   const viewLabel = month === 0 ? "Full Year" : (useYtd ? "YTD " : "") + MONTHS[month - 1];
@@ -433,6 +448,23 @@ export default function PLFullPage() {
       <IrA esc={col2Id} />
       {/* Quien LEE el P&L tiene que enterarse si salio con un TC viejo. */}
       <AvisoMoneda scenarioId={col1Id} />
+
+      {/* Lo que el recálculo tuvo para decir. Va ARRIBA del P&L y no en vez
+          de él: la mayoría de estos avisos describen lo que el recálculo
+          RESPETÓ —los meses cerrados de un Forecast— y eso no es un fallo. */}
+      {aviso && (
+        <div style={{ margin: "0 0 14px", padding: "9px 13px", fontSize: 13,
+                      lineHeight: 1.5, borderRadius: 6,
+                      background: "rgba(245,158,11,.10)",
+                      border: "1px solid rgba(245,158,11,.4)",
+                      display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <span style={{ flex: 1 }}>{aviso}</span>
+          <button onClick={() => setAviso(null)}
+            style={{ background: "none", border: "none", cursor: "pointer",
+                     color: "var(--text-dim)", fontSize: 16, lineHeight: 1,
+                     padding: 0 }} aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
       <style>{`
         @media print {
           body * { visibility: hidden; }
