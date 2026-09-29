@@ -480,7 +480,9 @@ def test_la_franja_NO_calcula_el_corte_en_la_pantalla():
     daría un número que no es de nadie — le daría el mismo peso a un mes lleno
     que a uno cerrado, y Amarena tiene cinco meses sin operación."""
     fuente = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
-    assert "getEstadisticasCierre" in fuente
+    # Lo pide por `estadisticasDeLosCortes`, que es `getEstadisticasCierre` una
+    # vez por corte. Lo que importa es que el corte lo haga el BACKEND.
+    assert "estadisticasDeLosCortes" in fuente
     for inventado in ("reduce(", "/ 12"):
         assert inventado not in fuente, (
             f"el cuadro empezó a agregar solo ({inventado}): las razones no son "

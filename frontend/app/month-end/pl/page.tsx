@@ -25,7 +25,7 @@ import { useTranslations } from "next-intl";
 import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
   getAuditoria, getPLDetail, getComentariosPL, guardarComentarioPL,
-  getEstadisticasCierre, getDetalleDeCelda,
+  getDetalleDeCelda,
   getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
   type ConsultaFila, type ConsultaCatalogo, type FbDetalle, type FbMes, type IngresoDetalle,
   type AuditoriaCuadre, type PLDetailFila, type EstadisticasCierre,
@@ -1894,6 +1894,10 @@ export default function MonthEndPLPage() {
    * Los rótulos son los MISMOS que en pantalla: ver `Estadisticas.tsx`. Que el
    * documento llame «Average Daily Room Only» a lo que la pantalla llama otra
    * cosa obliga a comprobar que son el mismo número.
+   *
+   * Y van los TRES cortes, igual que en pantalla (owner, 2026-09-29). En un
+   * documento importa más todavía: la hoja se imprime y se lee sola, así que
+   * el mes sin el acumulado al lado no dice si lo del mes cambia el año.
    */
   async function franjaKpis(): Promise<{
     kpis: { label: string; valores: (string | number | null)[] }[];
@@ -1901,21 +1905,25 @@ export default function MonthEndPLPage() {
   } | null> {
     const ids = usadas.map(u => u.id);
     if (!ids.length) return null;
-    const desde = horizonte === "month" ? mes : 1;
-    const hasta = horizonte === "full" ? 12 : mes;
-    let datosKpi: (EstadisticasCierre | null)[];
+    const cortes = cortesDe(mes);
+    // ⚠️ Los mismos cortes del cuadro. `estadisticasDeLosCortes` ya deja en
+    // `null` la versión que falle —.catch(() => null)—, así que una versión
+    // caída no se lleva el documento entero.
+    let porCorte: (EstadisticasCierre | null)[][];
     try {
-      datosKpi = await Promise.all(ids.map(id =>
-        getEstadisticasCierre(id, desde, hasta).catch(() => null)));
+      porCorte = await estadisticasDeLosCortes(
+        cortes, ids.map(id => ({ scenario_id: id })));
     } catch {
       return null;   // sin estadísticas el documento sale igual; sin documento, no
     }
-    if (!datosKpi.some(Boolean)) return null;
+    const planas = porCorte.flat();
+    if (!planas.some(Boolean)) return null;
     const fila = (label: string, get: (e: EstadisticasCierre) => number | null) =>
-      ({ label, valores: datosKpi.map(e => (e ? get(e) : null)) });
-    const hayClub = datosKpi.some(e => e && e.club_pagando != null);
+      ({ label, valores: planas.map(e => (e ? get(e) : null)) });
+    const hayClub = planas.some(e => e && e.club_pagando != null);
     return {
-      kpis_columnas: usadas.map(u => etiqueta(u.id)),
+      kpis_columnas: cortes.flatMap(c =>
+        usadas.map(u => `${c.titulo} · ${etiqueta(u.id)}`)),
       kpis: [
         fila("Total available Rooms", e => e.rooms_available),
         fila("Total Rooms Occupied", e => e.rooms_occupied),
@@ -1925,6 +1933,7 @@ export default function MonthEndPLPage() {
         fila("Total RevPAR", e => e.revpar),
         ...(hayClub ? [
           fila("Socios pagando (Club)", e => e.club_pagando),
+          fila("Socios al cierre del mes", e => e.club_pagando_cierre),
           fila("Cuota promedio por socio", e => e.club_cuota_promedio),
         ] : []),
       ],
@@ -2310,10 +2319,7 @@ export default function MonthEndPLPage() {
       <Estadisticas
         scenarioIds={ranuras}
         etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
-        desde={horizonte === "month" ? mes : 1}
-        hasta={horizonte === "full" ? 12 : mes}
-        rotuloCorte={horizonte === "month" ? MESES[mes - 1]
-          : horizonte === "ytd" ? `YTD ${MESES[mes - 1]}` : "Año completo"} />
+        mes={mes} />
 
       {vista === "fb" && (() => {
         /* Total F&B Cost Detail. Único cuadro que no sale del P&L — ver

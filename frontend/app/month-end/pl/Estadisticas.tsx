@@ -17,15 +17,26 @@
  * donde arreglar el día que cambie un cálculo, y bastaría olvidar una para que
  * dos sub-tabs muestren ocupaciones distintas del mismo mes.
  *
+ * **Los TRES cortes a la vez.** Owner, 2026-09-29: *«si pero sólo para el mes,
+ * yo quiero que tenga YTD y Full year también»*. La franja seguía el selector
+ * de arriba y mostraba uno solo, así que para comparar el mes contra el año
+ * había que cambiar el selector y perder de vista el anterior — que es
+ * justamente la comparación que se hace en el cierre.
+ *
+ * ⚠️ Los cortes salen de `cortesDe`, el MISMO que arma el cuadro de abajo. Si
+ * la franja definiera los suyos, un día el encabezado y el reporte estarían
+ * mirando meses distintos y ninguno de los dos números se vería raro.
+ *
  * **No calcula el corte.** Mes, YTD y año los agrega el backend en
  * `/pl/{id}/estadisticas/`, porque la ocupación, el ADR y la cuota **no son
  * aditivos**: se rederivan con el numerador y el denominador del período. Un
  * promedio simple de doce meses le daría el mismo peso a un mes lleno que a uno
  * cerrado, y Amarena tiene cinco meses sin operación.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getEstadisticasCierre, type EstadisticasCierre } from "@/lib/api";
+import { type EstadisticasCierre } from "@/lib/api";
+import { cortesDe, estadisticasDeLosCortes } from "@/lib/tresCortes";
 
 const num = (n: number | null | undefined) =>
   n === null || n === undefined || !n ? "—"
@@ -49,6 +60,8 @@ const TD: React.CSSProperties = {
  *  seguir, y en cambio el encabezado se despegaba y quedaba flotando sobre
  *  el reporte de abajo. Owner, 2026-09-03: «se ve enganchada arriba». */
 const TH_ESTATICO: React.CSSProperties = { position: "static" };
+/** La raya que separa un corte del siguiente. */
+const BL = "2px solid var(--border-medium)";
 const TDL: React.CSSProperties = {
   padding: "4px 12px", fontSize: 12.5, whiteSpace: "nowrap",
   color: "var(--text-secondary)",
@@ -93,36 +106,35 @@ const FILAS: {
     club: true, fuerte: true },
 ];
 
-export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rotuloCorte }: {
+export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
   /** Las versiones elegidas arriba, en su orden. Las vacías se ignoran. */
   scenarioIds: string[];
   etiquetas: string[];
-  /** Primer y último mes del corte, 1..12. */
-  desde: number;
-  hasta: number;
-  /** Cómo se llama el corte en pantalla («Julio», «YTD Julio», «Año completo»). */
-  rotuloCorte: string;
+  /** El mes del cierre: define el corte «mes» y hasta dónde llega el YTD. */
+  mes: number;
 }) {
-  const [datos, setDatos] = useState<(EstadisticasCierre | null)[]>([]);
+  /** Por corte × versión. */
+  const [datos, setDatos] = useState<(EstadisticasCierre | null)[][]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const usadas = scenarioIds
     .map((id, i) => ({ id, rotulo: etiquetas[i] }))
     .filter(x => x.id);
   const clave = usadas.map(u => u.id).join(",");
+  const cortes = useMemo(() => cortesDe(mes), [mes]);
 
   const cargar = useCallback(async () => {
     const ids = clave ? clave.split(",") : [];
     if (!ids.length) { setDatos([]); return; }
     setError(null);
     try {
-      setDatos(await Promise.all(ids.map(id =>
-        getEstadisticasCierre(id, desde, hasta).catch(() => null))));
+      setDatos(await estadisticasDeLosCortes(
+        cortes, ids.map(id => ({ scenario_id: id }))));
     } catch (e) {
       setError(e instanceof Error ? e.message : "no se pudieron cargar");
       setDatos([]);
     }
-  }, [clave, desde, hasta]);
+  }, [clave, cortes]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -133,7 +145,7 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
       </div>
     );
   }
-  const vivas = datos.filter(Boolean) as EstadisticasCierre[];
+  const vivas = datos.flat().filter(Boolean) as EstadisticasCierre[];
   if (!vivas.length) return null;
 
   /** El Club sólo se dibuja si la propiedad lo tiene. Un cero se leería como
@@ -142,8 +154,11 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
 
   /** Aviso cuando las dos tarifas difieren: `REV_ROOMS` trae ingreso que no es
    *  noche vendida y la tarifa sale más alta sin que nada lo delate. */
-  const brechas = vivas
-    .map((d, i) => ({ e: usadas[i]?.rotulo || "", dif: d.adr_derivado - d.adr }))
+  // ⚠️ Se mira SÓLO el corte del mes: con los tres, la misma versión saldría
+  // tres veces en el aviso diciendo exactamente lo mismo.
+  const brechas = (datos[0] ?? [])
+    .map((d, i) => ({ e: usadas[i]?.rotulo || "",
+                      dif: d ? d.adr_derivado - d.adr : 0 }))
     .filter(x => Math.abs(x.dif) >= 0.01);
 
   return (
@@ -152,16 +167,29 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
         <table style={{ borderCollapse: "collapse", minWidth: 420 }}>
           <thead>
             <tr>
-              <th style={{ ...TDL, ...TH_ESTATICO, textAlign: "left", fontWeight: 800,
-                           color: "var(--brand)", minWidth: 220 }}>
-                {rotuloCorte}
-              </th>
-              {usadas.map((u, i) => (
-                <th key={u.id + i} style={{ ...TD, ...TH_ESTATICO, fontWeight: 800,
-                                            color: "var(--brand)", minWidth: 150 }}>
-                  {u.rotulo}
+              <th style={{ ...TDL, ...TH_ESTATICO, minWidth: 220 }} />
+              {cortes.map((c, ci) => (
+                <th key={c.clave} colSpan={usadas.length}
+                    style={{ ...TD, ...TH_ESTATICO, textAlign: "center",
+                             fontWeight: 800, color: "var(--brand)",
+                             borderLeft: ci ? BL : undefined }}>
+                  {c.titulo}
                 </th>
               ))}
+            </tr>
+            <tr>
+              <th style={{ ...TDL, ...TH_ESTATICO, textAlign: "left",
+                           fontWeight: 800, minWidth: 220 }}>
+                ESTADÍSTICAS
+              </th>
+              {cortes.flatMap((c, ci) => usadas.map((u, i) => (
+                <th key={c.clave + u.id + i}
+                    style={{ ...TD, ...TH_ESTATICO, fontWeight: 700,
+                             color: "var(--text-secondary)", minWidth: 130,
+                             borderLeft: ci && !i ? BL : undefined }}>
+                  {u.rotulo}
+                </th>
+              )))}
             </tr>
           </thead>
           <tbody>
@@ -169,12 +197,16 @@ export default function Estadisticas({ scenarioIds, etiquetas, desde, hasta, rot
               <tr key={f.rotulo}
                   style={{ background: n % 2 ? "transparent" : "var(--bg-surface)" }}>
                 <td style={TDL}>{f.rotulo}</td>
-                {datos.map((d, i) => (
-                  <td key={i} style={{ ...TD,
-                                       fontWeight: f.fuerte ? 800 : 600 }}>
-                    {d ? f.valor(d) : "—"}
-                  </td>
-                ))}
+                {cortes.flatMap((c, ci) => usadas.map((_u, i) => {
+                  const d = datos[ci]?.[i] ?? null;
+                  return (
+                    <td key={c.clave + i}
+                        style={{ ...TD, fontWeight: f.fuerte ? 800 : 600,
+                                 borderLeft: ci && !i ? BL : undefined }}>
+                      {d ? f.valor(d) : "—"}
+                    </td>
+                  );
+                }))}
               </tr>
             ))}
           </tbody>

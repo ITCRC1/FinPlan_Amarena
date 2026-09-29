@@ -114,3 +114,57 @@ def test_si_las_estadisticas_fallan_el_documento_SALE_igual():
     cuerpo = cuerpo[:cuerpo.index("async function bajarExcel")]
     assert ".catch(() => null)" in cuerpo
     assert "return null;" in cuerpo
+
+
+def test_la_franja_muestra_los_TRES_cortes():
+    """Owner, 2026-09-29: *«si pero solo para el mes, yo quiero que tenga YTD y
+    Full year tambien»*.
+
+    ⚠️ La franja seguia el selector de arriba y mostraba UN corte. Para
+    comparar el mes contra el año habia que cambiar el selector — y al
+    cambiarlo se perdia de vista el anterior, que es justamente la comparacion
+    que se hace en el cierre: si lo del mes cambia el año.
+    """
+    pantalla = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
+    assert "cortesDe(mes)" in pantalla
+    assert "estadisticasDeLosCortes(" in pantalla
+    # Tres grupos de columnas: un encabezado de corte sobre las versiones.
+    assert "colSpan={usadas.length}" in pantalla
+    # Y ya no queda el corte unico que venia del selector.
+    for viejo in ("rotuloCorte", "desde={", "hasta={"):
+        assert viejo not in pantalla, f"la franja todavia usa {viejo}"
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    assert "<Estadisticas" in pagina and "mes={mes} />" in pagina
+
+
+def test_la_franja_y_el_cuadro_usan_LOS_MISMOS_cortes():
+    """⚠️ Una sola definicion. Si la franja armara los suyos, un dia el
+    encabezado y el reporte estarian mirando meses distintos — y ninguno de los
+    dos numeros se veria raro, porque cada uno cuadra consigo mismo."""
+    pantalla = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
+    assert 'from "@/lib/tresCortes"' in pantalla
+    # El rango de cada corte tampoco se escribe aparte.
+    assert "desde=" not in pantalla and "hasta=" not in pantalla
+
+
+def test_el_DOCUMENTO_lleva_los_tres_cortes_rotulados():
+    """Una hoja suelta se lee sola: sin el acumulado al lado, el mes no dice si
+    cambia el año. Y las columnas tienen que decir de que corte son — tres
+    bloques de versiones con el mismo nombre no se distinguen."""
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    cuerpo = pagina[pagina.index("async function franjaKpis()"):]
+    cuerpo = cuerpo[:cuerpo.index("async function bajarExcel")]
+    assert "cortesDe(mes)" in cuerpo
+    assert "estadisticasDeLosCortes(" in cuerpo
+    assert "${c.titulo} \u00b7 ${etiqueta(u.id)}" in cuerpo
+
+
+def test_los_dos_renglones_de_socios_van_al_documento():
+    """Pagando y cierre contestan preguntas distintas, y en un YTD no coinciden.
+    El documento llevaba solo uno."""
+    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
+    cuerpo = pagina[pagina.index("async function franjaKpis()"):]
+    cuerpo = cuerpo[:cuerpo.index("async function bajarExcel")]
+    for rotulo in ("Socios pagando (Club)", "Socios al cierre del mes",
+                   "Cuota promedio por socio"):
+        assert rotulo in cuerpo, f"el documento no trae «{rotulo}»"
