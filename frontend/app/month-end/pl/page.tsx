@@ -629,6 +629,15 @@ export default function MonthEndPLPage() {
         setAvisoGasto(t("errGastoClase"));
       }
     } catch (e: unknown) {
+      // ⚠️ Se DESCARTA lo que hubiera en pantalla.
+      //
+      // Antes el error se pintaba arriba y la tabla se quedaba con la carga
+      // anterior: cambiar de julio a agosto y que fallara dejaba las cifras de
+      // julio bajo el encabezado de agosto. Nadie mira el renglon rojo cuando
+      // la tabla de abajo tiene numeros que se ven bien — es el modo de falla
+      // que este proyecto persigue, con el agravante de que aca invita a
+      // decidir sobre el mes equivocado.
+      setDatos([]); setGastos([]); setDeptos({});
       setError(e instanceof Error ? e.message : t("errPl"));
     } finally {
       setCargando(false);
@@ -2236,7 +2245,25 @@ export default function MonthEndPLPage() {
         }}>{avisoGasto}</div>
       )}
 
-      {error && <div style={{ color: "var(--negative)", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+      {error && (
+        <div style={{ marginBottom: 12, padding: "9px 13px", fontSize: 13,
+                      lineHeight: 1.5, borderRadius: 6,
+                      background: "rgba(185,58,46,.08)",
+                      border: "1px solid rgba(185,58,46,.35)",
+                      display: "flex", alignItems: "center", gap: 12,
+                      flexWrap: "wrap" }}>
+          <span style={{ color: "var(--negative)", flex: 1, minWidth: 240 }}>{error}</span>
+          {/* Sin esto, la unica salida era recargar la pagina entera —y con
+              ella el mes, las versiones y la vista que la persona ya habia
+              elegido. */}
+          <button onClick={() => cargar()} disabled={cargando}
+            style={{ padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
+                     borderRadius: 5, border: "none", cursor: "pointer",
+                     background: "var(--brand)", color: "#fff" }}>
+            {cargando ? "Reintentando…" : "Reintentar"}
+          </button>
+        </div>
+      )}
 
       {/* ── La franja de estadisticas ────────────────────────────────────────
           Owner, 2026-09-02: «ponlo en todos los sub tabs, ya que es informacion

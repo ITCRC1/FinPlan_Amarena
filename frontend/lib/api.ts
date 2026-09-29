@@ -48,17 +48,75 @@ export function dlUrl(path: string): string {
   return `${BASE}${path}${s ? `?${s}` : ""}`;
 }
 
+/** Cuántas veces se reintenta una lectura que ni siquiera llegó al servidor. */
+const REINTENTOS_DE_RED = 2;
+const ESPERA_MS = [400, 1200];
+
+/**
+ * ⚠️ Un fallo de RED no es una respuesta del servidor, y no se trata igual.
+ *
+ * Owner, 2026-09-29, con el P&L de julio en pantalla: *«Failed to fetch»* en
+ * rojo sobre una tabla que tenía datos. El backend contestaba 200 a todo: la
+ * petición nunca llegó — es lo que pasa con lo que esté en vuelo mientras
+ * Railway cambia el contenedor por un despliegue, y dura segundos.
+ *
+ * `fetch` rechaza con `TypeError: Failed to fetch` y eso terminaba impreso tal
+ * cual. Dos problemas: el mensaje no le dice nada a nadie, y la pantalla se
+ * queda con el error pegado y datos viejos hasta que alguien recargue.
+ *
+ * Acá se separan los dos mundos:
+ *
+ * * **El servidor contestó** —un 404, un 422, un 500— es una respuesta y se
+ *   propaga como estaba. Reintentarla sería repetir el mismo error tres veces.
+ * * **La petición no llegó** se reintenta, y sólo si es de LECTURA. Un POST o
+ *   un PUT reintentado a ciegas puede guardar dos veces: no se sabe si el
+ *   servidor lo recibió y se cortó la respuesta, o si nunca lo vio.
+ *
+ * Si después de los reintentos sigue sin llegar, el mensaje dice qué pasó y
+ * qué hacer, en vez de «Failed to fetch».
+ */
+function esFalloDeRed(e: unknown): boolean {
+  // `fetch` sólo rechaza por red, CORS o abort. Un 500 NO rechaza.
+  return e instanceof TypeError;
+}
+
+const dormir = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...localeHeader(),
-      ...(init?.headers ?? {}),
-    },
-  });
+  const metodo = (init?.method ?? "GET").toUpperCase();
+  const esLectura = metodo === "GET" || metodo === "HEAD";
+
+  let res: Response;
+  for (let intento = 0; ; intento++) {
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...localeHeader(),
+          ...(init?.headers ?? {}),
+        },
+      });
+      break;
+    } catch (e) {
+      const puedeReintentar = esLectura && esFalloDeRed(e)
+        && intento < REINTENTOS_DE_RED;
+      if (!puedeReintentar) {
+        if (esFalloDeRed(e)) {
+          throw Object.assign(
+            new Error("No se pudo conectar con el servidor. Puede ser un "
+                      + "despliegue en curso o la conexión: probá de nuevo en "
+                      + "unos segundos."),
+            { clave: "red.sin_conexion" });
+        }
+        throw e;
+      }
+      await dormir(ESPERA_MS[intento] ?? 1200);
+    }
+  }
+
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
       setToken(null);
