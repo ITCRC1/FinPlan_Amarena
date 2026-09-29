@@ -70,46 +70,103 @@ def test_no_se_escribe_la_plantilla_otra_vez():
         assert inventado not in comp, f"el cuadro define {inventado} por su cuenta"
 
 
-def test_ocupacion_ADR_y_RevPAR_se_rederivan_en_cada_corte():
-    """⚠️ Son razones. Sumar los ADR de siete meses da un numero que no
-    significa nada y se ve perfectamente normal: en Amarena, $2.026 contra los
-    $286 reales."""
-    src = LOGICA.read_text(encoding="utf-8")
-    assert "no se suman" in src.lower() or "NO se suman" in src
-    assert "k.disp ? k.occ / k.disp : null" in src
-    assert "k.occ ? k.ing / k.occ : null" in src
-    # Y los crudos SI se suman, que es lo correcto: son cantidades.
-    assert "export function crudosDe" in src
-    assert "suma(k?.rooms_occupied, meses)" in src
+def test_el_encabezado_NO_se_calcula_en_el_cliente():
+    """⚠️ Ocupacion, ADR, RevPAR y los socios son razones y promedios con reglas
+    finas que ya viven en `/pl/{id}/estadisticas/`. Rederivarlas aca seria una
+    segunda verdad — y una segunda verdad sobre un ADR no cuadra contra nada,
+    asi que nadie la ve.
 
-
-def test_RevPAR_es_ingreso_TOTAL_sobre_disponibles():
-    """⚠️ El error que este cuadro tuvo y se corrigio antes de desplegarlo.
-
-    Se escribio como ingreso de HABITACIONES / disponibles, que es la
-    definicion clasica. El owner la cambio (ver `pl_api._revpar`): *«revpar es
-    total revenue per available room»* — mide cuanto rinde cada habitacion
-    disponible con TODO lo que el hotel factura.
-
-    Medido contra el PDF, julio 2026: 248.437,33 / 930 = 267,14 exacto. Con el
-    ingreso de habitaciones daba 112,52 — un numero que se ve perfectamente
-    razonable y mide otra cosa.
+    Owner, 2026-09-29: *«tener cuidado como se calculan los promedios como
+    ADR»*.
     """
     src = LOGICA.read_text(encoding="utf-8")
-    assert "k.ingTotal === null || !k.disp ? null : k.ingTotal / k.disp" in src
-    # La cita del owner viaja partida entre dos lineas de comentario.
-    assert "revpar es total revenue" in src and "per available room" in src
-    # El numerador sale de la PROPIA fila del cuadro, no de otra consulta.
-    comp = COMP.read_text(encoding="utf-8")
-    assert "esIngresoTotal(x.rotulo)" in comp
+    assert "export async function estadisticasDeLosCortes" in src
+    assert "getEstadisticasCierre(v.scenario_id, desde, hasta)" in src
+    # `calc` solo LEE: si aparece una division es que se fabrico otro indicador.
+    ini = src.index("export const KPIS")
+    bloque = src[ini:src.index("];", ini)]
+    for k in ("rooms_available", "rooms_occupied", "guests", "occupancy_pct",
+              "adr", "revpar", "club_pagando", "club_pagando_cierre",
+              "club_cuota_promedio"):
+        assert f"e?.{k} ?? null" in bloque, f"falta el renglon de {k}"
+    for linea in (l for l in bloque.splitlines() if "calc:" in l):
+        assert "/" not in linea, f"hay una division en KPIS: {linea.strip()}"
+    # Un corte por llamada, y el rango sale del PROPIO corte.
+    assert "export const rangoDe" in src
+    assert "[c.meses[0] + 1, c.meses[c.meses.length - 1] + 1]" in src
 
 
-def test_sin_la_fila_del_ingreso_total_el_RevPAR_va_vacio():
-    """Mejor vacio que el indicador equivocado: un RevPAR calculado sobre el
-    numerador que no es se ve razonable y nadie lo cuestiona."""
+def test_el_ADR_es_el_de_las_estadisticas_y_el_RevPAR_es_TRevPAR():
+    """⚠️ Los dos errores que este cuadro tuvo y se corrigieron.
+
+    * El **RevPAR** se escribio como ingreso de HABITACIONES / disponibles, que
+      es la definicion clasica. El owner la cambio (ver `pl_api._revpar`):
+      *«revpar es total revenue per available room»*. Contra el PDF, julio
+      2026: 248.437,33 / 930 = 267,14. Con el ingreso de habitaciones daba
+      112,52 — un numero perfectamente razonable que mide otra cosa.
+    * El **ADR** derivado (ingreso/noches) NO es el del reporte: `REV_ROOMS`
+      arrastra ingresos que no son noches vendidas e infla la tarifa en
+      silencio ($274,38 contra $255,44 en julio).
+
+    Tomando los dos del endpoint, los dos quedan bien por construccion.
+    """
     src = LOGICA.read_text(encoding="utf-8")
-    assert "ingTotal: number | null;" in src
-    assert "ingresoTotal ? suma(ingresoTotal, meses) : null" in src
+    assert "e?.adr ?? null" in src and "e?.adr_derivado" not in src
+    assert "e?.revpar ?? null" in src and "e?.revpar_bruto" not in src
+    assert "revpar es total revenue" in src and "per available room" in src
+    # Y ya no queda el numerador que se leia de la fila del cuadro.
+    assert "ingTotal" not in src and "esIngresoTotal" not in src
+    comp = COMP.read_text(encoding="utf-8")
+    assert "esIngresoTotal" not in comp
+
+
+def test_los_socios_de_un_periodo_son_un_PROMEDIO_de_los_meses_con_socios():
+    """Owner, 2026-09-29: *«El estadistico de socios pagando y socios de
+    cierre. si es YTD se pone promedio mensual igual que full Year y la cuota
+    promedio tambien. total sobre total socios»*.
+
+    ⚠️ Las tres reglas viven en el backend (`pl_api`, lineas ~705-760) y el
+    cuadro las LEE:
+
+    * `club_pagando` — promedio de los meses CON socios. Amarena abrio el Club
+      en marzo: contar enero y febrero en cero bajaria el promedio de 103 a 74.
+      Sumar daria 516 socios donde hay 72.
+    * `club_pagando_cierre` — el saldo del ultimo mes, que contesta otra
+      pregunta. En un mes suelto coincide con el promedio.
+    * `club_cuota_promedio` — ingreso del Club / socios-mes. Ponderada, que es
+      exactamente «total sobre total».
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    for rotulo in ("Socios pagando (Club)", "Socios al cierre del mes",
+                   "Cuota promedio por socio"):
+        assert rotulo in src, f"falta el renglon «{rotulo}»"
+    # Un corte de varios meses lleva promedio, y hay que decirlo.
+    assert "promEnRango" in src
+    comp = COMP.read_text(encoding="utf-8")
+    assert "prom." in comp and "promedio mensual" in comp
+    assert "PIE_ESTADISTICO" in comp, "el pie que explica el promedio no se dibuja"
+
+
+def test_sin_Club_los_tres_renglones_no_van_en_blanco():
+    """Tres filas vacias se leen como un dato que falta, no como «esta
+    propiedad no tiene Club». Y el `null` del backend NO se vuelve cero: un
+    cero dice «no hay socios» donde en realidad no hay Club."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "export const esDelClub" in src
+    assert "!esDelClub(KPIS[i].rotulo)" in src
+    # La pantalla usa la MISMA regla, no una copia.
+    comp = COMP.read_text(encoding="utf-8")
+    assert "esDelClub(k.rotulo) && vals.every(v => v === null)" in comp
+    assert "const esDelClub" not in comp, "la pantalla tiene su propia copia"
+
+
+def test_el_Word_pide_el_mismo_encabezado_que_la_pantalla():
+    """El capitulo arma el mismo cuadro que el boton — incluido el encabezado.
+    Si el Word lo derivara por su cuenta, el archivo y la pantalla podrian
+    decir cosas distintas justo en la fila que mas se mira."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "estadisticasDeLosCortes(cortesDe(mes), d.versiones ?? [])" in pag
+    assert 'cuadroTresCortes(d, mes, escenarios, "consolidado", compacto, stats)' in pag
 
 
 def test_en_el_full_year_la_varianza_es_FORECAST_contra_budget():

@@ -29,11 +29,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getPLDetail, type PLDetail, type Scenario } from "@/lib/api";
+import { getPLDetail, type EstadisticasCierre, type PLDetail,
+         type Scenario } from "@/lib/api";
 import { bajarCuadros } from "@/lib/exportCuadro";
 import {
-  celdasDe, cortesDe, crudosDe, cuadroTresCortes, esIngresoTotal, KPIS,
-  parDe as parDeLib, suma, usd, valorDe, type Corte,
+  celdasDe, cortesDe, cuadroTresCortes, esDelClub, estadisticasDeLosCortes, KPIS,
+  parDe as parDeLib, PIE_ESTADISTICO, suma, usd, valorDe, type Corte,
 } from "@/lib/tresCortes";
 
 const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
@@ -52,6 +53,10 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   const [ambito, setAmbito] = useState("consolidado");
   const [datos, setDatos] = useState<PLDetail | null>(null);
   const [cargando, setCargando] = useState(false);
+  /** El encabezado estadístico, por corte × versión. ⚠️ No se deriva de
+   *  `datos`: sale de `/pl/{id}/estadisticas/`, que es el mismo endpoint del
+   *  que lo saca el resto del cierre. */
+  const [stats, setStats] = useState<(EstadisticasCierre | null)[][]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const ids = useMemo(() => ranuras.filter(Boolean), [ranuras]);
@@ -81,13 +86,16 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   const parDe = useCallback((c: Corte) => parDeLib(c, versiones, escenarios),
     [versiones, escenarios]);
 
-  /** Los doce meses del ingreso total por versión — el numerador del RevPAR.
-   *  Sale de la PROPIA fila del cuadro: así el indicador del encabezado y el
-   *  renglón de ingreso que está más abajo no pueden decir cosas distintas. */
-  const ingresoTotal = useMemo(() => {
-    const f = (datos?.filas ?? []).find(x => esIngresoTotal(x.rotulo));
-    return versiones.map((_, i) => f?.series?.[i] ?? null);
-  }, [datos, versiones]);
+  // El encabezado de los tres cortes. Se vuelve a pedir cuando cambian las
+  // versiones o el mes del cierre — que es lo que mueve los rangos.
+  useEffect(() => {
+    let vivo = true;
+    if (!versiones.length) { setStats([]); return; }
+    estadisticasDeLosCortes(cortes, versiones)
+      .then(r => { if (vivo) setStats(r); })
+      .catch(() => { if (vivo) setStats([]); });
+    return () => { vivo = false; };
+  }, [cortes, versiones]);
 
   /** Las filas que se dibujan. Compacto esconde las que están en cero los doce
    *  meses en TODAS las versiones — una línea viva en una sola se queda. */
@@ -109,7 +117,7 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   function bajar() {
     if (!datos) return;
     bajarCuadros(`FullPL_${MES3[mes - 1]}_${datos.year}`,
-                 [cuadroTresCortes(datos, mes, escenarios, ambito, compacto)])
+                 [cuadroTresCortes(datos, mes, escenarios, ambito, compacto, stats)])
       .catch(e => setError(e instanceof Error ? e.message : "No se pudo bajar"));
   }
 
@@ -197,16 +205,29 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
           <tbody>
             {/* El encabezado estadístico va DENTRO de la misma tabla y con las
                 mismas columnas: es el denominador de todo lo que sigue. */}
-            {KPIS.map(k => (
-              <tr key={k.rotulo}>
-                <td style={{ ...TD_ROT, ...PEGA,
-                             fontWeight: k.fuerte ? 700 : 400 }}>{k.rotulo}</td>
-                {pintar(
-                  celdasDe(cortes, versiones, escenarios, (vi, meses) =>
-                    k.calc(crudosDe(versiones[vi]?.kpis, meses, ingresoTotal[vi]))),
-                  !!k.fuerte, false, k.fmt)}
-              </tr>
-            ))}
+            {KPIS.map(k => {
+              const vals = celdasDe(cortes, versiones, escenarios,
+                (vi, _m, ci) => k.calc(stats[ci]?.[vi] ?? null));
+              // ⚠️ Una propiedad sin Club no lleva los tres renglones del Club
+              // en blanco: tres filas vacías se leen como un dato que falta.
+              if (esDelClub(k.rotulo) && vals.every(v => v === null)) return null;
+              return (
+                <tr key={k.rotulo}>
+                  <td style={{ ...TD_ROT, ...PEGA, fontWeight: k.fuerte ? 700 : 400 }}
+                      title={k.promEnRango
+                        ? "En el YTD y en el full year es un promedio mensual, "
+                          + "no un acumulado."
+                        : undefined}>
+                    {k.rotulo}
+                    {k.promEnRango && (
+                      <span style={{ color: "var(--text-secondary)", fontWeight: 400,
+                                     fontSize: 10.5, marginLeft: 5 }}>prom.</span>
+                    )}
+                  </td>
+                  {pintar(vals, !!k.fuerte, false, k.fmt)}
+                </tr>
+              );
+            })}
             <tr><td colSpan={anchoTotal} style={{ height: 10 }} /></tr>
 
             {filas.map((f, fi) => {
@@ -237,9 +258,14 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
           </tbody>
         </table>
       </div>
+      <p style={{ margin: "8px 2px 0", fontSize: 10.5, lineHeight: 1.5,
+                  color: "var(--text-secondary)" }}>
+        {PIE_ESTADISTICO}
+      </p>
     </div>
   );
 }
+
 
 const BL = "2px solid var(--border-medium)";
 const P: React.CSSProperties = { fontSize: 13, color: "var(--text-secondary)" };

@@ -1,4 +1,5 @@
-import type { PLDetail, Scenario } from "@/lib/api";
+import { getEstadisticasCierre, type EstadisticasCierre, type PLDetail,
+         type Scenario } from "@/lib/api";
 import type { Cuadro, ColumnaCuadro, FilaCuadro } from "@/lib/exportCuadro";
 
 /**
@@ -14,12 +15,33 @@ import type { Cuadro, ColumnaCuadro, FilaCuadro } from "@/lib/exportCuadro";
  * YTD son los primeros N, y el full year son los doce. No son tres consultas
  * ni tres plantillas: si lo fueran, podrían decir cosas distintas.
  *
- * ## ⚠️ Ocupación, ADR y RevPAR NO se suman
+ * ## ⚠️ El encabezado estadístico NO se calcula acá
  *
- * Son razones. Se rederivan en cada corte con su numerador y su denominador —
- * por eso el endpoint manda los cuatro crudos por mes en vez del indicador ya
- * calculado. Sumar los ADR de siete meses da un número que no significa nada y
- * se ve perfectamente normal: en Amarena, $2.026 contra los $286 reales.
+ * Sale de `/pl/{id}/estadisticas/?desde=&hasta=`, una llamada por corte y por
+ * versión — el mismo endpoint del que lo saca el resto del cierre. Rederivarlo
+ * en el cliente sería una segunda verdad, y hay cuatro reglas finas que no se
+ * adivinan mirando los números:
+ *
+ * * **Nada de esto se suma.** Son razones: sumar los ADR de siete meses da algo
+ *   que no significa nada y se ve perfectamente normal —en Amarena, $2.026
+ *   contra los $286 reales—. El ADR del período se pondera por noches
+ *   ocupadas, no es el promedio simple de los meses.
+ * * **El ADR es el de las estadísticas**, no ingreso sobre noches. Los dos
+ *   existen y no dan lo mismo: `REV_ROOMS` arrastra ingresos que no son noches
+ *   vendidas e infla la tarifa en silencio.
+ * * **RevPAR es ingreso TOTAL sobre disponibles**, no ingreso de habitaciones.
+ *   Owner, 2026-09-08 (ver `pl_api._revpar`): *«revpar es total revenue
+ *   per available room»*. Mide cuánto rinde cada habitación disponible con
+ *   TODO lo que el hotel factura —spa, tours, A&B—, no sólo la noche; es lo
+ *   que la literatura llama TRevPAR. Contra el PDF del owner, julio 2026:
+ *   248.437,33 / 930 = 267,14 exacto. Con el ingreso de habitaciones daba
+ *   112,52 — un número que se ve perfectamente razonable y mide otra cosa.
+ * * **Los socios de un período son el PROMEDIO de los meses CON socios.**
+ *   Owner, 2026-09-02: *«cuando presentes un YTD socios pagando, quiero que me
+ *   des un promedio de los meses y no que sume»*. Amarena abrió el Club en
+ *   marzo: contar enero y febrero en cero bajaría el promedio de 103 a 74, y
+ *   sumar daría 516 socios donde hay 72. La cuota es total sobre total:
+ *   ingreso del Club ÷ socios-mes, ponderada.
  */
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
@@ -39,40 +61,74 @@ export const pct = (n: number | null) =>
 /** Un corte = qué meses entran. Los tres salen del mismo arreglo de doce. */
 export interface Corte { clave: "mes" | "ytd" | "full"; titulo: string; meses: number[] }
 
-/** Las filas del encabezado: se rederivan por corte, nunca se suman. */
-export const KPIS: { rotulo: string; fmt: (n: number | null) => string;
-              calc: (k: Crudos) => number | null; fuerte?: boolean }[] = [
-  { rotulo: "Total available Rooms", fmt: numero, calc: k => k.disp },
-  { rotulo: "Total Rooms Occupied", fmt: numero, calc: k => k.occ },
-  { rotulo: "Total Guests", fmt: numero, calc: k => k.pax },
-  { rotulo: "% Occupancy", fmt: pct, fuerte: true,
-    calc: k => (k.disp ? k.occ / k.disp : null) },
-  { rotulo: "Average Daily Room Only", fmt: usd, fuerte: true,
-    calc: k => (k.occ ? k.ing / k.occ : null) },
-  // ⚠️ RevPAR es **ingreso TOTAL** sobre habitaciones disponibles, no ingreso
-  // de habitaciones. Owner (ver `pl_api._revpar`): *«revpar es total revenue
-  // per available room»*. Mide cuánto rinde cada habitación disponible con
-  // TODO lo que el hotel factura —spa, tours, A&B—, no sólo la noche. Es lo
-  // que la literatura llama TRevPAR.
-  //
-  // Medido contra el PDF del owner (julio 2026): 248.437,33 / 930 = 267,14
-  // exacto. Con el ingreso de habitaciones daba 112,52 — un número que se ve
-  // perfectamente razonable y mide otra cosa.
-  //
-  // `null` si no se pudo leer el ingreso total: mejor vacío que el indicador
-  // equivocado.
-  { rotulo: "Total RevPAR", fmt: usd, fuerte: true,
-    calc: k => (k.ingTotal === null || !k.disp ? null : k.ingTotal / k.disp) },
+/** Las filas del encabezado estadístico.
+ *
+ *  ⚠️ `calc` sólo LEE el corte que ya vino calculado del backend. Si alguna vez
+ *  aparece acá una división, es que se está fabricando un segundo indicador. */
+export const KPIS: {
+  rotulo: string;
+  fmt: (n: number | null) => string;
+  calc: (e: EstadisticasCierre | null) => number | null;
+  fuerte?: boolean;
+  /** En un corte de varios meses el número es un promedio mensual, no un
+   *  acumulado. La pantalla lo dice al pasar el mouse; el archivo, al pie. */
+  promEnRango?: boolean;
+}[] = [
+  { rotulo: "Total available Rooms", fmt: numero, calc: e => e?.rooms_available ?? null },
+  { rotulo: "Total Rooms Occupied", fmt: numero, calc: e => e?.rooms_occupied ?? null },
+  { rotulo: "Total Guests", fmt: numero, calc: e => e?.guests ?? null },
+  { rotulo: "% Occupancy", fmt: pct, fuerte: true, calc: e => e?.occupancy_pct ?? null },
+  { rotulo: "Average Daily Room Only", fmt: usd, fuerte: true, calc: e => e?.adr ?? null },
+  { rotulo: "Total RevPAR", fmt: usd, fuerte: true, calc: e => e?.revpar ?? null },
+  // ── El Club ────────────────────────────────────────────────────────────────
+  // ⚠️ `null` —no cero— cuando la propiedad no tiene Club: un cero se lee como
+  // «no hay socios» donde en realidad no hay Club. Por eso `?? null` y no `?? 0`.
+  { rotulo: "Socios pagando (Club)", fmt: numero, promEnRango: true,
+    calc: e => e?.club_pagando ?? null },
+  // Otra pregunta: «cuántos socios hay hoy». En un mes suelto coincide con el
+  // promedio, así que la diferencia sólo se ve en YTD y en el full year.
+  { rotulo: "Socios al cierre del mes", fmt: numero,
+    calc: e => e?.club_pagando_cierre ?? null },
+  { rotulo: "Cuota promedio por socio", fmt: usd, fuerte: true, promEnRango: true,
+    calc: e => e?.club_cuota_promedio ?? null },
 ];
 
-export interface Crudos {
-  disp: number; occ: number; pax: number;
-  /** Ingreso de HABITACIONES: el numerador del ADR. */
-  ing: number;
-  /** Ingreso TOTAL del corte: el numerador del RevPAR. `null` = no se pudo
-   *  leer la fila «TOTAL REVENUES» del cuadro. */
-  ingTotal: number | null;
+/** Los tres renglones que sólo existen si la propiedad tiene Club.
+ *
+ *  ⚠️ Una definición: la pantalla y el archivo tienen que esconder los MISMOS
+ *  renglones, o el Excel llevaría tres filas en blanco que la pantalla no
+ *  muestra y que se leen como un dato que falta. */
+export const esDelClub = (rotulo: string) =>
+  rotulo.startsWith("Socios") || rotulo.startsWith("Cuota");
+
+/** El rango de meses de un corte, tal como lo pide el endpoint (1-12).
+ *
+ *  ⚠️ Sale del propio corte y no de una tabla aparte: el encabezado y el cuerpo
+ *  del cuadro tienen que estar mirando exactamente los mismos meses. */
+export const rangoDe = (c: Corte): [number, number] =>
+  [c.meses[0] + 1, c.meses[c.meses.length - 1] + 1];
+
+/** El encabezado de cada corte × cada versión. Una llamada por celda.
+ *
+ *  Una versión que falle queda en `null` y sus celdas salen vacías — mejor un
+ *  hueco que un cero que se lee como «no hubo». */
+export async function estadisticasDeLosCortes(
+  cortes: Corte[], versiones: { scenario_id: string }[],
+): Promise<(EstadisticasCierre | null)[][]> {
+  return Promise.all(cortes.map(c => {
+    const [desde, hasta] = rangoDe(c);
+    return Promise.all(versiones.map(v =>
+      getEstadisticasCierre(v.scenario_id, desde, hasta).catch(() => null)));
+  }));
 }
+
+/** Lo que va al pie del cuadro y del Word: las dos reglas que un número del
+ *  encabezado no puede contar por sí solo. */
+export const PIE_ESTADISTICO =
+  "El encabezado es de la propiedad completa y no se acumula: en un corte de "
+  + "varios meses la ocupación, el ADR y el RevPAR se rederivan sobre los "
+  + "totales del período, los socios son el promedio mensual de los meses con "
+  + "socios, y la cuota es el ingreso del Club dividido entre los socios-mes.";
 
 export const suma = (a: number[] | undefined, meses: number[]) =>
   meses.reduce((t, i) => t + (a?.[i] ?? 0), 0);
@@ -89,36 +145,6 @@ export function cortesDe(mes: number): Corte[] {
       meses: Array.from({ length: 12 }, (_, i) => i) },
   ];
 }
-
-/** Los cuatro numeradores y denominadores de un corte. ⚠️ Acá se SUMAN, que
- *  es lo correcto: son cantidades. Lo que no se suma es el indicador que sale
- *  de dividirlas — eso lo hace `KPIS`. */
-export function crudosDe(
-  k: { rooms_available: number[]; rooms_occupied: number[];
-       guests: number[]; rooms_revenue: number[] } | undefined,
-  meses: number[],
-  /** Los doce meses de la fila «TOTAL REVENUES» de ESA versión. Sale del
-   *  propio cuadro y no de otra consulta: así el RevPAR y el renglón de
-   *  ingreso que está unas filas más abajo no pueden decir cosas distintas. */
-  ingresoTotal?: number[] | null,
-): Crudos {
-  return {
-    disp: suma(k?.rooms_available, meses), occ: suma(k?.rooms_occupied, meses),
-    pax: suma(k?.guests, meses), ing: suma(k?.rooms_revenue, meses),
-    ingTotal: ingresoTotal ? suma(ingresoTotal, meses) : null,
-  };
-}
-
-/** El rótulo de la fila del ingreso total en la plantilla del owner.
- *
- *  ⚠️ Se compara normalizado y no por igualdad: la plantilla del backend lleva
- *  los rótulos del owner tal cual, erratas incluidas («Total Operationg
- *  expenses»), y este es el único que el encabezado necesita leer. Si no
- *  aparece, el RevPAR sale vacío en vez de salir mal. */
-export const ROTULO_INGRESO_TOTAL = "total revenues";
-export const esIngresoTotal = (rotulo: string) =>
-  rotulo.trim().toLowerCase() === ROTULO_INGRESO_TOTAL;
-
 
 /* ══════════════════ El cuadro: pantalla, Excel y Word ════════════════════ */
 
@@ -150,14 +176,18 @@ export const valorDe = (
 const resta = (vs: (number | null)[], par: [number, number] | null) =>
   par && vs[par[0]] !== null && vs[par[1]] !== null ? vs[par[0]]! - vs[par[1]]! : null;
 
-/** Las celdas de una fila: cada corte, cada versión, y la varianza. */
+/** Las celdas de una fila: cada corte, cada versión, y la varianza.
+ *
+ *  `de` recibe también el índice del corte, que es lo que necesitan las filas
+ *  del encabezado: su valor no se saca de los meses, sino del corte ya
+ *  calculado por el backend para ese rango. */
 export function celdasDe(
   cortes: Corte[], versiones: { scenario_id: string }[], escenarios: Scenario[],
-  de: (vi: number, meses: number[]) => number | null,
+  de: (vi: number, meses: number[], ci: number) => number | null,
 ): (number | null)[] {
-  return cortes.flatMap(c => {
+  return cortes.flatMap((c, ci) => {
     const par = parDe(c, versiones, escenarios);
-    const vs = versiones.map((_, i) => de(i, c.meses));
+    const vs = versiones.map((_, i) => de(i, c.meses, ci));
     return [...vs, ...(par ? [resta(vs, par)] : [])];
   });
 }
@@ -171,6 +201,10 @@ export function celdasDe(
 export function cuadroTresCortes(
   datos: PLDetail, mes: number, escenarios: Scenario[], ambito: string,
   compacto = true,
+  /** El encabezado por corte × versión, de `estadisticasDeLosCortes`. Sin él
+   *  las filas del encabezado salen VACÍAS, no en cero: el archivo diría que
+   *  el hotel no vendió nada. */
+  stats?: (EstadisticasCierre | null)[][],
 ): Cuadro {
   const cortes = cortesDe(mes);
   const versiones = datos.versiones ?? [];
@@ -181,11 +215,6 @@ export function cuadroTresCortes(
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>
     !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
-  const totRev = (() => {
-    const f = (datos.filas ?? []).find(x => esIngresoTotal(x.rotulo));
-    return versiones.map((_, i) => f?.series?.[i] ?? null);
-  })();
-
   const columnas: ColumnaCuadro[] = [
     { label: "ACCOUNT DESCRIPTION", ancho: 42, formato: "texto" },
     ...cortes.flatMap(c => [
@@ -197,12 +226,13 @@ export function cuadroTresCortes(
     ]),
   ];
 
-  const kpi: FilaCuadro[] = KPIS.map(k => ({
+  const kpi: FilaCuadro[] = KPIS.map((k): FilaCuadro => ({
     label: k.rotulo, es_total: !!k.fuerte,
     formato: k.fmt === pct ? "pct" : k.fmt === numero ? "num" : "usd2",
     valores: celdasDe(cortes, versiones, escenarios,
-      (vi, meses) => k.calc(crudosDe(versiones[vi]?.kpis, meses, totRev[vi]))),
-  }));
+      (vi, _m, ci) => k.calc(stats?.[ci]?.[vi] ?? null)),
+  })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
+                       || f.valores.some(v => v !== null));
 
   const cuerpo: FilaCuadro[] = filas.filter(f => f.tipo !== "esp").map(f => ({
     label: f.rotulo,
@@ -218,7 +248,8 @@ export function cuadroTresCortes(
   return {
     titulo: `Full P&L ${MESES[mes - 1]} ${datos.year} · mes, YTD y full year`,
     subtitulo: `${datos.escenario} · ${ambito} — la varianza del full year es `
-      + `Forecast contra Budget: el Actual del año todavía no existe.`,
+      + `Forecast contra Budget: el Actual del año todavía no existe. `
+      + PIE_ESTADISTICO,
     hoja: `Full P&L ${MES3[mes - 1]}`,
     columnas, filas: [...kpi, { label: "", valores: [] }, ...cuerpo],
   };

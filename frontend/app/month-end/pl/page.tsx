@@ -39,7 +39,7 @@ import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import TresCortes from "./TresCortes";
-import { cuadroTresCortes } from "@/lib/tresCortes";
+import { cortesDe, cuadroTresCortes, estadisticasDeLosCortes } from "@/lib/tresCortes";
 import Auditoria from "./Auditoria";
 // El Profit by Department del owner, tal como ya está construido bajo Cierre de
 // Mes. Se importa la pantalla entera a propósito: ver el comentario del sub-tab
@@ -1591,7 +1591,11 @@ export default function MonthEndPLPage() {
       const ids = ranuras.filter(Boolean);
       if (!ids.length) return [];
       const d = await getPLDetail("consolidado", ids[0], ids.slice(1));
-      return [cuadroTresCortes(d, mes, escenarios, "consolidado", compacto)];
+      // ⚠️ El encabezado estadístico también se pide acá. No se deriva del
+      // detalle: sale del mismo endpoint que lo pone en la pantalla, y si el
+      // Word lo calculara por su cuenta serían dos verdades.
+      const stats = await estadisticasDeLosCortes(cortesDe(mes), d.versiones ?? []);
+      return [cuadroTresCortes(d, mes, escenarios, "consolidado", compacto, stats)];
     },
     formato: async () => {
       const id = ranuras[varA];
