@@ -43,6 +43,10 @@ def test_no_se_perdio_ningun_sub_tab_al_reordenar():
         # Profit by Department: el P&L Detail del owner, colgado de esta fila el
         # 2026-09-07 («esto debe ir en cierre de mes como un sub tab»).
         "utilidad",
+        # El P&L en los TRES cortes -mes, YTD y full year- con su varianza,
+        # que es el cuadro que se manda a los duenos (2026-09-29: «es de vital
+        # importancia»). Va quinto: los cuatro de arriba los fijo el owner.
+        "trescortes",
     }
     assert set(claves) == esperados, (
         f"faltan {esperados - set(claves)}; sobran {set(claves) - esperados}")

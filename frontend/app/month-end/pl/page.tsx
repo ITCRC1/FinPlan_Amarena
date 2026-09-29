@@ -38,6 +38,8 @@ import { bajarCuadros, bajarCierreWord, type Cuadro, type FilaCuadro,
 import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
+import TresCortes from "./TresCortes";
+import { cuadroTresCortes } from "@/lib/tresCortes";
 import Auditoria from "./Auditoria";
 // El Profit by Department del owner, tal como ya está construido bajo Cierre de
 // Mes. Se importa la pantalla entera a propósito: ver el comentario del sub-tab
@@ -78,6 +80,12 @@ const VISTAS = [
   { key: "auditoria" },   // ¿cuadra?
   { key: "resumen12" },   // el año en cuatro líneas
   { key: "doce" },        // 12 meses de una versión
+  // ⚠️ El P&L completo en los TRES cortes (owner, 2026-09-29: «es de vital
+  // importancia»). Va QUINTO y no segundo: los cuatro de arriba son un orden
+  // que el owner fijó a mano el 2026-09-03 y que `test_orden_de_subtabs`
+  // defiende. Acá queda justo antes de las aperturas, que es donde se mira
+  // después de comprobar que el mes cuadra.
+  { key: "trescortes" },
   // Las aperturas: la misma plata cortada de otra manera.
   { key: "revenue" },
   { key: "payroll" },
@@ -1571,6 +1579,19 @@ export default function MonthEndPLPage() {
                       vivos.reduce((a, m) => a + (val(c, m.month) ?? 0), 0)],
           })),
       }];
+    },
+    // El P&L en los tres cortes. ⚠️ Arma el MISMO cuadro que el botón de la
+    // pantalla (`cuadroTresCortes`): dos definiciones se separan en el primer
+    // arreglo y nadie sabría cuál de los dos manda.
+    //
+    // Va con las versiones que la pantalla tenga puestas —no con una elegida
+    // acá— porque la varianza del cuadro depende de cuáles sean: sin BUDGET no
+    // hay columna de variación, y sin FORECAST el full year no la tiene.
+    trescortes: async () => {
+      const ids = ranuras.filter(Boolean);
+      if (!ids.length) return [];
+      const d = await getPLDetail("consolidado", ids[0], ids.slice(1));
+      return [cuadroTresCortes(d, mes, escenarios, "consolidado", compacto)];
     },
     formato: async () => {
       const id = ranuras[varA];
@@ -3276,6 +3297,11 @@ export default function MonthEndPLPage() {
       {vista === "formato" && (
         <Formato escenarios={escenarios} inicial={ranuras[0] || undefined}
                  compacto={compacto} />
+      )}
+
+      {vista === "trescortes" && (
+        <TresCortes escenarios={escenarios} ranuras={ranuras} mes={mes}
+                    compacto={compacto} />
       )}
 
       {vista === "auditoria" && (

@@ -2810,7 +2810,8 @@
     "tab_formato": "Formato",
     "tab_auditoria": "Auditoría",
     "tab_resumen12": "Resumen 12m",
-    "tab_utilidad": "Utilidad x depto"
+    "tab_utilidad": "Utilidad x depto",
+    "tab_trescortes": "Mes · YTD · Full Year"
   },
   "otb": {
     "a851Nota1": "{metrica} por {unidad}:",
