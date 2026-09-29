@@ -1,11 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { bajarCuadros, type Cuadro, type FilaCuadro } from "@/lib/exportCuadro";
 import {
   getMembresias, importarMembresias, saveMembresias,
   type MembresiasAnio,
 } from "@/lib/api";
+import {
+  bajarElAnio, MembresiasAnioPie, MembresiasAnioTabla,
+} from "@/components/MembresiasAnioTabla";
 
 /**
  * Membresías del club — el cobro de la cuota de mantenimiento.
@@ -34,8 +36,6 @@ import {
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
-              "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 const n = (v: number) => v.toLocaleString("es-CR", { maximumFractionDigits: 0 });
 
@@ -123,47 +123,12 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
     }
   }
 
-  /** El cuadro del año: conceptos en filas, meses en columnas.
-   *
-   *  ⚠️ Es EL MISMO formato que lee la subida, para que el viaje de ida y
-   *  vuelta sea el mismo papel: bajar, tocar una celda y volver a subir. */
+  /** ⚠️ La definición del archivo vive en `MembresiasAnioTabla`, no acá: el
+   *  Excel que baja del cierre y el que baja del Dashboard tienen que ser el
+   *  mismo papel, y dos copias se separan en el primer arreglo. */
   async function bajar() {
     if (!anio) return;
-    const filas: FilaCuadro[] = [];
-    const claves = anio.meses.flatMap(m => m.conceptos.map(c => c.concepto));
-    const orden = [...new Set(claves)];
-    for (const clave of orden) {
-      const rot = anio.meses.find(m => m.conceptos.some(c => c.concepto === clave))
-        ?.conceptos.find(c => c.concepto === clave)?.rotulo ?? clave;
-      const valores = anio.meses.map(m => {
-        // ⚠️ `null` deja la celda VACÍA. Un mes sin cargar en cero diría que
-        // el club no tuvo membresías ese mes.
-        if (!m.cargado) return null;
-        return m.conceptos.find(c => c.concepto === clave)?.cantidad ?? 0;
-      });
-      filas.push({ label: rot, formato: "num",
-                   valores: [...valores,
-                             valores.reduce<number>((a, v) => a + (v ?? 0), 0)] });
-    }
-    filas.push({
-      label: "Total general", es_total: true, formato: "num",
-      valores: [...anio.meses.map(m => (m.cargado ? m.total : null)),
-                anio.meses.reduce((a, m) => a + (m.cargado ? m.total : 0), 0)],
-    });
-    const cuadro: Cuadro = {
-      titulo: `Ingresos cobro por cuota de mantenimiento · ${anio.year}`,
-      subtitulo: `${anio.escenario} — se puede editar y volver a subir con el `
-        + `botón «Subir Excel». Las columnas en blanco son meses sin contar.`,
-      hoja: `Membresías ${anio.year}`,
-      columnas: [
-        { label: "Concepto", ancho: 42, formato: "texto" },
-        ...anio.meses.map(m => ({ label: `${MES3[m.month - 1]} ${anio.year}`,
-                                  ancho: 13, formato: "num" as const })),
-        { label: "Acumulado", ancho: 15, formato: "num" },
-      ],
-      filas,
-    };
-    try { await bajarCuadros(`Membresias_${anio.year}`, [cuadro]); }
+    try { await bajarElAnio(anio); }
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
   }
 
@@ -172,8 +137,6 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
     return <p style={{ padding: "26px 16px", margin: 0, fontSize: 12.5,
                        color: "var(--text-secondary)" }}>Cargando membresías…</p>;
   }
-
-  const cargados = anio.meses.filter(m => m.cargado);
 
   return (
     <div style={{ padding: "10px 14px 16px" }}>
@@ -254,56 +217,8 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 2 }}>
             El año
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>
-            {cargados.length
-              ? `${cargados.length} mes(es) contado(s): ${
-                  cargados.map(m => MES3[m.month - 1]).join(" · ")}`
-              : "Ningún mes contado todavía"}
-          </div>
-          <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: "100%" }}>
-              <thead>
-                <tr>
-                  <th style={TH}>Concepto</th>
-                  {anio.meses.map(m => (
-                    <th key={m.month} style={{ ...TH, textAlign: "right" }}>
-                      {MES3[m.month - 1]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(anio.meses.find(m => m.cargado) ?? anio.meses[0]).conceptos.map(c => (
-                  <tr key={c.concepto}>
-                    <td style={TD_ROT}>{c.rotulo.replace(/ al .*$/, "")}</td>
-                    {anio.meses.map(m => {
-                      const v = m.cargado
-                        ? (m.conceptos.find(x => x.concepto === c.concepto)?.cantidad ?? 0)
-                        : null;
-                      return (
-                        <td key={m.month} className="mono"
-                            style={{ ...TD, ...(m.month === mesSel ? ACTUAL : {}) }}>
-                          {v === null ? "" : n(v)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr>
-                  <td style={{ ...TD_ROT, fontWeight: 700,
-                               borderTop: "2px solid var(--border-medium)" }}>Total</td>
-                  {anio.meses.map(m => (
-                    <td key={m.month} className="mono"
-                        style={{ ...TD, fontWeight: 700,
-                                 borderTop: "2px solid var(--border-medium)",
-                                 ...(m.month === mesSel ? ACTUAL : {}) }}>
-                      {m.cargado ? n(m.total) : ""}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div style={{ marginBottom: 8 }}><MembresiasAnioPie anio={anio} /></div>
+          <MembresiasAnioTabla anio={anio} mesSel={mesSel} />
           <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap",
                         alignItems: "center" }}>
             <button onClick={bajar}
@@ -328,23 +243,6 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
     </div>
   );
 }
-
-const TH: React.CSSProperties = {
-  padding: "5px 9px", fontSize: 10.5, fontWeight: 600, textAlign: "left",
-  textTransform: "uppercase", letterSpacing: ".03em",
-  color: "var(--text-secondary)", borderBottom: "1px solid var(--border-subtle)",
-  whiteSpace: "nowrap",
-};
-const TD: React.CSSProperties = {
-  padding: "4px 9px", textAlign: "right", whiteSpace: "nowrap",
-  borderBottom: "1px solid var(--border-subtle)",
-};
-const TD_ROT: React.CSSProperties = {
-  padding: "4px 9px", color: "var(--text-secondary)",
-  borderBottom: "1px solid var(--border-subtle)", whiteSpace: "nowrap",
-};
-/** La columna del mes que se está editando, para no perderla de vista. */
-const ACTUAL: React.CSSProperties = { background: "rgba(36,83,196,.07)" };
 
 function Aviso({ tono, children }: {
   tono: "err" | "ok"; children: React.ReactNode;

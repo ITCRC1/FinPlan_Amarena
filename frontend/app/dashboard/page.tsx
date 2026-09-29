@@ -9,6 +9,7 @@ import { bajarCuadros, type Cuadro, type FilaCuadro, type FormatoCol } from "@/l
 import { HOTEL_ID } from "@/lib/hotel";
 import EstadisticaHabitaciones from "@/components/EstadisticaHabitaciones";
 import ResumenConsolidado from "@/components/ResumenConsolidado";
+import MembresiasDashboard from "@/components/MembresiasDashboard";
 import { useHotel } from "@/lib/useHotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
@@ -581,6 +582,11 @@ export default function DashboardPage() {
           owner, 2026-09-29, «lo pongas al final de aca». Son las cifras del
           ARCHIVO, sin filtrar cortesias — al reves que el cierre. */}
       <ResumenConsolidado scenarioId={mainId} scenarios={scenarios} month={month} />
+
+      {/* Las membresias del club, al final. Sincronizadas con el cierre por
+          construccion: mismo endpoint y MISMO componente de tabla — dos
+          copias del cuadro se separan en el primer arreglo de un lado. */}
+      <MembresiasDashboard scenarioId={mainId} scenarios={scenarios} />
     </div>
   );
 }

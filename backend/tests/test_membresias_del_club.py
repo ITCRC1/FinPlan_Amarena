@@ -76,8 +76,11 @@ def test_un_mes_sin_cargar_no_es_un_mes_en_cero():
     contamos»."""
     assert _mes([], 2026, 3)["cargado"] is False
     assert _mes([_Fila("activas", 0)], 2026, 3)["cargado"] is True
-    src = COMP.read_text(encoding="utf-8")
-    assert "if (!m.cargado) return null;" in src, "el Excel bajaria ceros"
+    # La regla vive donde vive el cuadro, que desde 2026-09-29 es el
+    # componente compartido con el Dashboard.
+    tabla = (FRONT / "components/MembresiasAnioTabla.tsx").read_text(encoding="utf-8")
+    assert "m.cargado ? (m.conceptos.find" in tabla, "la tabla pintaria ceros"
+    assert "m.cargado ? (m.conceptos.find(c => c.concepto === clave)?.cantidad ?? 0) : null"         in tabla, "el Excel bajaria ceros"
 
 
 # ─────────────────────── El viaje de ida y vuelta ──────────────────────────
@@ -288,3 +291,66 @@ def test_la_siembra_no_pisa_lo_que_alguien_cargo():
     assert "ON CONFLICT (scenario_id, month, concepto) DO NOTHING" in src
     assert "id=str(uuid.uuid4())" in src
     assert "49dfca0d" not in src, "hay un id de escenario clavado"
+
+
+# ─────── El cuadro del año, compartido con el Dashboard ────────────────────
+
+TABLA = FRONT / "components/MembresiasAnioTabla.tsx"
+DASH_MEMB = FRONT / "components/MembresiasDashboard.tsx"
+DASH = FRONT / "app/dashboard/page.tsx"
+
+
+def test_la_tabla_del_ano_vive_en_UN_solo_lugar():
+    """Owner, 2026-09-29: *«que esten sincronizado... cualquier cambio alla que
+    se actualice automaticamente»*.
+
+    ⚠️ Sincronizado no es que las dos pantallas consulten lo mismo: es que NO
+    PUEDAN divergir. Dos copias del mismo cuadro empiezan iguales y se separan
+    en el primer arreglo que alguien hace de un lado — y cuando eso pasa, las
+    dos se ven bien y nadie sabe cual mirar.
+    """
+    assert TABLA.exists()
+    tabla = TABLA.read_text(encoding="utf-8")
+    assert "export function MembresiasAnioTabla" in tabla
+    assert "export function cuadroDelAnio" in tabla
+    # Y las dos pantallas la USAN en vez de tener la suya.
+    for pantalla in (COMP, DASH_MEMB):
+        src = pantalla.read_text(encoding="utf-8")
+        assert "MembresiasAnioTabla" in src, f"{pantalla.name} no usa la tabla comun"
+        assert "<thead>" not in src, f"{pantalla.name} dibuja su propia tabla"
+
+
+def test_el_excel_tiene_una_sola_definicion():
+    """El que baja del cierre y el que baja del Dashboard tienen que ser el
+    mismo papel — y es el mismo formato que lee la subida."""
+    for pantalla in (COMP, DASH_MEMB):
+        src = pantalla.read_text(encoding="utf-8")
+        assert "bajarElAnio" in src
+        assert "bajarCuadros(" not in src, \
+            f"{pantalla.name} arma su propio archivo"
+
+
+def test_el_bloque_del_dashboard_es_solo_lectura():
+    """⚠️ Dos lugares donde escribir el mismo dato es como terminan
+    conviviendo dos verdades. El conteo se carga en el cierre y punto."""
+    src = DASH_MEMB.read_text(encoding="utf-8")
+    assert "saveMembresias" not in src
+    assert "importarMembresias" not in src
+    assert "<input" not in src
+    assert "sólo lectura" in src
+
+
+def test_se_vuelve_a_pedir_al_recuperar_el_foco():
+    """Es el caso real de «cualquier cambio alla»: editar en Cierre de Mes y
+    volver, con las dos pantallas abiertas. Sin esto habria que recargar a
+    mano, que es justo lo que el pedido evita."""
+    src = DASH_MEMB.read_text(encoding="utf-8")
+    assert 'window.addEventListener("focus", alVolver)' in src
+    assert 'document.addEventListener("visibilitychange", alVolver)' in src
+    assert "removeEventListener" in src, "el listener queda colgado al desmontar"
+
+
+def test_el_bloque_esta_al_final_del_dashboard():
+    dash = DASH.read_text(encoding="utf-8")
+    assert "<MembresiasDashboard scenarioId={mainId} scenarios={scenarios} />" in dash
+    assert dash.index("<ResumenConsolidado") < dash.index("<MembresiasDashboard")
