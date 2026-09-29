@@ -169,3 +169,142 @@ def test_al_leer_un_archivo_las_categorias_ausentes_van_en_cero():
     assert '"nights_occupied": 0.0' in bloque
     assert '"agencias": []' in bloque, \
         "una categoria que no vendio no puede traer apertura por canal"
+
+
+# ───────── 4. Las ocho medidas del reporte, no tres ────────────────────────
+
+def test_se_guardan_las_ocho_medidas_del_reporte():
+    """⚠️ El reporte del PMS trae OCHO columnas y se guardaban tres.
+
+    Owner, 2026-09-28, pidiendo la estadistica en el Dashboard: *«una por tab
+    del excel»*. Los tabs son ocho; el sistema tenia tres. Medido contra los
+    seis meses de Amarena ya cargados, lo que se tiraba:
+
+        Ing.Otros      mar-ago   $14,754.85
+        Hab.Entradas   mar-ago          366
+        Cli.Entradas   mar-ago          833
+
+    Los $14,754 existian UNICAMENTE en el Excel que la propiedad mantiene a
+    mano: el sistema no tenia como cuadrarlos ni como mostrarlos, y nada decia
+    que faltaran.
+    """
+    from app.models.actual_room_stat import ActualRoomStat
+    from app.models.actual_room_stat_canal import ActualRoomStatCanal
+    for modelo in (ActualRoomStat, ActualRoomStatCanal):
+        cols = set(modelo.__table__.columns.keys())
+        for c in ("ingreso_ayb", "ingreso_otros", "hab_entradas", "cli_entradas"):
+            assert c in cols, f"{modelo.__name__} no guarda {c}"
+
+
+def test_no_mandar_una_medida_la_CONSERVA_y_no_la_pone_en_cero():
+    """⚠️ El modo de falla que este `None` evita.
+
+    La pantalla de carga MANUAL solo digita noches, pax e ingreso. Si mandara
+    ceros en las otras cuatro, abrirla y guardar borraria los otros ingresos y
+    las llegadas que trajo el archivo del PMS — y en esa pantalla esas cifras
+    ni siquiera se ven, asi que nadie notaria que las toco.
+
+    Es la misma regla que ya rige para `canales`: `None` es «no se de esto»,
+    no «es cero».
+    """
+    from app.api.revenue_api import RoomStatCanalIn, RoomStatRowIn
+    for modelo in (RoomStatRowIn, RoomStatCanalIn):
+        for campo in ("ingreso_ayb", "ingreso_otros", "hab_entradas", "cli_entradas"):
+            assert modelo.model_fields[campo].default is None, \
+                f"{modelo.__name__}.{campo} tiene default 0: pisaria lo guardado"
+    src = _cuerpo_del_guardado()
+    assert "previas = {" in src and "previas_canal = {" in src
+    assert "def _o(nuevo, anterior, campo" in src
+    # Y lo previo se lee ANTES del borrado, que es lo que lo hace posible.
+    assert src.index("previas = {") < src.index("delete(ActualRoomStat)")
+
+
+def test_una_fila_con_solo_otros_ingresos_no_se_descarta():
+    """⚠️ «Vacia» son las OCHO en cero.
+
+    Mirando solo noches, pax e ingreso, una categoria que ese mes unicamente
+    registro otros ingresos —o llegadas— se descartaba como si no existiera.
+    """
+    src = _cuerpo_del_guardado()
+    assert "def _tiene_algo(r)" in src
+    assert "r.ingreso_otros or r.hab_entradas or r.cli_entradas" in src
+    assert "if not (c.nights_occupied or c.revenue or c.pax):" not in src
+
+
+def test_la_migracion_144_es_aditiva_y_no_rellena_hacia_atras():
+    """Las columnas nuevas quedan en 0 para lo ya cargado, y 0 ahi significa
+    «esta carga es anterior a que se guardara», no «el hotel no tuvo otros
+    ingresos». Rellenarlo requeriria releer los archivos, que la migracion no
+    tiene."""
+    m = (pathlib.Path(__file__).resolve().parent.parent
+         / "alembic/versions/144_las_ocho_medidas_del_reporte_del_pms.py")
+    src = m.read_text(encoding="utf-8")
+    assert "op.add_column" in src
+    assert 'server_default="0"' in src
+    assert "UPDATE" not in src.upper().replace("UPGRADE", ""), \
+        "la migracion inventa valores hacia atras"
+
+
+# ───────── 5. El bloque del Dashboard ──────────────────────────────────────
+
+BLOQUE = (pathlib.Path(__file__).resolve().parents[2]
+          / "frontend/components/EstadisticaHabitaciones.tsx")
+DASH = (pathlib.Path(__file__).resolve().parents[2]
+        / "frontend/app/dashboard/page.tsx")
+
+
+def test_hay_un_cuadro_por_cada_tab_del_excel():
+    """Owner: *«una por tab del excel»*. Los tabs del reporte de segmentacion
+    son ocho, y los ocho tienen que estar o el bloque contesta a medias."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    for tab in ("Ing. Hospedaje", "Ing. A y B", "Ing. Otros", "Hab. Entradas",
+                "Hab. Estancias", "Clientes Entradas", "Clientes Estancias",
+                "Tarifa Promedio"):
+        assert f'titulo: "{tab}"' in src, f"falta el cuadro {tab}"
+
+
+def test_el_bloque_sigue_el_selector_del_dashboard():
+    """*«dependiente lo que se escoja en la vista»*."""
+    dash = DASH.read_text(encoding="utf-8")
+    assert "<EstadisticaHabitaciones scenarioId={mainId} month={month} />" in dash
+
+
+def test_el_mes_sin_estadistica_va_vacio_y_no_en_cero():
+    """⚠️ La regla que este proyecto repite: un cero dice «no hubo» y un vacio
+    dice «no lo sabemos». Con seis de doce meses cargados, mirar diciembre no
+    puede mostrar ceros como si el hotel no hubiera vendido."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "if (!meses.length) return null;" in src
+    assert '{v === null ? "—" :' in src
+    assert "no tiene estad\u00edstica cargada:" in src, \
+        "no se avisa que el mes elegido esta vacio"
+
+
+def test_el_full_year_de_un_actual_es_lo_cargado_y_se_dice():
+    """Con seis meses subidos, «Full Year» son esos seis. No se proyecta a
+    doce ni se divide: el pie dice cuantos meses hay adentro."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "mes(es) cargado(s)" in src
+    assert "no una proyecci\u00f3n a doce" in src
+
+
+def test_la_tarifa_promedio_del_periodo_se_recalcula_y_no_se_promedia():
+    """⚠️ El ADR del periodo es ingreso acumulado / noches acumuladas.
+
+    Promediar los ADR mensuales hace pesar igual a un mes de 20 noches y a uno
+    de 202: en Amarena 2026 son $306.83 contra los $286.13 reales.
+    """
+    src = BLOQUE.read_text(encoding="utf-8")
+    i = src.index("if (b.saca === null)")
+    bloque = src[i:i + 400]
+    assert 'suma(meses, clave, r => r.revenue)' in bloque
+    assert 'suma(meses, clave, r => r.nights_occupied)' in bloque
+    assert "/ meses.length" not in src, "se promedia en vez de recalcular"
+
+
+def test_si_el_escenario_no_tiene_estadistica_se_dice_donde_esta():
+    """Mirando un Budget no hay estadistica: decirlo —y donde si esta— es
+    mejor que un cuadro en cero, que se lee como un hotel sin ventas."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "no tiene estad\u00edstica de habitaciones cargada" in src
+    assert "ACTUAL" in src

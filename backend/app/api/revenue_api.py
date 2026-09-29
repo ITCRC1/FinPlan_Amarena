@@ -1079,6 +1079,18 @@ class RoomStatRowIn(BaseModel):
     nights_occupied: float = 0
     revenue: float = 0
     pax: float = 0
+    #: Las otras cuatro medidas del reporte del PMS.
+    #:
+    #: ⚠️ `None` significa **«quien guarda no sabe de esto»**, y NO cero. La
+    #: pantalla de carga manual sólo digita noches, pax e ingreso: si mandara
+    #: ceros, abrir esa pantalla y guardar borraría los otros ingresos y las
+    #: llegadas que trajo el archivo del PMS — sin que se vea en la pantalla
+    #: que se está tocando algo que no está a la vista. Con `None` se conserva
+    #: lo que ya había. Es la misma regla que ya rige para `canales`.
+    ingreso_ayb: float | None = None
+    ingreso_otros: float | None = None
+    hab_entradas: float | None = None
+    cli_entradas: float | None = None
 
 
 class RoomStatCanalIn(BaseModel):
@@ -1088,6 +1100,11 @@ class RoomStatCanalIn(BaseModel):
     nights_occupied: float = 0
     pax: float = 0
     revenue: float = 0
+    #: Igual que arriba: `None` conserva, 0 pisa.
+    ingreso_ayb: float | None = None
+    ingreso_otros: float | None = None
+    hab_entradas: float | None = None
+    cli_entradas: float | None = None
 
 
 class RoomStatsEntryIn(BaseModel):
@@ -1159,19 +1176,44 @@ async def put_room_stats_entry(
                        desconocidas=", ".join(desconocidas),
                        validas=", ".join(canon))
 
+    # Lo que el mes YA tenía, para conservar las medidas que no vengan en el
+    # cuerpo. Se lee ANTES del borrado, que es lo que lo hace posible.
+    previas = {s.room_type_name: s for s in (await db.execute(select(ActualRoomStat).where(
+        ActualRoomStat.scenario_id == scenario_id,
+        ActualRoomStat.month == month))).scalars().all()}
+    previas_canal = {(c.room_type_name, c.canal_code): c
+                     for c in (await db.execute(select(ActualRoomStatCanal).where(
+                         ActualRoomStatCanal.scenario_id == scenario_id,
+                         ActualRoomStatCanal.month == month))).scalars().all()}
+
     await db.execute(delete(ActualRoomStat).where(
         ActualRoomStat.scenario_id == scenario_id, ActualRoomStat.month == month))
     enviadas = {r.room_type_name: r for r in body.rows}
+
+    def _o(nuevo, anterior, campo: str) -> float:
+        """El valor nuevo si vino; si no, el que ya estaba; si no, cero."""
+        v = getattr(nuevo, campo, None) if nuevo is not None else None
+        if v is not None:
+            return float(v)
+        return float(getattr(anterior, campo, 0) or 0) if anterior is not None else 0.0
     # ⚠️ Un cuerpo entero en cero LIMPIA el mes y no escribe nada. Si escribiera
     # las filas en cero igual, el mes pasaría a figurar como cargado —`cargado`
     # es «tiene filas»— y un mes que nadie subió se leería como un mes sin
     # ventas, que es otra cosa.
-    hay_algo = any(r.nights_occupied or r.revenue or r.pax for r in body.rows)
+    # ⚠️ «Vacía» son las OCHO en cero. Mirando sólo tres, un mes que únicamente
+    # tuvo otros ingresos —o una categoría que sólo registró llegadas— se
+    # descartaba como si no existiera.
+    def _tiene_algo(r) -> bool:
+        return bool(r.nights_occupied or r.revenue or r.pax or r.ingreso_ayb
+                    or r.ingreso_otros or r.hab_entradas or r.cli_entradas)
+
+
+    hay_algo = any(_tiene_algo(r) for r in body.rows)
     saved = 0
     if hay_algo:
         for nm, units in canon.items():
             r = enviadas.get(nm)
-            vacia = r is None or not (r.nights_occupied or r.revenue or r.pax)
+            vacia = r is None or not _tiene_algo(r)
             # «Other Rooms Revenue» no tiene inventario que declarar: sin
             # cifras no aporta nada y no se escribe.
             if vacia and not units:
@@ -1181,7 +1223,11 @@ async def put_room_stats_entry(
                 units=units, nights_available=units * days,
                 nights_occupied=(r.nights_occupied if r else 0) or 0,
                 revenue=(r.revenue if r else 0) or 0,
-                pax=(r.pax if r else 0) or 0))
+                pax=(r.pax if r else 0) or 0,
+                ingreso_ayb=_o(r, previas.get(nm), "ingreso_ayb"),
+                ingreso_otros=_o(r, previas.get(nm), "ingreso_otros"),
+                hab_entradas=_o(r, previas.get(nm), "hab_entradas"),
+                cli_entradas=_o(r, previas.get(nm), "cli_entradas")))
             saved += 1
 
     # ⚠️ El borrado corre SIEMPRE que venga la lista, aunque llegue vacía: es
@@ -1193,12 +1239,17 @@ async def put_room_stats_entry(
             ActualRoomStatCanal.scenario_id == scenario_id,
             ActualRoomStatCanal.month == month))
         for c in body.canales:
-            if not (c.nights_occupied or c.revenue or c.pax):
+            if not _tiene_algo(c):
                 continue
+            prev_c = previas_canal.get((c.room_type_name, c.canal_code))
             db.add(ActualRoomStatCanal(
                 scenario_id=scenario_id, month=month,
                 room_type_name=c.room_type_name, canal_code=c.canal_code,
-                nights_occupied=c.nights_occupied, pax=c.pax, revenue=c.revenue))
+                nights_occupied=c.nights_occupied, pax=c.pax, revenue=c.revenue,
+                ingreso_ayb=_o(c, prev_c, "ingreso_ayb"),
+                ingreso_otros=_o(c, prev_c, "ingreso_otros"),
+                hab_entradas=_o(c, prev_c, "hab_entradas"),
+                cli_entradas=_o(c, prev_c, "cli_entradas")))
             canales_guardados += 1
 
     await db.commit()

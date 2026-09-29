@@ -7,6 +7,7 @@ import {
 import { getScenarios, getPLMonthly, getFlowThrough, type Scenario, type PLMonthly, type FlowThrough } from "@/lib/api";
 import { bajarCuadros, type Cuadro, type FilaCuadro, type FormatoCol } from "@/lib/exportCuadro";
 import { HOTEL_ID } from "@/lib/hotel";
+import EstadisticaHabitaciones from "@/components/EstadisticaHabitaciones";
 import { useHotel } from "@/lib/useHotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
@@ -568,6 +569,12 @@ export default function DashboardPage() {
         </div>
       )}
       </div>
+
+      {/* La estadistica del PMS, al pie. Sigue el mismo selector de periodo
+          que el resto del Dashboard, y lee el escenario PRINCIPAL: la
+          estadistica vive en el ACTUAL, asi que mirando un Budget el bloque
+          lo dice en vez de dibujar ceros. */}
+      <EstadisticaHabitaciones scenarioId={mainId} month={month} />
     </div>
   );
 }

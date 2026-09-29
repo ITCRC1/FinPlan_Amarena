@@ -3375,11 +3375,27 @@ export async function getRoomStatsEntry(scenarioId: string, month: number): Prom
 export interface RoomStatCanalIn {
   room_type_name: string; canal_code: string;
   nights_occupied: number; pax: number; revenue: number;
+  /** ⚠️ Las otras cuatro columnas del reporte del PMS. Entradas son las
+   *  LLEGADAS; `nights_occupied` y `pax` son las ESTANCIAS.
+   *
+   *  Opcionales, y no por comodidad: **omitirlas conserva lo que ya había**.
+   *  La pantalla de carga manual no las captura, y si mandara ceros, abrirla
+   *  y guardar borraría los otros ingresos y las llegadas que trajo el
+   *  archivo del PMS sin que se vea en pantalla que se tocó algo. */
+  ingreso_ayb?: number; ingreso_otros?: number;
+  hab_entradas?: number; cli_entradas?: number;
+}
+export interface RoomStatRowIn {
+  room_type_name: string; units: number;
+  nights_occupied: number; revenue: number; pax: number;
+  /** Opcionales: omitirlas conserva lo guardado. Ver `RoomStatCanalIn`. */
+  ingreso_ayb?: number; ingreso_otros?: number;
+  hab_entradas?: number; cli_entradas?: number;
 }
 /** Guarda el mes. `canales` es opcional: la carga manual no lo manda y el
  *  detalle por canal que hubiera queda como estaba. */
 export async function saveRoomStatsEntry(scenarioId: string, month: number,
-  rows: { room_type_name: string; units: number; nights_occupied: number; revenue: number; pax: number }[],
+  rows: RoomStatRowIn[],
   canales?: RoomStatCanalIn[],
 ): Promise<{ saved: boolean; month: number; rows_saved: number; canales_saved?: number }> {
   return api.put(`/scenarios/${scenarioId}/room-stats-entry/${month}/`,
@@ -3408,10 +3424,12 @@ export interface CanalDelPms {
 export interface PdfRoomStatsAgencia extends CanalDelPms {
   agencia: string; revenue: number; nights_occupied: number; pax: number;
   hab_entradas: number; cli_entradas: number; tarifa_promedio: number;
+  ingreso_ayb: number; ingreso_otros: number;
 }
 export interface PdfRoomStatsCanal extends CanalDelPms {
   agencia: string; nights_occupied: number; pax: number; revenue: number;
   hab_entradas: number; cli_entradas: number; adr: number;
+  ingreso_ayb: number; ingreso_otros: number;
 }
 export interface PdfRoomStatsFila {
   nombre_pdf: string;
@@ -3423,6 +3441,7 @@ export interface PdfRoomStatsFila {
   units: number; nights_available: number;
   nights_occupied: number; pax: number; revenue: number; adr: number;
   hab_entradas: number; cli_entradas: number;
+  ingreso_ayb: number; ingreso_otros: number;
   agencias: PdfRoomStatsAgencia[];
   actual_guardado: { nights_occupied: number; pax: number; revenue: number } | null;
 }
@@ -3479,9 +3498,17 @@ export async function leerPdfRoomStats(
 export interface AnioMesCategoria {
   room_type_name: string; units: number; nights_available: number;
   nights_occupied: number; pax: number; revenue: number;
+  /** ⚠️ Las otras cuatro columnas del reporte del PMS. Entradas son las
+   *  LLEGADAS; `nights_occupied` y `pax` son las ESTANCIAS. */
+  ingreso_ayb: number; ingreso_otros: number;
+  hab_entradas: number; cli_entradas: number;
 }
 export interface AnioMesCanal extends CanalDelPms {
   room_type_name: string; nights_occupied: number; pax: number; revenue: number;
+  /** ⚠️ Las otras cuatro columnas del reporte del PMS. Entradas son las
+   *  LLEGADAS; `nights_occupied` y `pax` son las ESTANCIAS. */
+  ingreso_ayb: number; ingreso_otros: number;
+  hab_entradas: number; cli_entradas: number;
 }
 export interface AnioMes {
   month: number; dias: number;

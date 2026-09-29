@@ -67,6 +67,23 @@ class ActualRoomStatCanal(Base):
     pax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     revenue: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
+    #: ── Las otras cinco columnas del reporte del PMS ──────────────────────
+    #:
+    #: ⚠️ El reporte trae OCHO medidas y hasta 2026-09-28 se guardaban tres
+    #: —ingreso de hospedaje, estancias de habitaciones y estancias de
+    #: clientes—. Las otras se leían del archivo y se tiraban: los otros
+    #: ingresos de marzo a julio de Amarena, $11,792, existían únicamente en
+    #: el Excel que mantiene la propiedad a mano.
+    #:
+    #: ⚠️ **Entradas ≠ Estancias.** Entradas son las llegadas; estancias, las
+    #: noches. `nights_occupied` y `pax` son las ESTANCIAS. Confundirlas da un
+    #: ADR y un ratio de huéspedes que parecen razonables y están mal.
+    ingreso_ayb: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    ingreso_otros: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    hab_entradas: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    cli_entradas: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
+
     def __repr__(self) -> str:
         return (f"<RoomStatCanal {self.month:02d} {self.room_type_name} "
                 f"/{self.canal_code} {self.nights_occupied}n>")

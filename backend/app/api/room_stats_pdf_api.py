@@ -294,10 +294,17 @@ async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
             "adr": t["adr"],
             "hab_entradas": t["hab_entradas"],
             "cli_entradas": t["cli_entradas"],
+            # Las otras dos columnas del reporte. Viajan para que el guardado
+            # las archive: el reporte trae ocho medidas y hasta 2026-09-28 se
+            # guardaban tres.
+            "ingreso_ayb": t["ingreso_ayb"],
+            "ingreso_otros": t["ingreso_otros"],
             "agencias": [
                 {"agencia": f.agencia, "revenue": round(f.ingreso_hospedaje, 2),
                  "nights_occupied": f.hab_estancias, "pax": f.cli_estancias,
                  "hab_entradas": f.hab_entradas, "cli_entradas": f.cli_entradas,
+                 "ingreso_ayb": round(f.ingreso_ayb, 2),
+                 "ingreso_otros": round(f.ingreso_otros, 2),
                  "tarifa_promedio": f.tarifa_promedio,
                  **_canal_info(f.agencia, catalogo)}
                 for f in lectura.filas if f.room_type_name == t["room_type_name"]
@@ -333,7 +340,8 @@ async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
             "room_type_code": c.code, "confianza": "exacto",
             "units": c.units, "nights_available": c.units * dias,
             "nights_occupied": 0.0, "pax": 0.0, "revenue": 0.0, "adr": 0.0,
-            "hab_entradas": 0.0, "cli_entradas": 0.0, "agencias": [],
+            "hab_entradas": 0.0, "cli_entradas": 0.0,
+            "ingreso_ayb": 0.0, "ingreso_otros": 0.0, "agencias": [],
             "actual_guardado": None if previa is None else {
                 "nights_occupied": float(previa.nights_occupied),
                 "pax": float(previa.pax), "revenue": float(previa.revenue)},
@@ -450,12 +458,15 @@ def _canales_del_mes(lectura, catalogo: dict) -> list:
     for f in lectura.filas:
         a = acc.setdefault(f.agencia, {
             "nights_occupied": 0.0, "pax": 0.0, "revenue": 0.0,
-            "hab_entradas": 0.0, "cli_entradas": 0.0})
+            "hab_entradas": 0.0, "cli_entradas": 0.0,
+            "ingreso_ayb": 0.0, "ingreso_otros": 0.0})
         a["nights_occupied"] += f.hab_estancias
         a["pax"] += f.cli_estancias
         a["revenue"] += f.ingreso_hospedaje
         a["hab_entradas"] += f.hab_entradas
         a["cli_entradas"] += f.cli_entradas
+        a["ingreso_ayb"] += f.ingreso_ayb
+        a["ingreso_otros"] += f.ingreso_otros
     salida = []
     for agencia, v in acc.items():
         v["revenue"] = round(v["revenue"], 2)
@@ -512,6 +523,10 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
             "nights_occupied": float(t.nights_occupied),
             "pax": float(t.pax),
             "revenue": float(t.revenue),
+            "ingreso_ayb": float(t.ingreso_ayb),
+            "ingreso_otros": float(t.ingreso_otros),
+            "hab_entradas": float(t.hab_entradas),
+            "cli_entradas": float(t.cli_entradas),
         })
     for a in aperturas:
         por_mes[a.month]["canales"].append({
@@ -519,6 +534,10 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
             "nights_occupied": float(a.nights_occupied),
             "pax": float(a.pax),
             "revenue": float(a.revenue),
+            "ingreso_ayb": float(a.ingreso_ayb),
+            "ingreso_otros": float(a.ingreso_otros),
+            "hab_entradas": float(a.hab_entradas),
+            "cli_entradas": float(a.cli_entradas),
             **_canal_info(a.canal_code, catalogo),
         })
 

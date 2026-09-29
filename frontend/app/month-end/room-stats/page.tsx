@@ -376,11 +376,13 @@ export default function CierreRoomStatsPage() {
           units: c.units, nights_available: c.nights_available,
           nights_occupied: c.nights_occupied, pax: c.pax, revenue: c.revenue,
           adr: c.nights_occupied ? c.revenue / c.nights_occupied : 0,
-          hab_entradas: 0, cli_entradas: 0,
+          hab_entradas: c.hab_entradas, cli_entradas: c.cli_entradas,
+          ingreso_ayb: c.ingreso_ayb, ingreso_otros: c.ingreso_otros,
           agencias: ags.map(a => ({
             agencia: a.canal_code, revenue: a.revenue,
             nights_occupied: a.nights_occupied, pax: a.pax,
-            hab_entradas: 0, cli_entradas: 0,
+            hab_entradas: a.hab_entradas, cli_entradas: a.cli_entradas,
+            ingreso_ayb: a.ingreso_ayb, ingreso_otros: a.ingreso_otros,
             tarifa_promedio: a.nights_occupied ? a.revenue / a.nights_occupied : 0,
             canal_code: a.canal_code, canal: a.canal,
             canal_comision: a.canal_comision,
@@ -392,6 +394,7 @@ export default function CierreRoomStatsPage() {
       canales: [...new Map(m.canales.map(a => [a.canal_code, a])).values()].map(a => ({
         agencia: a.canal_code, nights_occupied: 0, pax: 0, revenue: 0,
         hab_entradas: 0, cli_entradas: 0, adr: 0,
+        ingreso_ayb: 0, ingreso_otros: 0,
         canal_code: a.canal_code, canal: a.canal,
         canal_comision: a.canal_comision,
         cuenta_para_kpis: a.cuenta_para_kpis, conocido: a.conocido,
@@ -509,15 +512,22 @@ export default function CierreRoomStatsPage() {
    *  guardado masivo armara las filas por su cuenta, un mes entraría distinto
    *  según qué botón se apretó y nada lo avisaría. */
   async function guardarUno(lec: PdfRoomStatsLectura) {
+    // ⚠️ Las OCHO medidas del reporte, no tres. Hasta 2026-09-28 se mandaban
+    // noches, pax e ingreso: los otros ingresos y las llegadas se leian del
+    // archivo, se pintaban en pantalla y se tiraban al guardar.
     const rows = lec.filas.map(f => ({
       room_type_name: calce[f.nombre_pdf],
       units: categorias.find(c => c.name === calce[f.nombre_pdf])?.units ?? f.units,
       nights_occupied: f.nights_occupied, revenue: f.revenue, pax: f.pax,
+      ingreso_ayb: f.ingreso_ayb, ingreso_otros: f.ingreso_otros,
+      hab_entradas: f.hab_entradas, cli_entradas: f.cli_entradas,
     }));
     const canales: RoomStatCanalIn[] = lec.filas.flatMap(f =>
       f.agencias.map(a => ({
         room_type_name: calce[f.nombre_pdf], canal_code: a.canal_code,
         nights_occupied: a.nights_occupied, pax: a.pax, revenue: a.revenue,
+        ingreso_ayb: a.ingreso_ayb, ingreso_otros: a.ingreso_otros,
+        hab_entradas: a.hab_entradas, cli_entradas: a.cli_entradas,
       })));
     const r = await saveRoomStatsEntry(scenarioId!, lec.month, rows, canales);
     try {
