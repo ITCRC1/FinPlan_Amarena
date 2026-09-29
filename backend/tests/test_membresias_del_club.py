@@ -236,3 +236,55 @@ def test_cambiar_de_mes_descarta_lo_que_se_estaba_escribiendo():
     sobre septiembre."""
     src = COMP.read_text(encoding="utf-8")
     assert "useEffect(() => { setBorrador(null); setOk(null); }, [mesSel]);" in src
+
+
+# ──────────────── La siembra de enero a mayo (migracion 146) ───────────────
+
+MIG146 = (pathlib.Path(__file__).resolve().parent.parent
+          / "alembic/versions/146_membresias_activas_de_enero_a_mayo.py")
+
+
+def test_se_siembran_las_activas_de_enero_a_mayo():
+    """Owner: *«siembra aca solo las activas lo otro no lo tomes en cuenta y
+    solo 2026»*, con el cuadro de facturacion del club."""
+    src = MIG146.read_text(encoding="utf-8")
+    for mes, activas in ((1, 62), (2, 69), (3, 74), (4, 83), (5, 85)):
+        assert f"({mes}, {activas})" in src, f"falta el mes {mes}"
+
+
+def test_diciembre_2025_NO_entra():
+    """⚠️ El escenario es de 2026 y su mes 12 es diciembre **2026**.
+
+    Meter ahi el conteo de diciembre 2025 (46) pondria un dato de otro año
+    bajo un rotulo que dice 2026, y nada lo avisaria: el numero se ve
+    razonable y encaja en la serie.
+    """
+    src = MIG146.read_text(encoding="utf-8")
+    assert "(12, 46)" not in src
+    assert "46" not in src.split("ACTIVAS_2026 = ")[1].split("]")[0]
+
+
+def test_solo_se_siembra_activas_y_no_el_resto_del_cuadro():
+    """El cuadro traia FACTURADO, PAGADO y PENDIENTE. El owner pidio que no se
+    tomen en cuenta: media tabla cargada y media inventada es peor que una
+    tabla que dice solo lo que se sabe."""
+    src = MIG146.read_text(encoding="utf-8")
+    cuerpo = src.split("def upgrade")[1]
+    assert "'activas'" in cuerpo
+    for otro in ("condicionados", "plan_pago", "pendiente_firma", "excepcion"):
+        assert otro not in cuerpo, f"se sembro {otro}, que el cuadro no traia"
+
+
+def test_junio_y_julio_quedan_sin_cargar():
+    """⚠️ El cuadro salta de mayo a agosto. Un cero en junio y julio diria que
+    el club se quedo sin membresias activas dos meses y volvio con 92."""
+    src = MIG146.read_text(encoding="utf-8")
+    assert "(6, " not in src.split("ACTIVAS_2026 = ")[1].split("]")[0]
+    assert "(7, " not in src.split("ACTIVAS_2026 = ")[1].split("]")[0]
+
+
+def test_la_siembra_no_pisa_lo_que_alguien_cargo():
+    src = MIG146.read_text(encoding="utf-8")
+    assert "ON CONFLICT (scenario_id, month, concepto) DO NOTHING" in src
+    assert "id=str(uuid.uuid4())" in src
+    assert "49dfca0d" not in src, "hay un id de escenario clavado"
