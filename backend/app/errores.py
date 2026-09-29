@@ -208,6 +208,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "skill4.canal_vacio": {
         "es": "Falta el código del canal.",
         "en": "The channel code is missing."},
+    "room_stats.categoria_desconocida": {
+        "es": "Estas categorías no existen en la propiedad: {desconocidas}. Las válidas son: {validas}. Si el PMS cambió un rótulo, calzalo a una de estas en la pantalla — desde acá no se crea una categoría nueva.",
+        "en": "These room categories do not exist for this property: {desconocidas}. Valid ones are: {validas}. If the PMS renamed one, map it to one of these on screen — a new category is never created from here."},
     "skill4.canal_desconocido": {
         "es": "«{canal}» no es un canal válido. Tiene que ser uno de: {validos} — o vacío, que significa que todavía no se decidió.",
         "en": "“{canal}” is not a valid channel. It has to be one of: {validos} — or empty, which means it has not been decided yet."},

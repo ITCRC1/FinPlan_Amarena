@@ -309,11 +309,35 @@ async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
                 "pax": float(anterior.pax), "revenue": float(anterior.revenue)},
         })
 
-    # Categorías de la propiedad que el PDF no trajo. Van igual, en cero: el
-    # guardado reemplaza el mes entero, y omitirlas dejaría viva la cifra de
-    # una carga anterior sin que se vea en la pantalla que la reemplazó.
+    # Categorías de la propiedad que el archivo no trajo. Van igual, en cero.
+    #
+    # ⚠️ Dos motivos, y el segundo se descubrió tarde. El primero: el guardado
+    # reemplaza el mes entero, y omitirlas dejaría viva la cifra de una carga
+    # anterior sin que se vea en la pantalla que la reemplazó.
+    #
+    # El segundo: **el inventario es master data**. Owner, 2026-09-28: *«las
+    # habitaciones disponibles siempre deben ser 16 por el número de días del
+    # mes. no puede cambiar»*. Sin la fila, sus noches disponibles no entran al
+    # denominador y la ocupación del mes sale inflada — en Amarena la Accesible
+    # no vendió de marzo a julio y esos meses el hotel figuraba con 15 unidades
+    # de 16. El ingreso cuadra, las noches vendidas cuadran; sólo el
+    # denominador está mal, y nada avisa.
     calzadas = {f["room_type_name"] for f in filas if f["room_type_name"]}
     ausentes = [c.name for c in categorias if c.name not in calzadas]
+    for c in categorias:
+        if c.name in calzadas:
+            continue
+        previa = ya_cargado.get(c.name)
+        filas.append({
+            "nombre_pdf": c.name, "room_type_name": c.name,
+            "room_type_code": c.code, "confianza": "exacto",
+            "units": c.units, "nights_available": c.units * dias,
+            "nights_occupied": 0.0, "pax": 0.0, "revenue": 0.0, "adr": 0.0,
+            "hab_entradas": 0.0, "cli_entradas": 0.0, "agencias": [],
+            "actual_guardado": None if previa is None else {
+                "nights_occupied": float(previa.nights_occupied),
+                "pax": float(previa.pax), "revenue": float(previa.revenue)},
+        })
 
     noches = sum(f["nights_occupied"] for f in filas)
     ingreso = round(sum(f["revenue"] for f in filas), 2)
@@ -511,6 +535,30 @@ async def anio_room_stats(scenario_id: str, db: AsyncSession = Depends(get_db)):
             if u is not None:
                 c["units"] = u
                 c["nights_available"] = u * dias
+        # ⚠️ Y las categorías que NO vendieron ese mes van igual, en cero.
+        #
+        # Owner, 2026-09-28: *«las habitaciones disponibles siempre deben ser
+        # 16 por el número de días del mes. no puede cambiar»*. El inventario
+        # es master data: existe venda o no. Sumando sólo las categorías con
+        # fila, la Accesible de Amarena desaparecía del denominador de marzo a
+        # julio —15 unidades en vez de 16— y la ocupación salía inflada sin un
+        # solo síntoma.
+        #
+        # Se reconstruye en el orden del Master Data para que las filas no
+        # bailen de un mes a otro.
+        if cargado:
+            por_nombre = {c["room_type_name"]: c for c in d["categorias"]}
+            completas = []
+            for nm, u in unidades.items():
+                c = por_nombre.pop(nm, None)
+                completas.append(c if c is not None else {
+                    "room_type_name": nm, "units": u,
+                    "nights_available": u * dias,
+                    "nights_occupied": 0.0, "pax": 0.0, "revenue": 0.0})
+            # Lo que haya quedado fuera del Master Data se conserva al final:
+            # esconderlo haría desaparecer ingreso de una carga vieja.
+            completas.extend(por_nombre.values())
+            d["categorias"] = completas
         meses.append({
             "month": m, "dias": dias, "cargado": cargado,
             "categorias": d["categorias"],

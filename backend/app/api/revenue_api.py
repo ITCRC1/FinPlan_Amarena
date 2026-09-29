@@ -1113,6 +1113,31 @@ async def put_room_stats_entry(
     canales. La apertura es apertura: que un reporte empezara a sumar desde
     ella convertiría cualquier redondeo en una diferencia entre dos pantallas
     que dicen medir lo mismo.
+
+    ## ⚠️ El inventario es MASTER DATA, no un hecho del mes
+
+    Owner, 2026-09-28: *«las habitaciones disponibles siempre deben ser 16 por
+    el número de días del mes. no puede cambiar»*.
+
+    Antes se guardaba una fila **sólo por la categoría que había vendido**, y
+    las noches disponibles salían del `units` que mandaba la pantalla. Con eso,
+    una categoría que no vendió ese mes **desaparecía del inventario**: la
+    Accesible de Amarena no vendió de marzo a julio, así que esos meses el
+    hotel figuraba con 15 unidades en vez de 16 y la ocupación salía inflada
+    —marzo 4.30% en vez de 4.03%— sin un solo síntoma. El total cuadraba, el
+    ingreso cuadraba, y el denominador estaba mal.
+
+    Ahora se escribe una fila **por cada categoría activa**, con ceros donde no
+    hubo venta, y `units` sale de `RoomTypeConfig` y no del cuerpo. Que una
+    categoría no venda es un dato del mes; que exista, no.
+
+    ## ⚠️ Y no entra una categoría que la propiedad no tenga
+
+    Owner, mismo día: *«estas son las habitaciones que hay… no se puede subir
+    otra con otro nombre»*. `room_type_name` es texto libre en la tabla: un
+    nombre distinto —un PMS que cambia el rótulo, un calce mal hecho— creaba
+    una quinta categoría fantasma con cero unidades, que suma ingreso y no
+    suma inventario. Se rechaza con la lista de las válidas.
     """
     # Una version enllavada no se puede editar.
     await candado(db, scenario_id)
@@ -1121,17 +1146,43 @@ async def put_room_stats_entry(
         raise ErrorApi(422, "mes.fuera_de_rango")
     scenario = await _get_scenario_or_404(scenario_id, db)
     days = calendar.monthrange(scenario.year, month)[1]
+
+    # Las categorías de la propiedad, con su inventario. Es la única fuente
+    # del `units`: el del cuerpo se ignora.
+    canon = dict(await _canonical_room_types(db))
+    desconocidas = sorted({r.room_type_name for r in body.rows
+                           if r.room_type_name not in canon}
+                          | {c.room_type_name for c in (body.canales or [])
+                             if c.room_type_name not in canon})
+    if desconocidas:
+        raise ErrorApi(422, "room_stats.categoria_desconocida",
+                       desconocidas=", ".join(desconocidas),
+                       validas=", ".join(canon))
+
     await db.execute(delete(ActualRoomStat).where(
         ActualRoomStat.scenario_id == scenario_id, ActualRoomStat.month == month))
+    enviadas = {r.room_type_name: r for r in body.rows}
+    # ⚠️ Un cuerpo entero en cero LIMPIA el mes y no escribe nada. Si escribiera
+    # las filas en cero igual, el mes pasaría a figurar como cargado —`cargado`
+    # es «tiene filas»— y un mes que nadie subió se leería como un mes sin
+    # ventas, que es otra cosa.
+    hay_algo = any(r.nights_occupied or r.revenue or r.pax for r in body.rows)
     saved = 0
-    for r in body.rows:
-        if not (r.nights_occupied or r.revenue or r.pax):
-            continue  # fila vacía
-        db.add(ActualRoomStat(
-            scenario_id=scenario_id, room_type_name=r.room_type_name, month=month,
-            units=r.units, nights_available=(r.units or 0) * days,
-            nights_occupied=r.nights_occupied, revenue=r.revenue, pax=r.pax))
-        saved += 1
+    if hay_algo:
+        for nm, units in canon.items():
+            r = enviadas.get(nm)
+            vacia = r is None or not (r.nights_occupied or r.revenue or r.pax)
+            # «Other Rooms Revenue» no tiene inventario que declarar: sin
+            # cifras no aporta nada y no se escribe.
+            if vacia and not units:
+                continue
+            db.add(ActualRoomStat(
+                scenario_id=scenario_id, room_type_name=nm, month=month,
+                units=units, nights_available=units * days,
+                nights_occupied=(r.nights_occupied if r else 0) or 0,
+                revenue=(r.revenue if r else 0) or 0,
+                pax=(r.pax if r else 0) or 0))
+            saved += 1
 
     # ⚠️ El borrado corre SIEMPRE que venga la lista, aunque llegue vacía: es
     # cómo se limpia la apertura de un mes que se vuelve a cargar a mano.
