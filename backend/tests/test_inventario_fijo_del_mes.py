@@ -266,7 +266,8 @@ def test_hay_un_cuadro_por_cada_tab_del_excel():
 def test_el_bloque_sigue_el_selector_del_dashboard():
     """*«dependiente lo que se escoja en la vista»*."""
     dash = DASH.read_text(encoding="utf-8")
-    assert "<EstadisticaHabitaciones scenarioId={mainId} month={month} />" in dash
+    assert ("<EstadisticaHabitaciones scenarioId={mainId} scenarios={scenarios}"
+            " month={month} />") in dash
 
 
 def test_el_mes_sin_estadistica_va_vacio_y_no_en_cero():
@@ -302,9 +303,84 @@ def test_la_tarifa_promedio_del_periodo_se_recalcula_y_no_se_promedia():
     assert "/ meses.length" not in src, "se promedia en vez de recalcular"
 
 
-def test_si_el_escenario_no_tiene_estadistica_se_dice_donde_esta():
-    """Mirando un Budget no hay estadistica: decirlo —y donde si esta— es
-    mejor que un cuadro en cero, que se lee como un hotel sin ventas."""
+def test_si_no_hay_estadistica_en_ningun_lado_se_dice_donde_se_sube():
+    """Cuando NINGUN escenario del ano tiene estadistica, decirlo -y donde se
+    sube- es mejor que ocho cuadros en cero, que se leen como un hotel sin
+    ventas."""
     src = BLOQUE.read_text(encoding="utf-8")
-    assert "no tiene estad\u00edstica de habitaciones cargada" in src
-    assert "ACTUAL" in src
+    assert "No hay estadística de habitaciones cargada para" in src
+    assert "Cierre de Mes" in src
+
+
+def test_el_bloque_encuentra_el_ACTUAL_aunque_la_vista_sea_un_budget():
+    """⚠️ El defecto que el owner vio: *«donde quedaron los cuadros... no los
+    veo»*.
+
+    La estadistica del PMS vive en el escenario ACTUAL y el Dashboard abre con
+    el Budget en el selector principal. Colgando el bloque del principal a
+    secas, la vista por defecto mostraba «este escenario no tiene estadistica»
+    y los ocho cuadros no aparecian NUNCA.
+
+    Se prueba el principal primero —si alguien carga estadistica en un
+    Forecast, ese manda— y si no tiene, se cae al ACTUAL del mismo ano. Y se
+    dice en el encabezado: leer el ACTUAL creyendo que es el Budget seria peor
+    que no ver nada.
+    """
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "const candidatos = useMemo" in src
+    assert 's.type === "ACTUAL"' in src
+    assert "s.year === principal.year" in src, \
+        "caeria a un ACTUAL de otro ano"
+    # El principal va PRIMERO.
+    i = src.index("return [scenarioId, ...delAno")
+    assert i > 0, "el principal no tiene prioridad"
+    # Y se avisa cuando lo que se muestra no es el principal.
+    assert "no es la versi\u00f3n principal" in src
+    assert "setPrestado(id !== scenarioId)" in src
+
+
+def test_la_columna_del_mes_no_existe_en_full_year():
+    """En «Full Year» no hay un mes elegido, y una columna entera de guiones
+    bajo un encabezado vacio es ruido que ademas empuja las otras dos."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "const hayMes = month > 0;" in src
+    assert "...(hayMes ? [[rotMes, delMes]" in src
+    # Ni el encabezado ni las celdas se escriben a mano: salen de `periodos`.
+    assert "[delMes, ytd, full].map" not in src
+
+
+def test_las_tarjetas_no_se_estiran_ni_recortan_la_primera_fila():
+    """⚠️ Lo que el owner vio en pantalla: la primera fila cortada por la mitad
+    en los cuadros sin nota.
+
+    La rejilla estiraba todas las tarjetas a la altura de la mas alta, y el
+    `overflow:hidden` que redondeaba el borde recortaba lo que sobraba. Se
+    quitan las dos cosas: cada tarjeta mide lo que su contenido.
+    """
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert 'alignItems: "start"' in src
+    i = src.index('key={b.clave} style={{ border:')
+    assert 'overflow: "hidden"' not in src[i:i + 300], \
+        "la tarjeta sigue recortando su contenido"
+
+
+def test_el_rotulo_de_la_categoria_no_se_corta():
+    """⚠️ Amarena tiene «Garden View Deluxe-Tented Villa» y la misma
+    «· Accesible». Cortadas con puntos suspensivos las dos se leen igual y no
+    hay forma de saber cual fila es cual."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    i = src.index("const TD_ROT")
+    bloque = src[i:i + 320]
+    assert "textOverflow" not in bloque
+    assert 'whiteSpace: "nowrap"' not in bloque
+    assert 'wordBreak: "break-word"' in bloque
+
+
+def test_se_avisa_que_una_carga_vieja_dejo_las_medidas_nuevas_en_cero():
+    """⚠️ Cero en «Ing. Otros» dice «el hotel no tuvo otros ingresos», y lo
+    que pasa es que esa carga es anterior a que se guardaran. Cuatro cuadros
+    llenos de $0.00 afirman lo primero."""
+    src = BLOQUE.read_text(encoding="utf-8")
+    assert "const sinCargaNueva" in src
+    assert "Guardar los N meses" in src
+    assert "Un cero ac\u00e1 no" in src

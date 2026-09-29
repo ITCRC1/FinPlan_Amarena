@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 
-import { getAnioRoomStats, type AnioMes, type AnioRoomStats } from "@/lib/api";
+import { getAnioRoomStats, type AnioMes, type AnioRoomStats, type Scenario } from "@/lib/api";
 
 /**
  * La estadística de habitaciones del PMS, al pie del Dashboard.
@@ -81,11 +81,12 @@ const num = (v: number) =>
   v.toLocaleString("es-CR", { maximumFractionDigits: 0 });
 
 export default function EstadisticaHabitaciones({
-  scenarioId, month, dimension = "habitacion",
+  scenarioId, scenarios, month, dimension = "habitacion",
 }: {
-  /** El escenario de la vista principal. Si no tiene estadística cargada se
-   *  dice, en vez de dibujar ceros: un cero acá se lee como «no hubo». */
+  /** El escenario de la vista principal. */
   scenarioId: string;
+  /** Todos los escenarios, para poder caer al ACTUAL. Ver abajo. */
+  scenarios: Scenario[];
   /** 0 = Full Year; 1..12 = ese mes. Es el mismo selector del Dashboard. */
   month: number;
   dimension?: "habitacion" | "canal";
@@ -94,13 +95,54 @@ export default function EstadisticaHabitaciones({
   const [error, setError] = useState<string | null>(null);
   const [dim, setDim] = useState<"habitacion" | "canal">(dimension);
   const [abierto, setAbierto] = useState(true);
+  /** true = lo que se muestra NO es el escenario principal. */
+  const [prestado, setPrestado] = useState(false);
+
+  /** ⚠️ La estadística del PMS vive en el escenario ACTUAL, y el Dashboard
+   *  abre con el Budget en el principal.
+   *
+   *  Colgando el bloque del principal a secas, la vista por defecto mostraba
+   *  «este escenario no tiene estadística» y los ocho cuadros no aparecían
+   *  nunca — que es exactamente lo que el owner reportó: *«dónde quedaron los
+   *  cuadros… no los veo»*.
+   *
+   *  Se prueba el principal primero —si alguien carga estadística en un
+   *  Forecast, ese manda— y si no tiene, se cae al ACTUAL del mismo año. Lo
+   *  que se está mostrando se dice siempre en el encabezado: leer el ACTUAL
+   *  creyendo que es el Budget sería peor que no ver nada. */
+  const candidatos = useMemo(() => {
+    if (!scenarioId) return [];
+    const principal = scenarios.find(s => s.id === scenarioId);
+    const delAno = scenarios.filter(s => s.type === "ACTUAL"
+      && (!principal || s.year === principal.year) && s.id !== scenarioId);
+    return [scenarioId, ...delAno.map(s => s.id)];
+  }, [scenarioId, scenarios]);
 
   useEffect(() => {
-    if (!scenarioId) { setAnio(null); return; }
+    if (!candidatos.length) { setAnio(null); return; }
+    let vivo = true;
     setError(null);
-    getAnioRoomStats(scenarioId).then(setAnio)
-      .catch(e => { setAnio(null); setError(e instanceof Error ? e.message : "error"); });
-  }, [scenarioId]);
+    (async () => {
+      let ultimo: AnioRoomStats | null = null;
+      for (const id of candidatos) {
+        try {
+          const r = await getAnioRoomStats(id);
+          ultimo = ultimo ?? r;
+          if (r.meses_cargados.length) {
+            if (vivo) { setAnio(r); setPrestado(id !== scenarioId); }
+            return;
+          }
+        } catch (e) {
+          if (id === scenarioId) {
+            if (vivo) setError(e instanceof Error ? e.message : "error");
+          }
+        }
+      }
+      // Ninguno tiene: se muestra el principal, en vacío, con su cartel.
+      if (vivo) { setAnio(ultimo); setPrestado(false); }
+    })();
+    return () => { vivo = false; };
+  }, [candidatos, scenarioId]);
 
   const cargados = useMemo(() => anio?.meses.filter(m => m.cargado) ?? [], [anio]);
 
@@ -155,10 +197,9 @@ export default function EstadisticaHabitaciones({
       <Marco escenario={anio.escenario}>
         <p style={{ margin: 0, padding: "14px 16px", fontSize: 12.5,
                     color: "var(--text-secondary)" }}>
-          <b>{anio.escenario}</b> no tiene estadística de habitaciones cargada.
-          Se sube en <b>Cierre de Mes · Estadística de habitaciones</b>.{" "}
-          La estadística del PMS vive en el escenario <b>ACTUAL</b>: si estás
-          mirando un Budget, elegilo en el selector principal para verla.
+          No hay estadística de habitaciones cargada para {anio.year} —{" "}
+          ni en <b>{anio.escenario}</b> ni en el ACTUAL del año. Se sube en{" "}
+          <b>Cierre de Mes · Estadística de habitaciones</b>.
         </p>
       </Marco>
     );
@@ -170,8 +211,25 @@ export default function EstadisticaHabitaciones({
   const full = cargados;
   const ultimo = cargados[cargados.length - 1].month;
 
-  const rotMes = month > 0 ? MESES[month - 1] : "—";
-  const rotYtd = month > 0 ? `YTD ${MESES[month - 1]}` : `YTD ${MESES[ultimo - 1]}`;
+  // ⚠️ En «Full Year» no hay un mes elegido, y una columna entera de «—» bajo
+  // un encabezado «—» es ruido que además empuja las otras dos. Se saca.
+  const hayMes = month > 0;
+  const rotMes = hayMes ? MESES[month - 1] : "";
+  const rotYtd = hayMes ? `YTD ${MESES[month - 1]}` : `YTD ${MESES[ultimo - 1]}`;
+  const periodos: [string, AnioMes[]][] = [
+    ...(hayMes ? [[rotMes, delMes] as [string, AnioMes[]]] : []),
+    [rotYtd, ytd], ["Full Year", full],
+  ];
+
+  /** ⚠️ Las cuatro medidas que se empezaron a guardar el 2026-09-28. Una carga
+   *  anterior las dejó en cero, y cero acá NO significa «el hotel no tuvo
+   *  otros ingresos»: significa «esta carga es de antes». Cuatro cuadros
+   *  llenos de $0.00 dicen lo primero, así que se avisa una vez. */
+  const NUEVAS = ["ayb", "otros", "habEnt", "cliEnt"];
+  const sinCargaNueva = NUEVAS.every(k => {
+    const b = BLOQUES.find(x => x.clave === k);
+    return b?.saca ? suma(full, null, b.saca) === 0 : true;
+  });
 
   const fmt = (u: Unidad) => (u === "usd" ? usd : num);
 
@@ -179,16 +237,35 @@ export default function EstadisticaHabitaciones({
     <Marco escenario={anio.escenario} abierto={abierto}
            alAbrir={() => setAbierto(a => !a)}
            dim={dim} alCambiarDim={setDim}
-           pie={`${cargados.length} mes(es) cargado(s): ${
+           prestado={prestado}
+      pie={`${cargados.length} mes(es) cargado(s): ${
              cargados.map(m => MESES[m.month - 1]).join(" · ")}. «Full Year» es`
              + ` la suma de esos meses, no una proyección a doce.`
              + (month > 0 && !delMes.length
                 ? `  ⚠️ ${MESES[month - 1]} no tiene estadística cargada:`
                   + ` la columna del mes va vacía, no en cero.`
                 : "")}>
+      {abierto && sinCargaNueva && (
+        <div style={{ margin: "12px 14px 0", padding: "8px 12px", fontSize: 11.5,
+                      lineHeight: 1.45, borderRadius: 6,
+                      background: "rgba(245,158,11,.10)",
+                      border: "1px solid rgba(245,158,11,.35)" }}>
+          <b>Otros ingresos y Entradas están en cero porque la carga es
+          anterior.</b> Hasta el 28/09 el sistema guardaba sólo noches, pax e
+          ingreso de hospedaje; las otras cuatro columnas del reporte se leían
+          y se descartaban. Volvé a subir el archivo del PMS —una vez, con
+          «Guardar los N meses»— y estos cuadros se llenan. Un cero acá no
+          significa que el hotel no los tuvo.
+        </div>
+      )}
       {abierto && (
         <div style={{ display: "grid", gap: 14, padding: "12px 14px 16px",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))" }}>
+                      // `start`: cada tarjeta mide lo que su contenido. Con el
+                      // `stretch` por defecto, las de encabezado corto quedaban
+                      // estiradas y el `overflow:hidden` del borde redondeado
+                      // les cortaba la primera fila.
+                      alignItems: "start",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
           {BLOQUES.map(b => {
             const f = fmt(b.unidad);
             /** Una celda: la medida del bloque para una clave y un período. */
@@ -204,7 +281,7 @@ export default function EstadisticaHabitaciones({
             };
             return (
               <div key={b.clave} style={{ border: "1px solid var(--border-medium)",
-                                          borderRadius: 7, overflow: "hidden",
+                                          borderRadius: 7,
                                           background: "var(--bg-surface)" }}>
                 <div style={{ padding: "7px 11px", background: "var(--bg-elevated)",
                               borderBottom: "1px solid var(--border-medium)" }}>
@@ -216,18 +293,18 @@ export default function EstadisticaHabitaciones({
                   <thead>
                     <tr>
                       <th style={TH}>{dim === "canal" ? "Canal" : "Categoría"}</th>
-                      <th style={{ ...TH, textAlign: "right" }}>{rotMes}</th>
-                      <th style={{ ...TH, textAlign: "right" }}>{rotYtd}</th>
-                      <th style={{ ...TH, textAlign: "right" }}>Full Year</th>
+                      {periodos.map(([rot]) => (
+                        <th key={rot} style={{ ...TH, textAlign: "right" }}>{rot}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {claves.map(k => (
                       <tr key={k}>
                         <td style={TD_ROT} title={k}>{k}</td>
-                        {[delMes, ytd, full].map((ms, i) => {
+                        {periodos.map(([rot, ms]) => {
                           const v = celda(ms, k);
-                          return <td key={i} className="mono" style={TD}>
+                          return <td key={rot} className="mono" style={TD}>
                             {v === null ? "—" : f(v)}
                           </td>;
                         })}
@@ -236,9 +313,9 @@ export default function EstadisticaHabitaciones({
                     <tr>
                       <td style={{ ...TD_ROT, fontWeight: 700,
                                    borderTop: "1px solid var(--border-medium)" }}>TOTAL</td>
-                      {[delMes, ytd, full].map((ms, i) => {
+                      {periodos.map(([rot, ms]) => {
                         const v = celda(ms, null);
-                        return <td key={i} className="mono"
+                        return <td key={rot} className="mono"
                                    style={{ ...TD, fontWeight: 700,
                                             borderTop: "1px solid var(--border-medium)" }}>
                           {v === null ? "—" : f(v)}
@@ -264,16 +341,24 @@ const TH: React.CSSProperties = {
 const TD: React.CSSProperties = {
   padding: "4px 9px", textAlign: "right", whiteSpace: "nowrap",
 };
+/** ⚠️ El rótulo NO se corta con puntos suspensivos.
+ *
+ *  Amarena tiene «Garden View Deluxe-Tented Villa» y «Garden View
+ *  Deluxe-Tented Villa · Accesible»: cortadas a 150px las dos se leen
+ *  «Garden View Deluxe-Tente…» y no hay forma de saber cuál fila es cuál. */
 const TD_ROT: React.CSSProperties = {
-  padding: "4px 9px", maxWidth: 150, overflow: "hidden",
-  textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-secondary)",
+  padding: "4px 9px", color: "var(--text-secondary)",
+  lineHeight: 1.25, wordBreak: "break-word",
 };
 
-function Marco({ children, escenario, pie, abierto, alAbrir, dim, alCambiarDim }: {
+function Marco({ children, escenario, pie, abierto, alAbrir, dim, alCambiarDim,
+                 prestado }: {
   children: React.ReactNode; escenario?: string; pie?: string;
   abierto?: boolean; alAbrir?: () => void;
   dim?: "habitacion" | "canal";
   alCambiarDim?: (d: "habitacion" | "canal") => void;
+  /** El escenario que se está leyendo NO es el principal del Dashboard. */
+  prestado?: boolean;
 }) {
   return (
     <div style={{ marginTop: 16, background: "var(--bg-elevated)",
@@ -289,6 +374,14 @@ function Marco({ children, escenario, pie, abierto, alAbrir, dim, alCambiarDim }
           <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
             Un cuadro por tab del reporte de segmentación
             {escenario ? <> — <b style={{ color: "var(--text-primary)" }}>{escenario}</b></> : null}
+            {prestado ? (
+              <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 3,
+                             fontSize: 10, fontWeight: 600,
+                             background: "rgba(245,158,11,.16)",
+                             color: "var(--warning)" }}>
+                no es la versión principal
+              </span>
+            ) : null}
           </div>
         </div>
         {alCambiarDim && (

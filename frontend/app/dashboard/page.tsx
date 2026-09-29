@@ -574,7 +574,7 @@ export default function DashboardPage() {
           que el resto del Dashboard, y lee el escenario PRINCIPAL: la
           estadistica vive en el ACTUAL, asi que mirando un Budget el bloque
           lo dice en vez de dibujar ceros. */}
-      <EstadisticaHabitaciones scenarioId={mainId} month={month} />
+      <EstadisticaHabitaciones scenarioId={mainId} scenarios={scenarios} month={month} />
     </div>
   );
 }
