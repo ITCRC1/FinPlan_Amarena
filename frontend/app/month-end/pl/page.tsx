@@ -2372,7 +2372,12 @@ export default function MonthEndPLPage() {
     try {
       await bajarResumenEjecutivo({
         actual_id: actual, budget_id: budget,
-        forecast_id: dame("FORECAST") || undefined,
+        // ⚠️ La MISMA regla que el resto del cierre: el año completo se apoya
+        // en el Forecast Current, esté o no en una ranura. Sin esto, sacar el
+        // forecast de la comparación dejaba la sección 1.3 comparando el
+        // Actual de ocho meses contra doce de presupuesto —«-44.2%», que sólo
+        // significa que el año no terminó— y la Sección 3 vacía.
+        forecast_id: dame("FORECAST") || actualFullPL || undefined,
         mes, propiedad: HOTEL_ID,
       });
     } catch (e) {

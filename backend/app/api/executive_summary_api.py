@@ -69,6 +69,46 @@ def _sel(meses: list[dict], desde: int, hasta: int, clave: str) -> float:
 
 
 @router.post("/reports/executive-summary/word/")
+async def _forecast_current() -> str | None:
+    """El Forecast que manda: el que el backend marca como current.
+
+    Lo marca `is_current_forecast` —es el target de los uploads—, no se adivina
+    por el nombre. Si no hay ninguno marcado, cualquiera del año del hotel: un
+    forecast tiene los doce meses y el Actual no.
+    """
+    from app.db import get_session
+    from app.hotel_actual import HOTEL_ID
+    from app.models.scenario import Scenario
+    from sqlalchemy import select
+
+    async with get_session() as db:
+        filas = (await db.execute(select(Scenario).where(
+            Scenario.hotel_id == HOTEL_ID,
+            Scenario.type == "FORECAST"))).scalars().all()
+    if not filas:
+        return None
+    actual = next((f for f in filas if f.is_current_forecast), None)
+    return str((actual or filas[0]).id)
+
+
+async def _nombre_de_la_propiedad(pedido: str | None) -> str:
+    """El nombre del hotel para la portada.
+
+    ⚠️ La pantalla manda `HOTEL_ID` —«AMA»—, que es el código del despliegue y
+    no un nombre: el informe del 30/09 salió con «AMA» bajo el título. El
+    nombre vive en la tabla `hotels`, que es de este lado.
+    """
+    from app.db import get_session
+    from app.hotel_actual import HOTEL_ID
+    from app.models.hotel import Hotel
+
+    if pedido and pedido.strip() and pedido.strip().upper() != HOTEL_ID.upper():
+        return pedido.strip()
+    async with get_session() as db:
+        h = await db.get(Hotel, HOTEL_ID)
+    return (h.name if h and h.name else (pedido or HOTEL_ID))
+
+
 async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
     """El informe del mes, en .docx."""
     if not 1 <= body.mes <= 12:
@@ -77,13 +117,23 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
     from app.api.gasto_por_clase_api import gasto_por_clase
     from app.api.pl_api import get_pl_compare
 
+    # ⚠️ **El Forecast se resuelve acá si no vino.** Es la MISMA regla que la
+    # pantalla y el Excel: el año completo se apoya en el Forecast Current,
+    # esté o no en una ranura.
+    #
+    # Sin esto, el informe del 30/09 salió con la sección 1.3 diciendo «el
+    # ingreso proyectado del año llegó a $306.1K, $242.2K POR DEBAJO de lo
+    # presupuestado (-44.2%)»: era el Actual de ocho meses contra doce de
+    # presupuesto. Todos los números estaban bien calculados y la conclusión era
+    # falsa — el año no había terminado. Y la Sección 3 salía vacía.
+    forecast_id = body.forecast_id or await _forecast_current()
     ids = [body.actual_id, body.budget_id] + (
-        [body.forecast_id] if body.forecast_id else [])
+        [forecast_id] if forecast_id else [])
     comp = await get_pl_compare(",".join(ids), month=body.mes)
     por_id = {v["scenario_id"]: v for v in comp["versions"]}
     act = por_id.get(body.actual_id)
     bud = por_id.get(body.budget_id)
-    fcs = por_id.get(body.forecast_id) if body.forecast_id else None
+    fcs = por_id.get(forecast_id) if forecast_id else None
     if not act or not bud:
         raise ErrorApi(404, "escenario.no_encontrado")
 
@@ -205,7 +255,7 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
 
     etiqueta = lambda v: f"{v['type']} {v['version']} {v['year']}"  # noqa: E731
     datos = {
-        "propiedad": body.propiedad or "",
+        "propiedad": await _nombre_de_la_propiedad(body.propiedad),
         "mes": body.mes,
         "anio": act["year"],
         "actual": act, "budget": bud, "forecast": fcs,

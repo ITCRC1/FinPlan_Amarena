@@ -22,6 +22,7 @@ from app.export.executive_summary import (
 )
 
 API = pathlib.Path(__file__).resolve().parents[1] / "app/api/executive_summary_api.py"
+FRONT = pathlib.Path(__file__).resolve().parents[2] / "frontend"
 DOCX_MOD = pathlib.Path(__file__).resolve().parents[1] / "app/export/executive_summary.py"
 
 
@@ -828,3 +829,36 @@ def test_los_canales_van_por_CODIGO_del_PMS_y_no_por_canal_comercial():
     assert '"m_noc": 0.0, "m_rev": 0.0, "y_noc": 0.0, "y_rev": 0.0' in src
     # Y la fila del PDF solo si hay cortesias, o repetiria el total.
     assert 'if any(not d["cuenta"] for d in acc.values()):' in src
+
+
+# ═════════ La auditoria del informe del 30/09 ════════════════════════════════
+#
+# Owner: *«podes auditar este reporte linea por linea»*. El informe entregado
+# salia con la seccion 1.3 diciendo «el ingreso proyectado del ano llego a
+# $306.1K, $242.2K POR DEBAJO de lo presupuestado (-44.2%)». Todos los numeros
+# estaban bien calculados y la conclusion era falsa: era el Actual de ocho meses
+# contra doce de presupuesto, porque no se eligio Forecast en la ranura.
+
+def test_el_FORECAST_se_resuelve_si_no_vino():
+    """⚠️ Es la MISMA regla que la pantalla y el Excel: el ano completo se apoya
+    en el Forecast Current, este o no en una ranura.
+
+    Sin esto, sacar el forecast de la comparacion —que es lo que el owner
+    pidio— convertia la seccion 1.3 en un derrumbe inventado y dejaba la
+    Seccion 3 vacia.
+    """
+    api = API.read_text(encoding="utf-8")
+    assert "async def _forecast_current()" in api
+    assert "forecast_id = body.forecast_id or await _forecast_current()" in api
+    assert "Scenario.is_current_forecast" in api or "f.is_current_forecast" in api
+    # Y la pantalla manda el mismo, con el mismo respaldo.
+    pagina = (FRONT / "app/month-end/pl/page.tsx").read_text(encoding="utf-8")
+    assert 'forecast_id: dame("FORECAST") || actualFullPL || undefined,' in pagina
+
+
+def test_la_portada_dice_el_NOMBRE_del_hotel_y_no_su_codigo():
+    """La pantalla manda `HOTEL_ID` —«AMA»—, que es el codigo del despliegue.
+    El informe del 30/09 salio con «AMA» bajo el titulo."""
+    api = API.read_text(encoding="utf-8")
+    assert "async def _nombre_de_la_propiedad(" in api
+    assert '"propiedad": await _nombre_de_la_propiedad(body.propiedad),' in api
