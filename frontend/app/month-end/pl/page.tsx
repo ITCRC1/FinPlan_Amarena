@@ -388,12 +388,18 @@ export default function MonthEndPLPage() {
   const [ranuras, setRanuras] = useState<string[]>(Array(RANURAS).fill(""));
   const [varA, setVarA] = useState(0);
   const [varB, setVarB] = useState(1);
-  /** Contra qué versión compara la Auditoría su detalle. `""` = sin comparar.
+  /** Contra qué versión compara la Auditoría su detalle.
    *
    *  ⚠️ Vive acá y no adentro del sub-tab porque el Excel arma el MISMO cuadro:
    *  si cada uno eligiera por su cuenta, el archivo podría estar comparando
-   *  contra otra versión que la pantalla de la que salió, y nada lo diría. */
-  const [audContra, setAudContra] = useState("");
+   *  contra otra versión que la pantalla de la que salió, y nada lo diría.
+   *
+   *  ⚠️ **`null` no es lo mismo que `""`.** `null` es «todavía no elegí» y cae
+   *  en el contra de la variación de arriba —la versión que la pantalla ya está
+   *  restando—; `""` es «elegí no comparar» y se respeta. Arrancar en `""` dejó
+   *  la auditoría idéntica a como estaba: la comparación existía y había que
+   *  descubrirla en un selector nuevo entre otros cuatro. */
+  const [audContra, setAudContra] = useState<string | null>(null);
   const [datos, setDatos] = useState<PLCompareVersion[]>([]);
   const [gastos, setGastos] = useState<GastoEscenario[]>([]);
   const [avisoGasto, setAvisoGasto] = useState<string | null>(null);
@@ -449,6 +455,15 @@ export default function MonthEndPLPage() {
    */
   const [comentarios, setComentarios] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState<string | null>(null);
+  /** La versión contra la que compara la Auditoría, ya resuelta.
+   *
+   *  Sin elección propia cae en el CONTRA de la variación de arriba: es la
+   *  versión que la pantalla ya está restando en todos los demás sub-tabs, así
+   *  que la auditoría abre comparando contra lo mismo que el resto del cierre
+   *  — y no contra nada, que fue el primer intento y se veía idéntico a no
+   *  haber hecho la función. */
+  const audCompara = audContra ?? (ranuras[varB] || "");
+
   const escComentario = ranuras[varA];
 
   useEffect(() => {
@@ -1415,8 +1430,8 @@ export default function MonthEndPLPage() {
       const a = await getAuditoria(id, mes, horizonte);
       // ⚠️ La MISMA versión de al lado que la pantalla (`audContra`). Un fallo
       // acá deja el archivo sin las dos columnas, no sin archivo.
-      const b = audContra && audContra !== id
-        ? await getAuditoria(audContra, mes, horizonte).catch(() => null) : null;
+      const b = audCompara && audCompara !== id
+        ? await getAuditoria(audCompara, mes, horizonte).catch(() => null) : null;
       const ix = indiceDe(b);
       const rotB = b ? b.escenario : "";
       const cab = `${a.escenario} · ${a.periodo} ${year} · USD`
@@ -3363,7 +3378,7 @@ export default function MonthEndPLPage() {
       {vista === "auditoria" && (
         <Auditoria escenarios={escenarios} inicial={ranuras[0] || undefined}
                    mes={mes} horizonte={horizonte} compacto={compacto}
-                   compara={audContra} onCompara={setAudContra} />
+                   compara={audCompara} onCompara={setAudContra} />
       )}
 
       {/* Profit by Department — mes · YTD · full year.

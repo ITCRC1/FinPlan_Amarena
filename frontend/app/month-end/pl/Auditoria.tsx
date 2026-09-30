@@ -143,6 +143,13 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
   /** La versión de al lado. Su fallo NO se lleva la pantalla: la auditoría sin
    *  comparación sigue contestando la pregunta principal, que es si cuadra. */
   const [datosB, setDatosB] = useState<Datos | null>(null);
+  /** Por qué no hay comparación, cuando se pidió una.
+   *
+   *  ⚠️ Antes esto era un `catch` mudo: la versión de al lado fallaba y la
+   *  pantalla quedaba exactamente igual que sin comparar. «No compara» sin
+   *  ninguna explicación es el peor resultado posible — no se puede distinguir
+   *  de que la función no exista. */
+  const [avisoB, setAvisoB] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Sólo las líneas que NO cuadran. Es el modo en que se usa esta pantalla
@@ -171,9 +178,23 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
   useEffect(() => { cargar(); }, [cargar]);
 
   const cargarB = useCallback(async () => {
+    setAvisoB(null);
     if (!compara || compara === scenarioId) { setDatosB(null); return; }
-    try { setDatosB(await getAuditoria(compara, mes, horizonte)); }
-    catch { setDatosB(null); }
+    try {
+      const b = await getAuditoria(compara, mes, horizonte);
+      setDatosB(b);
+      // Cargó, pero no trajo con qué comparar. Pasa con una versión sin mayor
+      // y sin checkbooks digitados: existe, está vacía, y el cuadro saldría
+      // con dos columnas de rayas sin decir por qué.
+      if (!b.detalle.some(f => f.movimiento)) {
+        setAvisoB(`${b.escenario} no tiene detalle por cuenta en este período: `
+                  + `sólo se compara el cuadre de arriba.`);
+      }
+    } catch (e) {
+      setDatosB(null);
+      setAvisoB(e instanceof Error ? e.message
+                : "no se pudo leer la versión de al lado");
+    }
   }, [compara, scenarioId, mes, horizonte]);
 
   useEffect(() => { cargarB(); }, [cargarB]);
@@ -325,6 +346,12 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
           {soloDif ? "☑ Sólo lo que no cuadra" : "☐ Sólo lo que no cuadra"}
         </button>
         {cargando && <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>cargando…</span>}
+        {avisoB && (
+          <span style={{ fontSize: 11.5, color: "var(--warning, #E6A817)",
+                         maxWidth: 460, lineHeight: 1.4 }}>
+            ⚠ {avisoB}
+          </span>
+        )}
         {error && <span style={{ fontSize: 12, color: "var(--negative)" }}>{error}</span>}
       </div>
 

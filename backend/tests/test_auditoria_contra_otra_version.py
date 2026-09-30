@@ -108,8 +108,8 @@ def test_la_pantalla_y_el_EXCEL_comparan_contra_LA_MISMA_version():
         "la version de al lado volvio a ser estado del sub-tab"
     pag = PAGINA.read_text(encoding="utf-8")
     assert "const [audContra, setAudContra] = useState" in pag
-    assert "compara={audContra} onCompara={setAudContra}" in pag
-    assert "audContra && audContra !== id" in pag
+    assert "compara={audCompara} onCompara={setAudContra}" in pag
+    assert "audCompara && audCompara !== id" in pag
 
 
 def test_el_EXCEL_usa_el_MISMO_cruce_que_la_pantalla():
@@ -127,9 +127,10 @@ def test_si_la_otra_version_falla_la_auditoria_SIGUE():
     que es si cuadra. Perder eso por un fallo de la comparacion seria cambiar
     lo importante por lo accesorio."""
     comp = COMP.read_text(encoding="utf-8")
-    assert "catch { setDatosB(null); }" in comp
+    # El fallo se atrapa Y se cuenta: la pantalla sigue, con el aviso al lado.
+    assert "setDatosB(null);" in comp and "setAvisoB(" in comp
     pag = PAGINA.read_text(encoding="utf-8")
-    assert "getAuditoria(audContra, mes, horizonte).catch(() => null)" in pag
+    assert "getAuditoria(audCompara, mes, horizonte).catch(() => null)" in pag
 
 
 def test_no_se_compara_una_version_contra_si_misma():
@@ -138,3 +139,47 @@ def test_no_se_compara_una_version_contra_si_misma():
     comp = COMP.read_text(encoding="utf-8")
     assert "compara === scenarioId" in comp
     assert "escenarios.filter(e => e.id !== scenarioId)" in comp
+
+
+def test_arranca_comparando_y_no_en_blanco():
+    """⚠️ El primer intento arrancaba en «— sin comparar —», y la auditoria se
+    veia EXACTAMENTE igual que antes de la funcion: habia que descubrir un
+    selector nuevo entre otros cuatro para que apareciera algo.
+
+    Owner, viendo eso: *«sigue igual, no cambio nada.. no compara»*.
+
+    Sin eleccion propia cae en el CONTRA de la variacion de arriba — la version
+    que la pantalla ya esta restando en todos los demas sub-tabs.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "useState<string | null>(null)" in pag
+    assert 'const audCompara = audContra ?? (ranuras[varB] || "")' in pag
+    assert "compara={audCompara}" in pag
+    # Y el Excel baja con la MISMA, no con la cruda.
+    assert "audCompara && audCompara !== id" in pag
+
+
+def test_null_y_cadena_vacia_NO_son_lo_mismo():
+    """`null` es «todavia no elegi» y cae en el default; `""` es «elegi no
+    comparar» y se respeta. Con un solo valor, apagar la comparacion la volveria
+    a encender en el siguiente render."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    i = pag.index("const [audContra")
+    doc = pag[max(0, i - 900):i]
+    assert "`null` no es lo mismo que" in doc
+
+
+def test_cuando_NO_puede_comparar_lo_DICE():
+    """⚠️ Era un `catch` mudo: la version de al lado fallaba y la pantalla
+    quedaba identica a como si no se hubiera pedido nada. «No compara» sin
+    ninguna explicacion no se puede distinguir de que la funcion no exista.
+
+    Dos avisos distintos, porque son dos problemas distintos: la que no se pudo
+    leer, y la que se leyo y no tiene detalle por cuenta.
+    """
+    comp = COMP.read_text(encoding="utf-8")
+    assert "setAvisoB" in comp
+    assert "no se pudo leer la versión de al lado" in comp
+    assert "no tiene detalle por cuenta en este período" in comp
+    assert "{avisoB && (" in comp, "el aviso no se dibuja"
+    assert "catch { setDatosB(null); }" not in comp, "volvio el catch mudo"
