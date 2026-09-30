@@ -111,16 +111,26 @@ def test_el_relleno_es_CLARO_y_no_una_banda_oscura():
     assert luz < 245, "el relleno de total no se distingue del blanco"
 
 
-def test_el_total_cierra_con_una_raya_arriba():
-    """Es como se cierra un bloque en un estado de resultados impreso. Con el
-    relleno solo, dos totales seguidos se leen como una sola banda."""
+def test_el_total_va_en_un_RECUADRO_negro():
+    """Owner, 2026-09-30, mostrando el tab que arreglo a mano: recuadro exterior
+    NEGRO medio arriba, abajo y en los extremos; las verticales internas finas y
+    grises, como el resto.
+
+    ⚠️ El negro va SOLO en los extremos. En todas las celdas, el total saldria
+    con la rejilla negra y pareceria otra tabla.
+    """
     _, ws = _hoja()
     total = next(r for r in range(1, 12)
                  if str(ws.cell(r, 1).value or "").startswith("TOTAL REVENUES"))
-    assert ws.cell(total, 1).border.top.style == "medium"
-    assert ws.cell(total, 2).border.top.style == "medium"
-    # Y no pierde el resto de la rejilla.
-    assert ws.cell(total, 2).border.bottom.style == "thin"
+    primera, ultima = ws.cell(total, 1), ws.cell(total, 3)
+    for c in (primera, ws.cell(total, 2), ultima):
+        assert c.border.top.style == "medium" and c.border.top.color.rgb[-6:] == "000000"
+        assert c.border.bottom.style == "medium"
+    assert primera.border.left.style == "medium"   # el marco, a la izquierda
+    assert ultima.border.right.style == "medium"   # y a la derecha
+    # Las verticales de adentro se quedan finas y grises.
+    assert ws.cell(total, 2).border.left.style == "thin"
+    assert ws.cell(total, 2).border.left.color.rgb[-6:] == "CBD5E0"
 
 
 def test_el_subtitulo_sigue_viajando_en_el_INDICE():
@@ -129,7 +139,26 @@ def test_el_subtitulo_sigue_viajando_en_el_INDICE():
     wb, _ = _hoja([_cuadro(), {**_cuadro(), "hoja": "Otra", "titulo": "Otro"}])
     assert len(wb.sheetnames) >= 3, "no se genero la hoja indice"
     indice = wb[wb.sheetnames[0]]
-    textos = [str(indice.cell(r, c).value or "")
-              for r in range(1, 12) for c in range(1, 5)]
-    assert any(SUBTITULO[:30] in t for t in textos), \
-        "el subtitulo se perdio: no esta en la hoja ni en el indice"
+    # ⚠️ Desde el 2026-09-30 la explicacion larga va como NOTA de la celda y no
+    # como texto: en la celda convertia el indice en una pared de texto, y el
+    # owner pidio una descripcion corta por hoja. Sigue estando.
+    notas = [indice.cell(r, 3).comment.text
+             for r in range(1, 12) if indice.cell(r, 3).comment]
+    assert any(SUBTITULO[:30] in t for t in notas), \
+        "el subtitulo se perdio: no esta en la hoja, ni en el indice, ni en su nota"
+
+
+def test_el_INDICE_lleva_link_a_cada_hoja():
+    """Un libro de dieciocho pestañas se recorre con el indice o no se recorre:
+    las lenguetas van cortadas a 31 caracteres y hay que buscarlas una por una.
+
+    ⚠️ El nombre va entre comillas simples en la referencia. Sin ellas, una hoja
+    con espacios —«P&L Ago Consolidado»— rompe el link y Excel abre el archivo
+    diciendo que no es valido.
+    """
+    wb, _ = _hoja([_cuadro(), {**_cuadro(), "hoja": "Otra", "titulo": "Otro"}])
+    indice = wb[wb.sheetnames[0]]
+    con_link = [indice.cell(r, 2) for r in range(1, 12)
+                if indice.cell(r, 2).hyperlink]
+    assert len(con_link) >= 2, "las hojas del indice no son links"
+    assert all(c.hyperlink.location.startswith("'") for c in con_link)

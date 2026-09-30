@@ -21,6 +21,21 @@ C = {
     "navy_mid":    "2D5A9E",
     "blue_light":  "EBF3FB",
     "blue_header": "F0F4F8",
+    # ── La paleta de junta (owner, 2026-09-30) ───────────────────────────
+    #
+    # *«debe verse profesional para una junta. colores pasteles y bien
+    # profesional»*.
+    #
+    # ⚠️ **Pastel no es claro a secas: es poco saturado.** Un azul clarito pero
+    # vivo compite con los números; estos tonos se apoyan en el papel y dejan que
+    # la cifra sea lo primero que se lee. Y todos pasan el contraste con texto
+    # oscuro, que es lo que hace que sigan leyéndose impresos en blanco y negro.
+    "banda_seccion": "E8EDF3",   #: encabezado de sección — azul pizarra pálido
+    "banda_total":   "DCE6F1",   #: fila de total — un punto más de color
+    "raya":          "CBD5E0",   #: la rejilla fina
+    "marco":         "000000",   #: el recuadro de los totales
+    "tinta":         "1A1A2E",   #: el texto de los totales
+    "cebra":         "F7F9FB",   #: la fila alterna, casi imperceptible
     #: El relleno de las filas de TOTAL en los cuadros que se bajan.
     #:
     #: Owner, 2026-09-30: *«quiero que todos los que son totales bajen con el
@@ -48,8 +63,27 @@ def fill(hex_color: str) -> PatternFill:
     return PatternFill("solid", fgColor=hex_color)
 
 
-def font(bold=False, color="1A1A2E", size=10, italic=False) -> Font:
-    return Font(name="Calibri", bold=bold, color=color, size=size, italic=italic)
+def font(bold=False, color="1A1A2E", size=10, italic=False,
+         underline=None) -> Font:
+    return Font(name="Calibri", bold=bold, color=color, size=size,
+                italic=italic, underline=underline)
+
+
+def marco_total(izq: bool, der: bool, color_marco="000000",
+                color_raya="CBD5E0") -> Border:
+    """El borde de una celda de fila TOTAL.
+
+    Owner, 2026-09-30, mostrando el tab que arregló a mano: recuadro exterior
+    NEGRO medio arriba, abajo y en los extremos; las verticales internas finas y
+    grises, como el resto.
+
+    ⚠️ Es por celda y no por fila: sólo la primera lleva el negro a la izquierda
+    y sólo la última a la derecha. Poniéndolo en todas, el total sale con la
+    rejilla negra y parece otra tabla.
+    """
+    n = Side(style="medium", color=color_marco)
+    f = Side(style="thin", color=color_raya)
+    return Border(top=n, bottom=n, left=n if izq else f, right=n if der else f)
 
 
 def border(color="CBD5E0", sides="all") -> Border:

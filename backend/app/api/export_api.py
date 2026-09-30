@@ -39,6 +39,9 @@ class Fila(BaseModel):
     label: str = ""
     nivel: int = 0
     es_total: bool = False
+    #: Encabezado de sección. ⚠️ Un campo que el modelo no declara se DESCARTA
+    #: en silencio: la pantalla lo manda, el Excel sale sin él y nada avisa.
+    es_seccion: bool = False
     # Pisa el formato de la columna. Para cuadros que mezclan unidades en la
     # misma columna (noches / ocupación % / ADR en dólares, una bajo la otra).
     formato: str | None = None
@@ -64,6 +67,10 @@ class FilaKpi(BaseModel):
 class Cuadro(BaseModel):
     titulo: str = "Cuadro"
     subtitulo: str | None = None
+    #: La descripción de UNA línea para el Índice (owner, 2026-09-30). El
+    #: título y el subtítulo largos pasan a ser la nota de la celda: siguen
+    #: estando sin volver el índice una pared de texto.
+    descripcion: str | None = None
     hoja: str | None = None
     columnas: list[Columna] = Field(default_factory=list)
     filas: list[Fila] = Field(default_factory=list)

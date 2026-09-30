@@ -244,6 +244,17 @@ export function cuadroTresCortes(
    *  las filas del encabezado salen VACÍAS, no en cero: el archivo diría que
    *  el hotel no vendió nada. */
   stats?: (EstadisticasCierre | null)[][],
+  /** Quién ocupa la primera columna del año completo.
+   *
+   *  ⚠️ El Forecast Current, no el Actual. El Actual del año son los meses
+   *  cargados, así que ahí REPETÍA el YTD al centavo — dos columnas idénticas
+   *  con rótulos distintos no dicen que el año no terminó, se leen como dos
+   *  cifras que casualmente coinciden.
+   *
+   *  Owner, 2026-09-30, sobre los 17 tabs: la primera columna del full year es
+   *  el Forecast Current, y tiene que ser la misma en todos. Los checkbooks y
+   *  el armado ya lo hacían; faltaban los tres P&L. */
+  actualDelFullYear = "",
 ): Cuadro {
   const cortes = cortesDe(mes);
   const versiones = datos.versiones ?? [];
@@ -256,32 +267,45 @@ export function cuadroTresCortes(
     !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
   const columnas: ColumnaCuadro[] = [
     { label: "ACCOUNT DESCRIPTION", ancho: 42, formato: "texto" },
-    ...cortes.flatMap(c => [
-      ...versiones.map(v => ({ label: `${c.titulo} · ${etiqueta(v.scenario_id)}`,
-                               ancho: 16, formato: "usd2" as const })),
+    ...cortes.flatMap((c, ci) => [
+      ...versiones.map((_v, vi) => ({
+        label: `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`,
+        ancho: 16, formato: "usd2" as const })),
       ...(parDe(c, versiones, escenarios)
         ? [{ label: `${c.titulo} · Variance`, ancho: 16, formato: "usd2" as const }]
         : []),
     ]),
   ];
 
+  /** El índice de versión que ocupa una columna en un corte. Sólo cambia en la
+   *  primera del año completo. */
+  const viDe = (vi: number, ci: number) => {
+    if (ci !== 2 || vi !== 0 || !actualDelFullYear) return vi;
+    const j = versiones.findIndex(v => v.scenario_id === actualDelFullYear);
+    return j >= 0 ? j : vi;
+  };
+
   const kpi: FilaCuadro[] = KPIS.map((k): FilaCuadro => ({
     label: k.rotulo, es_total: !!k.fuerte,
     formato: k.fmt === pct ? "pct" : k.fmt === numero ? "num" : "usd2",
     valores: celdasDe(cortes, versiones, escenarios,
-      (vi, _m, ci) => k.calc(stats?.[ci]?.[vi] ?? null)),
+      (vi, _m, ci) => k.calc(stats?.[ci]?.[viDe(vi, ci)] ?? null)),
   })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
                        || f.valores.some(v => v !== null));
 
   const cuerpo: FilaCuadro[] = filas.filter(f => f.tipo !== "esp").map(f => ({
     label: f.rotulo,
-    es_total: f.tipo === "tot" || f.tipo === "sub" || f.tipo === "sec",
+    // ⚠️ Sección y total no son lo mismo: el total lleva recuadro negro y la
+    // sección sólo su banda. Ver `es_seccion` en `exportCuadro`.
+    es_total: f.tipo === "tot" || f.tipo === "sub",
+    es_seccion: f.tipo === "sec",
     formato: "usd2",
     // ⚠️ Los encabezados de sección van SIN números, no en cero: un cero ahí
     // se leería como «esta sección no tuvo movimiento».
     valores: f.tipo === "sec"
       ? celdasDe(cortes, versiones, escenarios, () => null)
-      : celdasDe(cortes, versiones, escenarios, (vi, meses) => valorDe(f, vi, meses)),
+      : celdasDe(cortes, versiones, escenarios,
+                 (vi, meses, ci) => valorDe(f, viDe(vi, ci), meses)),
   }));
 
   return {

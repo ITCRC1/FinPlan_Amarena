@@ -148,6 +148,34 @@ const EXTRAS = [
  *  ⚠️ No arman nada nuevo: los dos ya tenían su cuadro —`cuadroResumenConsolidado`
  *  y `cuadroDelAnio`— porque cada uno baja su propio Excel desde el Dashboard.
  *  Acá se enganchan los MISMOS. */
+/** Las hojas que NO llevan la franja de estadísticas arriba. */
+const SIN_FRANJA = new Set(["pms", "membresias"]);
+
+/** La descripción de una línea de cada hoja, para el Índice.
+ *
+ *  Owner, 2026-09-30, mandando el índice que armó a mano. La clave es el nombre
+ *  de la PESTAÑA cuando existe y la del capítulo cuando una sola clave produce
+ *  varias hojas. */
+const DESCRIPCION: Record<string, string> = {
+  "P&L Ago Consolidado": "Estado de resultados consolidado: mes, YTD y full year vs. Budget y Forecast.",
+  "P&L Ago Hotel": "Estado de resultados del Hotel: mes, YTD y full year vs. Budget y Forecast.",
+  "P&L Ago Club": "Estado de resultados del Club: mes, YTD y full year vs. Budget y Forecast.",
+  "Checkbook Opex": "Detalle de gastos operativos por cuenta del mayor (USD).",
+  "Checkbook Salarios": "Detalle de salarios y cargas sociales por cuenta (USD).",
+  "Checkbook Costo de ventas": "Detalle del costo de ventas por cuenta (USD).",
+  "Checkbook Gastos de propiedad": "Detalle de gastos de propiedad por cuenta (USD).",
+  "Inventario": "Habitaciones disponibles por tipo de habitación.",
+  "Noches por categoría": "Noches vendidas por categoría de habitación.",
+  "Rack rates": "Tarifas rack promedio por tipo de habitación.",
+  "Ocupación": "Porcentaje de ocupación por tipo de habitación.",
+  "Pax": "Huéspedes (pax) por tipo de habitación.",
+  "Canales de venta": "Mezcla de ventas por canal de reserva.",
+  "Net rate": "Tarifa neta promedio por tipo de habitación.",
+  "Total revenue": "Ingreso total por tipo de habitación.",
+  pms: "Resumen mensual de ingresos y estadísticas del PMS.",
+  membresias: "Membresías activas y cobro de cuota de mantenimiento por mes.",
+};
+
 const DEL_DASHBOARD = [
   { key: "pms", rotulo: "Resumen consolidado · PMS" },
   { key: "membresias", rotulo: "Membresías del club" },
@@ -1735,7 +1763,7 @@ export default function MonthEndPLPage() {
         stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes),
                                                       d.versiones ?? []);
         cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
-                                      stats));
+                                      stats, actualFullPL));
       }
       return cuadros;
     },
@@ -2032,6 +2060,15 @@ export default function MonthEndPLPage() {
    *  hoja sale vacía justo cuando el dato existe: el conteo del PMS y las
    *  membresías se cargan en el ACTUAL, y el cierre suele mirarse contra el
    *  Budget. */
+  /** El Forecast Current: el que ocupa la primera columna del año completo en
+   *  TODOS los tabs. Lo marca el backend con `is_current_forecast` —es el
+   *  target de los uploads—, no se adivina por el nombre. */
+  const actualFullPL = useMemo(() => (
+    escenarios.find(e => e.is_current_forecast)?.id
+    || ranuras.find(id => id && escenarios.find(x => x.id === id)?.type === "FORECAST")
+    || ""
+  ), [escenarios, ranuras]);
+
   const conRespaldo = useCallback(() => {
     const puestos = ranuras.filter(Boolean);
     const anio = escenarios.find(e => e.id === puestos[0])?.year;
@@ -2215,7 +2252,16 @@ export default function MonthEndPLPage() {
           // libro resuelve los repetidos.
           // El capítulo manda su nombre de pestaña si lo tiene; si no, el
           // título. Excel lo corta a 31 y el libro resuelve los repetidos.
-          cuadros.push({ ...c, ...(franja || {}), hoja: c.hoja || c.titulo });
+          // ⚠️ La franja de estadísticas NO va en todas las hojas. El Resumen
+          // del PMS y las Membresías son cuadros de año, no del corte: con la
+          // franja arriba, las columnas de la tabla dejan de alinear con las
+          // del encabezado y el cuadro se lee torcido (owner, 2026-09-30).
+          const lleva = !SIN_FRANJA.has(clave);
+          cuadros.push({
+            ...c, ...(lleva && franja ? franja : {}),
+            hoja: c.hoja || c.titulo,
+            descripcion: DESCRIPCION[c.hoja || ""] ?? DESCRIPCION[clave] ?? "",
+          });
         }
       } catch {
         fallaron.push(t(`tab_${clave}`));

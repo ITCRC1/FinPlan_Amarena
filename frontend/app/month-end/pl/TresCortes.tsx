@@ -82,6 +82,15 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   // `useMemo`: sin esto se recalculan siempre.
   const versiones = useMemo(() => datos?.versiones ?? [], [datos]);
 
+  /** El Forecast Current, para la primera columna del año completo. Ver
+   *  `cuadroTresCortes`: el Actual del año repite el YTD. */
+  const actualDelFullYear = useMemo(() => (
+    escenarios.find(e => e.is_current_forecast)?.id
+    || versiones.find(v => escenarios.find(x => x.id === v.scenario_id)?.type
+                           === "FORECAST")?.scenario_id
+    || ""
+  ), [escenarios, versiones]);
+
   /** ⚠️ La regla del par vive en el lib: la pantalla, el Excel y el Word
    *  tienen que restar lo mismo. */
   const parDe = useCallback((c: Corte) => parDeLib(c, versiones, escenarios),
@@ -137,7 +146,7 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
         const d = a.clave === ambito
           ? datos : await getPLDetail(a.clave, ids[0], ids.slice(1));
         cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
-                                      stats));
+                                      stats, actualDelFullYear));
       }
       await bajarCuadros(`FullPL_${MES3[mes - 1]}_${datos.year}`, cuadros);
     } catch (e) {

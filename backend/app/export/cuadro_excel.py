@@ -41,8 +41,11 @@ from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 
+from openpyxl.comments import Comment
+from openpyxl.worksheet.hyperlink import Hyperlink
+
 from app.export.excel_base import (
-    C, align, border, fill, font, merged_header, nombre_de_hoja,
+    C, align, border, fill, font, marco_total, merged_header, nombre_de_hoja,
     set_col_widths, workbook_to_bytes,
 )
 
@@ -155,23 +158,37 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
 
     for j, f in enumerate(filas):
         fila = PRIMERA_FILA + j
-        es_total = bool(f.get("es_total"))
+        # ── Tres estados de fila, y son tres cosas distintas ─────────────────
+        #
+        # Owner, 2026-09-30, mostrando el tab que arregló a mano:
+        #
+        #   normal    rejilla fina gris, sin relleno, sin negrita
+        #   sección   relleno pálido, negrita, raya arriba — SIN marco negro
+        #   total     recuadro NEGRO medio + relleno + negrita
+        #
+        # ⚠️ Antes había sólo dos: el encabezado de sección compartía marcador
+        # con el total, así que «REVENUES» salía con el mismo peso visual que
+        # «NET PROFIT» y el ojo no encontraba dónde cierra cada bloque.
+        es_seccion = bool(f.get("es_seccion"))
+        es_total = bool(f.get("es_total")) and not es_seccion
         nivel = int(f.get("nivel") or 0)
+        ultima_col = min(n_col, 1 + len(f.get("valores") or []))
 
         # La jerarquía va con SANGRÍA de Excel, no con espacios dentro del texto.
         # Con espacios, ordenar la columna o copiarla a otro lado se lleva la
         # sangría puesta y el nivel deja de significar nada. Es lo que hace hoy
         # `/reports/expenses`, que simula la jerarquía con espacios.
         etiqueta = ws.cell(fila, 1, f.get("label", ""))
-        etiqueta.font = font(bold=es_total)
+        etiqueta.font = font(bold=es_total or es_seccion,
+                             color=C["tinta"])
         etiqueta.alignment = Alignment(horizontal="left", vertical="center",
                                        indent=min(nivel, 8))
         etiqueta.border = border()
         if es_total:
-            etiqueta.fill = fill(C["total_fill"])
-            # Una raya arriba, que es como se cierra un bloque en un estado de
-            # resultados impreso. Con el relleno solo, dos totales seguidos se
-            # ven como una sola banda.
+            etiqueta.fill = fill(C["banda_total"])
+            etiqueta.border = marco_total(True, n_col == 1)
+        elif es_seccion:
+            etiqueta.fill = fill(C["banda_seccion"])
             etiqueta.border = border(sides="all_top")
 
         # La fila puede pisar el formato de la columna. Hace falta cuando un mismo
@@ -192,10 +209,29 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
             # alineada a la derecha es ilegible. Pasa en las pantallas de mapeo,
             # que son casi todas de texto (cuenta · departamento · línea del P&L).
             celda.alignment = align("left" if isinstance(valor, str) else "right")
-            celda.font = font(bold=es_total)
-            celda.border = border(sides="all_top") if es_total else border()
+            celda.font = font(bold=es_total or es_seccion,
+                              color=C["tinta"])
             if es_total:
-                celda.fill = fill(C["total_fill"])
+                # ⚠️ El negro sólo en los extremos. En todas las celdas, el
+                # total saldría con la rejilla negra y parecería otra tabla.
+                celda.border = marco_total(False, i == ultima_col)
+                celda.fill = fill(C["banda_total"])
+            elif es_seccion:
+                celda.border = border(sides="all_top")
+                celda.fill = fill(C["banda_seccion"])
+            else:
+                celda.border = border()
+
+        # ⚠️ Si la fila trae menos valores que columnas, el marco se cortaría a
+        # media tabla. Se completan las celdas que faltan con el mismo formato y
+        # sin contenido: el recuadro tiene que llegar a la última columna.
+        if es_total or es_seccion:
+            for i in range(max(2, ultima_col + 1), n_col + 1):
+                celda = ws.cell(fila, i)
+                celda.fill = fill(C["banda_total"] if es_total
+                                  else C["banda_seccion"])
+                celda.border = (marco_total(False, i == n_col) if es_total
+                                else border(sides="all_top"))
 
     set_col_widths(ws, {i: (col.get("ancho") or (38 if i == 1 else 14))
                         for i, col in enumerate(columnas, start=1)})
@@ -258,13 +294,65 @@ def _indice(wb: Workbook, cuadros: list[dict], nombres: list[str]) -> None:
         fila = 4 + j
         titulo = (cuadro.get("titulo") or "Cuadro").strip()
         sub = (cuadro.get("subtitulo") or "").strip()
-        for i, valor in enumerate((j + 1, hoja, titulo + (f"  ·  {sub}" if sub else "")),
-                                  start=1):
+        #: La descripción de UNA línea que el owner escribió a mano
+        #: (2026-09-30). El título completo y el subtítulo largo pasan a ser la
+        #: NOTA de la celda: siguen estando —explican cómo se calcula cada
+        #: tab— sin volver el índice una pared de texto.
+        corta = (cuadro.get("descripcion") or "").strip() or titulo
+        banda = _banda_del_bloque(hoja)
+        for i, valor in enumerate((j + 1, hoja, corta), start=1):
             c = ws.cell(fila, i, valor)
             c.alignment = align("left")
             c.border = border()
+            if banda:
+                c.fill = fill(banda)
+            c.font = font(size=10)
+        # ── El nombre de la hoja, como LINK ───────────────────────────────
+        #
+        # Owner, 2026-09-30: *«cada nombre es un link a su hoja»*. Un libro de
+        # dieciocho pestañas se recorre con el índice o no se recorre: las
+        # lengüetas de abajo van cortadas a 31 caracteres y hay que buscarlas
+        # una por una.
+        #
+        # ⚠️ El nombre va entre comillas simples. Sin ellas, una hoja con
+        # espacios —«P&L Ago Consolidado»— rompe la referencia y Excel abre el
+        # archivo diciendo que el link no es válido.
+        celda = ws.cell(fila, 2)
+        # ⚠️ `location` y NO `hyperlink = "#'Hoja'!A1"`. Asignando una cadena,
+        # openpyxl la guarda como destino EXTERNO: Excel abre el archivo
+        # avisando que el vínculo no es válido y el link no lleva a ningún lado.
+        celda.hyperlink = Hyperlink(ref=celda.coordinate,
+                                    location=f"'{hoja}'!A1")
+        celda.font = font(size=10, color="1F4E79", underline="single")
+        # ── La explicación larga, como NOTA ───────────────────────────────
+        #
+        # No se pierde: explica cómo se calcula cada tab. Pero en la celda
+        # convertía el índice en una pared de texto (owner, 2026-09-30: una
+        # descripción corta por hoja).
+        largo = titulo + (f" · {sub}" if sub else "")
+        if largo.strip() and largo.strip() != corta:
+            ws.cell(fila, 3).comment = Comment(largo, "FinPlan", width=420,
+                                               height=170)
     set_col_widths(ws, {1: 5, 2: 34, 3: 88})
     ws.freeze_panes = ws.cell(4, 1)
+
+
+#: Con qué color se pinta cada bloque del índice.
+#:
+#: ⚠️ Por el nombre de la hoja y no por el orden: el paquete se puede reordenar
+#: desde «Armar paquete», y con el orden las bandas quedarían repartidas al azar.
+_BLOQUES = (
+    ("P&L", "F3DFE0"),          #: los tres estados de resultados
+    ("Checkbook", "EDE6D6"),    #: el detalle por cuenta
+)
+_BANDA_RESTO = "DCE9F2"         #: estadística y anexos
+
+
+def _banda_del_bloque(hoja: str) -> str:
+    for prefijo, color in _BLOQUES:
+        if hoja.startswith(prefijo):
+            return color
+    return _BANDA_RESTO
 
 
 def build_cuadros_workbook(cuadros: list[dict]) -> bytes:

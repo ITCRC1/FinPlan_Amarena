@@ -32,6 +32,13 @@ export interface FilaCuadro {
   nivel?: number;
   /** Negrita + fondo. Para subtotales y totales. También sirve de banda de sección. */
   es_total?: boolean;
+  /** Encabezado de sección —«REVENUES», «Operating Expenses»—.
+   *
+   *  ⚠️ NO es un total y no lleva su recuadro negro: es el rótulo del bloque
+   *  que empieza. Antes compartía marcador con `es_total`, así que «REVENUES»
+   *  salía con el mismo peso visual que «NET PROFIT» y el ojo no encontraba
+   *  dónde cierra cada bloque (owner, 2026-09-30). */
+  es_seccion?: boolean;
   /** Pisa el formato de la columna: para cuadros que mezclan unidades por fila. */
   formato?: FormatoCol;
   /**
@@ -48,6 +55,10 @@ export interface FilaCuadro {
 export interface Cuadro {
   titulo: string;
   subtitulo?: string;
+  /** La descripción de UNA línea para el Índice del libro. El título y el
+   *  subtítulo largos pasan a ser la NOTA de esa celda: siguen estando sin
+   *  volver el índice una pared de texto. */
+  descripcion?: string;
   /** Nombre de la hoja. Sin esto se usa el título recortado. */
   hoja?: string;
   columnas: ColumnaCuadro[];

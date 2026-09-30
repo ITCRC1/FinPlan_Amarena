@@ -129,7 +129,8 @@ export function cuadroCheckbookCortes(
   for (const [code, g] of grupos) {
     filas.push({
       label: g.nombre ? `${code} · ${g.nombre}` : code,
-      es_total: true, nivel: 0,
+      // La banda del departamento es el rótulo del bloque, no su cierre.
+      es_seccion: true, nivel: 0,
       valores: celdas((vi, meses, ci) =>
         g.filas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
     });
