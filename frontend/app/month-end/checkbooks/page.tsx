@@ -23,9 +23,19 @@ import { useEffect, useMemo, useState } from "react";
 import Checkbooks from "@/app/month-end/pl/Checkbooks";
 import { getDetalleDeCelda, getGastoPorClase, getScenarios,
          type Scenario } from "@/lib/api";
+import { cuadroCheckbookCortes } from "@/lib/checkbookCortes";
 import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
-import { useEscenarioDe } from "@/lib/escenarioPreferido";
+import { sembrarTres, useEscenarioDe } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
+
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+               "Agosto", "Setiembre", "Octubre", "Noviembre", "Diciembre"];
+
+/** Los cuatro libros, con el nombre que usa el owner. Acá para el Excel; el
+ *  componente tiene la misma lista para sus sub-tabs. */
+const LIBROS = [["opex", "Opex"], ["payroll", "Salarios"],
+                ["cost", "Costo de ventas"],
+                ["property", "Gastos de propiedad"]] as const;
 
 const SEL: React.CSSProperties = {
   padding: "6px 10px", fontSize: 12.5, borderRadius: 6,
@@ -42,6 +52,32 @@ export default function CheckbooksPage() {
    *  queda donde lo dejen — ver `useEscenarioDe`. */
   const [scenarioId, setScenarioId] = useEscenarioDe(
     "month-end/checkbooks", escenarios, "forecast");
+
+  /** Cuál de las dos vistas fijas (owner, 2026-09-30).
+   *
+   *  ⚠️ Vive acá y no adentro del cuadro porque las dos necesitan cosas
+   *  distintas de esta pantalla: los doce meses van de una versión, y los tres
+   *  cortes necesitan las TRES. Y el Excel baja la que esté puesta. */
+  const [vista, setVista] = useState<"12m" | "cortes">("12m");
+  const [mes, setMes] = useState(0);   // 0 = todavía sin sembrar
+
+  /** Las tres versiones de la comparación: Actual, Budget y Forecast.
+   *
+   *  ⚠️ Salen de `sembrarTres` —la regla del owner— y no de un
+   *  `escenarios.find(...)`: `GET /scenarios/` ordena por año descendente, así
+   *  que el primer BUDGET de la lista es el Working 2035 y la comparación
+   *  abriría contra un presupuesto real, vacío y de otro año, sin que nada
+   *  fallara. */
+  const tres = useMemo(() => sembrarTres(escenarios), [escenarios]);
+
+  /** El mes del cierre. Arranca en el corte del Forecast —hasta dónde hay
+   *  actuales cargados—, que es el mes del que se está hablando. Sin eso habría
+   *  que elegirlo a mano cada vez para ver algo que no esté vacío. */
+  useEffect(() => {
+    if (mes || !escenarios.length) return;
+    const f = escenarios.find(s => s.id === tres.forecast);
+    setMes(f?.actuals_through || new Date().getMonth() + 1);
+  }, [escenarios, tres, mes]);
 
   useEffect(() => {
     getScenarios(HOTEL_ID).then(setEscenarios)
@@ -62,7 +98,13 @@ export default function CheckbooksPage() {
     return () => { vivo = false; };
   }, [scenarioId]);
 
-  const ids = useMemo(() => (scenarioId ? [scenarioId] : []), [scenarioId]);
+  /** Qué versiones pide el cuadro. En los doce meses, la elegida; en los tres
+   *  cortes, las tres — la comparación no existe sin ellas. */
+  const ids = useMemo(() => (
+    vista === "cortes"
+      ? [tres.actual, tres.budget, tres.forecast].filter(Boolean)
+      : (scenarioId ? [scenarioId] : [])
+  ), [vista, tres, scenarioId]);
 
   /** Los cuatro libros a un Excel, una hoja cada uno.
    *
@@ -71,16 +113,36 @@ export default function CheckbooksPage() {
    *  estaba puesto cuando alguien lo bajó no se puede archivar: dos copias del
    *  mismo mes dirían cosas distintas. */
   async function bajarExcel() {
-    if (!scenarioId) return;
+    if (!ids.length) return;
     const etiqueta = escenarios.find(s => s.id === scenarioId);
-    const nombre = etiqueta
-      ? `${etiqueta.type}_${etiqueta.version}_${etiqueta.year}` : scenarioId;
-    const LIBROS = [["opex", "Opex"], ["payroll", "Salarios"],
-                    ["cost", "Costo de ventas"],
-                    ["property", "Gastos de propiedad"]] as const;
+    const nombre = vista === "cortes"
+      ? `Cortes_${MESES[mes - 1] ?? ""}`
+      : (etiqueta ? `${etiqueta.type}_${etiqueta.version}_${etiqueta.year}`
+                  : scenarioId);
     const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
     const cuadros: Cuadro[] = [];
+
+    // ── La vista de cortes ───────────────────────────────────────────────
+    //
+    // ⚠️ Arma el MISMO cuadro que la pantalla (`cuadroCheckbookCortes`). Dos
+    // armados del mismo reporte empiezan iguales y se separan en el primer
+    // arreglo que alguien hace de un lado.
+    if (vista === "cortes") {
+      for (const [clase, rotulo] of LIBROS) {
+        try {
+          const d = await getDetalleDeCelda(ids, clase, "");
+          const c = cuadroCheckbookCortes(rotulo, d, mes, escenarios, "", deptos);
+          // Sólo el TOTAL y nada más: el libro está vacío para esas versiones.
+          if (c.filas.length > 1) cuadros.push(c);
+        } catch { /* un libro que falla no se lleva los otros tres */ }
+      }
+      if (!cuadros.length) { alert("No hay nada cargado para bajar."); return; }
+      try { await bajarCuadros(`Checkbooks_${nombre}`, cuadros); }
+      catch (e) { alert(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
+      return;
+    }
+
     for (const [clase, rotulo] of LIBROS) {
       try {
         const d = await getDetalleDeCelda([scenarioId], clase, "");
@@ -121,12 +183,51 @@ export default function CheckbooksPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 10,
                     flexWrap: "wrap", marginBottom: 12 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700 }}>Checkbooks</h1>
-        <select value={scenarioId} onChange={e => setScenarioId(e.target.value)}
-                style={SEL}>
-          {escenarios.map(s => (
-            <option key={s.id} value={s.id}>{s.type} · {s.version} · {s.year}</option>
+
+        {/* ── Las DOS vistas fijas ──────────────────────────────────────────
+            Owner, 2026-09-30: «en realidad que sean 2 vistas fijas: 12 meses,
+            y mes-YTD-Full year». Son dos preguntas distintas —cómo se reparte
+            el año, y cómo va contra el presupuesto—, no dos formatos del mismo
+            cuadro, y por eso son botones y no un menú perdido. */}
+        <div style={{ display: "flex", gap: 0, borderRadius: 6, overflow: "hidden",
+                      border: "1px solid var(--border-medium)" }}>
+          {([["12m", "12 meses"], ["cortes", "Mes · YTD · Full Year"]] as const)
+            .map(([v, rot]) => (
+            <button key={v} onClick={() => setVista(v)} style={{
+              padding: "6px 13px", fontSize: 12.5, cursor: "pointer", border: "none",
+              fontWeight: vista === v ? 700 : 500,
+              background: vista === v ? "var(--brand)" : "var(--bg-surface)",
+              color: vista === v ? "#fff" : "var(--text-secondary)",
+            }}>{rot}</button>
           ))}
-        </select>
+        </div>
+
+        {/* La versión sólo elige en los doce meses: en los tres cortes van las
+            tres —Actual, Budget y Forecast— porque la comparación las necesita,
+            y un selector que no cambia nada se lee como roto. */}
+        {vista === "12m" ? (
+          <select value={scenarioId} onChange={e => setScenarioId(e.target.value)}
+                  style={SEL}>
+            {escenarios.map(s => (
+              <option key={s.id} value={s.id}>{s.type} · {s.version} · {s.year}</option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <select value={mes} onChange={e => setMes(Number(e.target.value))}
+                    style={SEL} title="El mes del cierre: define el corte del mes y hasta dónde llega el YTD">
+              {MESES.map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11.5, color: "var(--text-secondary)",
+                           maxWidth: 420, lineHeight: 1.5 }}>
+              Actual · Budget · Forecast — {ids.length < 3
+                ? "falta alguna de las tres versiones del año"
+                : "las tres versiones del año"}
+            </span>
+          </>
+        )}
         <button onClick={bajarExcel}
           title="Los cuatro checkbooks en un Excel, una hoja cada uno y con todos los departamentos"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600,
@@ -137,7 +238,8 @@ export default function CheckbooksPage() {
         )}
       </div>
 
-      <Checkbooks escenarios={escenarios} scenarioIds={ids} deptos={deptos} />
+      <Checkbooks escenarios={escenarios} scenarioIds={ids} deptos={deptos}
+                  vista={vista} mes={mes || 12} />
     </div>
   );
 }

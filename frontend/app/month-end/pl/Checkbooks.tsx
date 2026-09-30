@@ -30,10 +30,28 @@
  * Por eso también hereda su honestidad: cada versión declara si su detalle sale
  * del **mayor** o del **auxiliar** —un presupuesto no tiene mayor cargado, pero
  * cada línea de su checkbook lleva su cuenta—.
+ *
+ * ## Dos vistas fijas, no un selector de todo
+ *
+ * Owner, 2026-09-30: *«además de la vista de 12 meses, quiero también tener la
+ * opción de comparar el actual versus Budget del mes, YTD del mes y Budget, y
+ * Full year Forecast versus Budget. en realidad que sean 2 vistas fijas»*.
+ *
+ * | vista | qué contesta |
+ * |---|---|
+ * | **12 meses** | cómo se reparte el año, una versión a la vez |
+ * | **Mes · YTD · Full Year** | cómo va contra el presupuesto, las tres juntas |
+ *
+ * ⚠️ La segunda arma su cuadro con `lib/checkbookCortes`, que a su vez usa
+ * `lib/tresCortes` sin copiarlo: el checkbook y el P&L tienen que cortar el año
+ * por los mismos meses y restar el mismo par, o el detalle diría una variación
+ * y el reporte otra sobre los mismos datos.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getDetalleDeCelda, type DetalleCelda, type Scenario } from "@/lib/api";
+import { anchoDelCorte, cortesDelCheckbook,
+         cuadroCheckbookCortes } from "@/lib/checkbookCortes";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -55,18 +73,28 @@ const TD: React.CSSProperties = {
   padding: "4px 9px", textAlign: "right", fontSize: 11.5, whiteSpace: "nowrap",
 };
 const TDL: React.CSSProperties = { padding: "4px 10px", fontSize: 11.5 };
+/** La raya que separa un corte del siguiente. */
+const BL = "2px solid var(--border-medium)";
+
 const SEL: React.CSSProperties = {
   padding: "5px 9px", fontSize: 12, borderRadius: 5,
   border: "1px solid var(--border-medium)",
   background: "var(--bg-surface)", color: "var(--text-primary)",
 };
 
-export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
+export default function Checkbooks({ escenarios, scenarioIds, deptos,
+                                    vista = "12m", mes = 12 }: {
   escenarios: Scenario[];
-  /** Las ranuras ocupadas de la pantalla. */
+  /** Las ranuras ocupadas de la pantalla. En la vista de cortes son las TRES
+   *  —Actual, Budget, Forecast—, que es lo que la comparación necesita. */
   scenarioIds: string[];
   /** `{código: nombre}` del catálogo, para el selector. */
   deptos: Record<string, string>;
+  /** Cuál de las dos vistas fijas. La manda la pantalla porque el Excel baja
+   *  la que esté puesta, y el selector de versiones cambia con ella. */
+  vista?: "12m" | "cortes";
+  /** El mes del cierre: define el corte «mes» y hasta dónde llega el YTD. */
+  mes?: number;
 }) {
   const [clase, setClase] = useState<string>("opex");
   const [dept, setDept] = useState<string>("");      // "" = todos
@@ -157,6 +185,15 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
 
   const rotuloLibro = LIBROS.find(l => l.clase === clase)?.rotulo ?? clase;
 
+  /** El cuadro de los tres cortes. ⚠️ Es EL MISMO que baja al Excel — la
+   *  pantalla lo dibuja, no lo vuelve a armar. */
+  const cortes = useMemo(() => cortesDelCheckbook(mes), [mes]);
+  const cuadro = useMemo(() => (
+    vista === "cortes" && datos
+      ? cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos)
+      : null
+  ), [vista, datos, rotuloLibro, mes, escenarios, dept, deptos]);
+
   return (
     <div>
       <p style={{ fontSize: 12.5, color: "var(--text-secondary)",
@@ -234,7 +271,111 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos }: {
         </p>
       )}
 
-      {versiones.map(v => {
+      {/* ══════════ Vista: mes · YTD · full year ══════════════════════════ */}
+      {vista === "cortes" && cuadro && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11.5, color: "var(--text-secondary)",
+                        marginBottom: 8, maxWidth: 900, lineHeight: 1.6 }}>
+            {rotuloLibro}
+            {dept && clase !== "property"
+              ? ` · ${dept} · ${deptos[dept] ?? ""}` : " · todos los departamentos"}
+            {" — "}
+            <b>en el full year la varianza es Forecast contra Budget</b>: el
+            Actual del año todavía no existe, son los meses cargados y nada más.
+          </div>
+          <div className="fin-scroll-x">
+            <table style={{ borderCollapse: "collapse", minWidth: 900 }}>
+              <thead>
+                {/* La fila de cortes, arriba de las versiones: sin ella, nueve
+                    columnas de montos no dicen cuál pertenece a qué período. */}
+                <tr>
+                  <th style={{ ...TDL, position: "static", minWidth: 250 }} />
+                  {cortes.map((c, ci) => (
+                    <th key={c.clave} colSpan={anchoDelCorte(c, versiones, escenarios)}
+                        style={{ ...TD, position: "static", textAlign: "center",
+                                 fontWeight: 800, color: "var(--brand)",
+                                 borderLeft: ci ? BL : undefined }}>
+                      {c.titulo}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {cuadro.columnas.map((col, i) => (
+                    <th key={i} style={{
+                      ...(i === 0 ? { ...TDL, textAlign: "left", minWidth: 250 }
+                                  : { ...TD, minWidth: 96 }),
+                      position: "static", fontWeight: 700,
+                      fontStyle: col.label.endsWith("· Var") ? "italic" : undefined,
+                      color: "var(--text-secondary)",
+                      borderBottom: "2px solid var(--text-primary)",
+                    }}>
+                      {/* El corte ya está en la fila de arriba; acá va sólo la
+                          versión, o «Var». */}
+                      {i === 0 ? "Cuenta" : col.label.split(" · ").slice(1).join(" · ")}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cuadro.filas.map((f, i) => {
+                  if (!f.valores.length) {
+                    return <tr key={i}>
+                      <td colSpan={cuadro.columnas.length} style={{ height: 9 }} />
+                    </tr>;
+                  }
+                  const banda = f.es_total && f.nivel === 0 && f.label !== "TOTAL";
+                  const fin = f.label === "TOTAL";
+                  return (
+                    <tr key={i} style={{
+                      background: banda || fin
+                        ? "var(--bg-elevated, #EDF1F5)" : undefined,
+                    }}>
+                      <td style={{ ...TDL, fontWeight: f.es_total ? 800 : 400,
+                                   paddingLeft: 10 + (f.nivel ?? 0) * 14,
+                                   borderTop: fin ? "2px solid var(--text-primary)"
+                                     : banda ? "2px solid var(--border-medium)"
+                                     : f.es_total ? "1px solid var(--border-medium)"
+                                     : undefined }}>
+                        {f.label}
+                      </td>
+                      {(f.valores as (number | null)[]).map((v, j) => {
+                        const esVar = cuadro.columnas[j + 1]?.label.endsWith("· Var");
+                        const abre = cortes.some((c, ci) => ci > 0 && j === cortes
+                          .slice(0, ci).reduce(
+                            (a, x) => a + anchoDelCorte(x, versiones, escenarios), 0));
+                        return (
+                          <td key={j} className="mono" style={{
+                            ...TD, fontWeight: f.es_total ? 800 : 400,
+                            fontStyle: esVar ? "italic" : undefined,
+                            borderLeft: abre ? BL : undefined,
+                            borderTop: fin ? "2px solid var(--text-primary)"
+                              : banda ? "2px solid var(--border-medium)"
+                              : f.es_total ? "1px solid var(--border-medium)"
+                              : undefined,
+                            color: typeof v === "number" && v < 0
+                              ? "var(--negative)" : undefined,
+                          }}>
+                            {typeof v === "number" ? usd(v) : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+                {cuadro.filas.length <= 1 && !cargando && (
+                  <tr><td colSpan={cuadro.columnas.length}
+                          style={{ ...TDL, color: "var(--text-secondary)" }}>
+                    Este checkbook no tiene nada cargado para esa selección.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ Vista: los doce meses, una versión por tabla ══════════ */}
+      {vista === "12m" && versiones.map(v => {
         const total = (serie: number[] | undefined) =>
           (serie ?? []).reduce((a, n) => a + n, 0);
         const mes = (i: number) =>
