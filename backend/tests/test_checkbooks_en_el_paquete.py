@@ -53,7 +53,11 @@ def test_heredan_las_reglas_del_full_year():
     # el P&L dirian años completos distintos sin que nada avise.
     assert "const actualFull = actualFullPL;" in s
     assert "escenarios.find(e => e.is_current_forecast)?.id" in s
-    assert "{ visibles, actualDelFullYear: actualFull }" in s
+    # ⚠️ Se comprueba campo por campo y no la llave entera: el objeto de
+    # opciones crece —`notaDelPresupuesto` entro el 2026-09-30— y una prueba
+    # que compara la llave literal se cae con cada campo nuevo sin que nada se
+    # haya roto.
+    assert "visibles, actualDelFullYear: actualFull," in s
 
 
 def test_aparecen_en_ARMAR_PAQUETE_junto_a_los_demas():

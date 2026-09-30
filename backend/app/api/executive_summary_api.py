@@ -125,6 +125,32 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
         mix.append([rotulo, usd(a), usd(b), usd(a - b),
                     f"{vp * 100:+,.1f}%" if vp is not None else "n/d"])
 
+    # ⚠️ La suma va con la lista y no se calcula en el informe: acá están los
+    # números; allá, sólo cadenas ya formateadas (owner, 2026-09-30: *«sumas al
+    # final de este cuadro»*).
+    mix_total = None
+    if mix:
+        # ⚠️ **El total es el del MOTOR, no la suma de lo listado.** `TOTAL_
+        # REVENUES` es el mismo renglón que el informe ya dijo dos páginas
+        # antes; si acá sumara los renglones de la lista, el cuadro cerraría
+        # contra sí mismo y contra nada más. Medido en agosto 2026: la lista da
+        # 301.944,67 y el P&L dice 306.124,86 — se le escapan cuatro líneas de
+        # ingreso que nadie declaró en `RENGLONES_MIX`.
+        ta = linea(act["ytd"], "TOTAL_REVENUES")
+        tb = linea(bud["ytd"], "TOTAL_REVENUES")
+        # Y lo que falte se MUESTRA. Un cuadro cuyos renglones no suman su
+        # propio total obliga a sacar la calculadora; peor, invita a pensar que
+        # uno de los dos números está mal.
+        ra = ta - sum(linea(act["ytd"], c) for c, _r in RENGLONES_MIX)
+        rb = tb - sum(linea(bud["ytd"], c) for c, _r in RENGLONES_MIX)
+        if abs(ra) >= 0.005 or abs(rb) >= 0.005:
+            vr = var_pct(ra, rb)
+            mix.append(["Otras líneas de ingreso", usd(ra), usd(rb), usd(ra - rb),
+                        f"{vr * 100:+,.1f}%" if vr is not None else "n/d"])
+        vt = var_pct(ta, tb)
+        mix_total = ["Total ingresos", usd(ta), usd(tb), usd(ta - tb),
+                     f"{vt * 100:+,.1f}%" if vt is not None else "n/d"]
+
     # ── El ADR mes a mes, para la sección de tarifa ──────────────────────────
     from app.api.pl_api import get_pl_monthly
     adr_mes = []
@@ -187,6 +213,7 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
                     **({"forecast": etiqueta(fcs)} if fcs else {})},
         "totales": totales,
         "mix": mix,
+        "mix_total": mix_total,
         # ── El desglose por departamento, para las secciones 1.x.1 a 1.x.5 ──
         #
         # Owner, 2026-09-30: *«quiero agregar más secciones»*, con el detalle de

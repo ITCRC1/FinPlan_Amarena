@@ -141,16 +141,18 @@ def test_los_ROTULOS_de_los_cuadros_se_quedan_en_ingles():
     Traducirlos obligaria a comprobar que «Utilidad bruta operativa» y «Gross
     Operating Profit» son el mismo renglon.
 
-    ⚠️ Desde el 2026-09-30 van en Titulo y no en MAYUSCULA —owner: *«que todos
-    los cuadros queden en minuscula»*—. Es la CAJA, no la palabra: el renglon
-    sigue llamandose igual.
+    ⚠️ Se comprueba contra `CASCADA` y no contra el texto del documento: desde
+    el 2026-09-30 los cuadros van DIBUJADOS, asi que sus rotulos ya no salen en
+    el texto extraible. Es el precio de la alineacion que pidio el owner, y es
+    justo por eso que la lista tiene que quedar defendida en alguna parte.
     """
-    t = _texto(build_executive_summary(_datos()))
-    for rotulo in ("Total available Rooms", "Average Daily Room Only",
-                   "Total Revenues", "EBITDA Before Capital", "Net Profit"):
-        assert rotulo in t, f"se tradujo el rotulo «{rotulo}»"
+    from app.export.executive_summary import CASCADA, suave
+    rotulos = [suave(r) for r, _c, _f in CASCADA]
+    for esperado in ("Total Revenues", "EBITDA Before Capital", "Net Profit",
+                     "Total Gross Operating Profit"):
+        assert esperado in rotulos, f"se tradujo el rotulo «{esperado}»"
     # Y la sigla NO se baja: «Ebitda» se lee como una palabra mal escrita.
-    assert "Ebitda" not in t
+    assert not any("Ebitda" in r for r in rotulos)
 
 
 def test_la_prosa_dice_LOS_NUMEROS_del_cuadro():
@@ -586,7 +588,7 @@ def test_sin_la_FUENTE_se_arma_la_tabla_de_siempre():
     hasta que esta impreso. Un informe con un cuadro menos lindo se entrega."""
     src = DOCX_MOD.read_text(encoding="utf-8")
     assert "if not hay_fuente():" in src
-    assert "return _tabla(doc, encabezados, filas, anchos=anchos," in src
+    assert "return _tabla_word(doc, encabezados, filas, anchos=anchos," in src
 
 
 def test_la_FUENTE_viaja_en_el_repo():
@@ -702,3 +704,127 @@ def test_un_rotulo_que_NO_cabe_se_RECORTA_y_no_se_monta():
     src = (pathlib.Path(__file__).resolve().parents[1]
            / "app/export/tabla_imagen.py").read_text(encoding="utf-8")
     assert "def recortar(texto: str, fuente, ancho: int) -> str:" in src
+
+
+# ═════════ La pasada pagina por pagina, 2026-09-30 ═══════════════════════════
+
+def test_los_NEGATIVOS_de_la_PROSA_van_en_rojo():
+    """Owner: *«en este informe ejecutivo lo que es negativo debe ir en rojo»*.
+
+    En los cuadros ya iba; en el texto no, y el texto es donde el informe dice
+    lo que paso. `-$300.7K` en medio de un parrafo se lee igual que `$300.7K`
+    si nada lo distingue: el guion se pierde entre las palabras.
+    """
+    from app.export.executive_summary import _NEGATIVO
+    for t in ("-$300.7K", "($1,234.50)", "-19.8%", "-3.8pp", "- $25.4K"):
+        assert _NEGATIVO.search(t), f"no detecto «{t}» como negativo"
+    for t in ("+19.3%", "$300.7K", "3.81pp", "234.6%"):
+        assert not _NEGATIVO.search(t), f"pinto de rojo «{t}», que es positivo"
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "def _escribir(p, txt: str, negrita: bool):" in src
+    assert "r.font.color.rgb = ROJO if rojo else NEGRO" in src
+
+
+def test_cada_parrafo_lleva_SANGRIA():
+    """Owner: *«cada nuevo parrafo debe llevar sangria»*. Con el texto
+    justificado y sin linea en blanco entre bloques, dos parrafos seguidos se
+    leen como uno.
+
+    ⚠️ Solo el cuerpo: los rotulos de los cuadros pasan `justificar=False` y con
+    sangria quedarian desalineados del cuadro que presentan.
+    """
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "SANGRIA = 0.75" in src
+    assert "if justificar:" in src
+    assert "p.paragraph_format.first_line_indent = Cm(SANGRIA)" in src
+
+
+def test_TODOS_los_cuadros_se_dibujan():
+    """Owner: *«habiamos quedado que todos los cuadros debian convertirse en
+    imagenes; favor revisa pagina por pagina»*.
+
+    Era verdad a medias: solo los quince desgloses se dibujaban. Los de la
+    cascada, el flow-through, la tabla de tarifas y el mix seguian siendo
+    tablas de Word — y son los que el owner ve primero.
+    """
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    cuerpo = src[src.index("def _tabla(doc,"):src.index("def _tabla_word(doc,")]
+    assert "return _cuadro_imagen(doc, encabezados, filas, anchos or [], resaltar)" in cuerpo
+    # Y el documento no arma NINGUNA tabla de Word por su cuenta: el unico
+    # camino a `_tabla_word` es el respaldo sin fuente.
+    assert src.count("_tabla_word(") == 2
+
+
+def test_un_cuadro_ALTO_se_achica_para_que_quepa():
+    """⚠️ Un dibujo NO se parte entre dos paginas: lo que no entra se pierde por
+    abajo sin avisar. Mas chico es peor que grande; recortado es peor que las
+    dos cosas."""
+    from app.export.executive_summary import ALTO_UTIL
+    assert ALTO_UTIL == 21.5
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "if alto_cm > ALTO_UTIL:" in src
+    assert "ancho_cm *= ALTO_UTIL / alto_cm" in src
+
+
+def test_la_SECCION_2_1_trae_su_cuadro_de_volumen():
+    """Owner: *«aca debe haber un cuadro como imagen para hablar del volumen,
+    hay mucha informacion que se puede poner aca»*."""
+    from app.export.executive_summary import VOLUMEN
+    rotulos = [r for r, _f, _fmt in VOLUMEN]
+    assert "Noches vendidas" in rotulos and "% Ocupación" in rotulos
+    assert "Huéspedes por noche vendida" in rotulos
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "_cuadro_volumen(doc, act, bud, mes_ing)" in src
+
+
+def test_el_cuadro_de_volumen_NO_inventa_los_dias_del_periodo():
+    """⚠️ Hubo un renglon de «noches vendidas por dia» y se saco: los dias
+    salian de dividir las disponibles entre las unidades, y las unidades no
+    viajan en el encabezado. Quedaba un 16 escrito a mano —el de Amarena— que
+    en cualquier otra propiedad habria dado un numero creible y falso."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert '"rooms_available") / 16' not in src
+
+
+def test_la_tabla_de_tarifas_cierra_con_el_ACUMULADO():
+    """Owner: *«debe haber un YTD al final de cada columna»*.
+
+    ⚠️ Y NO es el promedio de la columna: la tarifa y la ocupacion son razones.
+    El promedio de seis ADR mensuales le da el mismo peso a un mes de 20 noches
+    que a uno de 202. Sale del mismo corte que el resto del informe.
+    """
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert 'f"YTD {mes_ing}", usd(kpi(ytd_a, "adr"))' in src
+
+
+def test_el_TOTAL_del_mix_es_el_del_MOTOR_y_el_cuadro_SUMA():
+    """Owner: *«sumas al final de este cuadro»*.
+
+    ⚠️ El total es `TOTAL_REVENUES`, el mismo renglon que el informe dijo dos
+    paginas antes. Sumar los renglones de la lista cerraria contra si mismo y
+    contra nada mas: medido en agosto 2026, la lista da 301.944,67 y el P&L dice
+    306.124,86 — se le escapan cuatro lineas que nadie declaro en
+    `RENGLONES_MIX`. Lo que falta se MUESTRA, o el cuadro obliga a sacar la
+    calculadora.
+    """
+    api = API.read_text(encoding="utf-8")
+    assert 'ta = linea(act["ytd"], "TOTAL_REVENUES")' in api
+    assert '"Otras líneas de ingreso"' in api
+    assert 'mix_total = ["Total ingresos"' in api
+
+
+def test_los_canales_van_por_CODIGO_del_PMS_y_no_por_canal_comercial():
+    """Owner: *«en el excel hay un tab de canales, traer ese aca, resumido YTD
+    month»*.
+
+    ⚠️ Antes salian cuatro renglones y el MAYOR se llamaba «Sin asignar»: tres
+    codigos que nadie clasifico. Un cuadro cuyo renglon mayor dice «sin
+    asignar» no dice por donde entro la reserva, dice que falta configurar algo.
+    """
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "def _cuadro_canales(doc, datos: dict, mes_ing: str)" in src
+    assert 'clave = (f.get("canal_code") or f.get("canal") or "—").strip()' in src
+    # El mes y el acumulado, en el mismo cuadro.
+    assert '"m_noc": 0.0, "m_rev": 0.0, "y_noc": 0.0, "y_rev": 0.0' in src
+    # Y la fila del PDF solo si hay cortesias, o repetiria el total.
+    assert 'if any(not d["cuenta"] for d in acc.values()):' in src

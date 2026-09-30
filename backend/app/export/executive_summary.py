@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+import re
 from datetime import date
 
 from docx import Document
@@ -80,6 +81,13 @@ CUERPO = 12          #: el texto
 #: se lee—; lo que recarga la página son diecisiete cuadros con la letra casi
 #: del tamaño del párrafo que los presenta.
 CUERPO_TABLA = 8
+
+#: Cuánto alto de página le queda a un cuadro dibujado, en centímetros.
+#:
+#: Carta son 27,94 cm menos 2,2 de cada margen = 23,5. Se dejan dos para el
+#: rótulo que lo presenta y el aire de abajo: un cuadro que ocupa hasta el
+#: último milímetro empuja su propio título a la página anterior.
+ALTO_UTIL = 21.5
 INTERLINEA = 1.5
 #: El aire ANTES de un título. El pedido fue «entre títulos un espacio
 #: adicional»: es lo que separa un bloque del anterior sin meter párrafos vacíos,
@@ -273,6 +281,50 @@ def _h(doc, texto: str, nivel: int = 1, color=VERDE):
     return p
 
 
+#: Un número NEGATIVO dentro de la prosa, en cualquiera de las formas en que
+#: este informe lo escribe: `-$25.4K`, `($1,234.50)`, `-19.8%`, `-3.8pp`.
+#:
+#: Owner, 2026-09-30: *«en este informe ejecutivo lo que es negativo debe ir en
+#: rojo»*. En los cuadros ya iba; en el texto no, y el texto es donde el informe
+#: dice lo que pasó. `-$300.7K` en medio de un párrafo se lee igual que
+#: `$300.7K` si nada lo distingue — el guion se pierde entre las palabras.
+_NEGATIVO = re.compile(
+    r"\(\$[\d.,]+\)"            # ($1,234.50), la forma contable
+    r"|-\s?\$[\d.,]+[KM]?"      # -$25.4K
+    r"|-[\d.,]+\s?(?:%|pp)"      # -19.8% · -3.8pp
+)
+
+
+def _escribir(p, txt: str, negrita: bool):
+    """El texto, partido para que los negativos salgan en rojo."""
+    i = 0
+    for m in _NEGATIVO.finditer(txt):
+        for trozo, rojo in ((txt[i:m.start()], False), (m.group(), True)):
+            if trozo:
+                r = p.add_run(trozo)
+                r.bold = negrita
+                r.font.name = FUENTE
+                r.font.size = Pt(CUERPO)
+                r.font.color.rgb = ROJO if rojo else NEGRO
+                _fuente_en_todo(r._element.get_or_add_rPr())
+        i = m.end()
+    if txt[i:]:
+        r = p.add_run(txt[i:])
+        r.bold = negrita
+        r.font.name = FUENTE
+        r.font.size = Pt(CUERPO)
+        r.font.color.rgb = NEGRO
+        _fuente_en_todo(r._element.get_or_add_rPr())
+
+
+#: La sangría de la primera línea de cada párrafo.
+#:
+#: Owner, 2026-09-30: *«cada nuevo párrafo debe llevar sangría»*. Con el texto
+#: justificado y sin espacio en blanco entre bloques, dos párrafos seguidos se
+#: leen como uno: la sangría es lo que dice dónde empieza el siguiente.
+SANGRIA = 0.75
+
+
 def _p(doc, partes, justificar: bool = True):
     """Un párrafo. `partes` es texto, o una lista de (texto, negrita)."""
     p = doc.add_paragraph()
@@ -280,14 +332,13 @@ def _p(doc, partes, justificar: bool = True):
     p.paragraph_format.line_spacing = INTERLINEA
     p.alignment = (WD_ALIGN_PARAGRAPH.JUSTIFY if justificar
                    else WD_ALIGN_PARAGRAPH.LEFT)
+    # ⚠️ Sólo el cuerpo. Los rótulos de los cuadros pasan `justificar=False` y
+    # con sangría quedarían desalineados del cuadro que presentan.
+    if justificar:
+        p.paragraph_format.first_line_indent = Cm(SANGRIA)
     for trozo in ([partes] if isinstance(partes, str) else partes):
         txt, negrita = (trozo, False) if isinstance(trozo, str) else trozo
-        r = p.add_run(txt)
-        r.bold = negrita
-        r.font.name = FUENTE
-        r.font.size = Pt(CUERPO)
-        r.font.color.rgb = NEGRO
-        _fuente_en_todo(r._element.get_or_add_rPr())
+        _escribir(p, txt, negrita)
     return p
 
 
@@ -329,6 +380,8 @@ SIGLAS = {
     "EBITDA", "GOP", "ADR", "REVPAR", "YTD", "P&L", "F&B", "A&B", "IT", "OTA",
     "OTAS", "USD", "CRC", "CCSS", "INS", "PMS", "SPA", "CAPEX", "IVA", "PAR",
     "POR", "AYB", "A", "Y", "B",
+    # Códigos del PMS que son siglas, no palabras.
+    "CPL", "OTA", "OTAS", "PMS", "ADR",
 }
 
 #: Las palabras que se quedan en minúscula dentro de un rótulo.
@@ -499,7 +552,28 @@ def _suavizar(encabezados, filas):
 
 
 def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
-    """Un cuadro. `filas` = lista de listas de texto ya formateado.
+    """Un cuadro. **Dibujado**, salvo que no se pueda.
+
+    Owner, 2026-09-30: *«habíamos quedado que todos los cuadros debían
+    convertirse en imágenes; favor revisá página por página»*.
+
+    Era verdad a medias: sólo los quince desgloses de detalle se dibujaban. Los
+    de la cascada, el flow-through, la tabla de tarifas y el mix seguían siendo
+    tablas de Word, y son justo los que el owner ve primero. Ahora TODO pasa por
+    acá, y acá se decide.
+
+    ⚠️ `anchos` sigue siendo la misma lista en centímetros, y la regla de que
+    quepan en los 16,79 útiles vale para los dos caminos.
+    """
+    return _cuadro_imagen(doc, encabezados, filas, anchos or [], resaltar)
+
+
+def _tabla_word(doc, encabezados, filas, anchos=None, resaltar=()):
+    """El cuadro como tabla de Word. El camino de respaldo de `_tabla`.
+
+    ⚠️ Se usa cuando no hay fuente para dibujar —el contenedor no trae
+    ninguna—. Un informe con un cuadro menos alineado se entrega; uno con un
+    cuadro ilegible, no.
 
     `resaltar` son los índices de fila que van en negrita con fondo —los
     totales—. Los negativos salen en rojo, que es como se leen en el PDF.
@@ -678,8 +752,8 @@ def _cuadro_imagen(doc, encabezados, filas, anchos, resaltar=(),
     from app.export.tabla_imagen import dibujar_cuadro, hay_fuente
 
     if not hay_fuente():
-        return _tabla(doc, encabezados, filas, anchos=anchos,
-                      resaltar=set(resaltar))
+        return _tabla_word(doc, encabezados, filas, anchos=anchos,
+                           resaltar=set(resaltar))
     encabezados, filas = _suavizar(encabezados, filas)
     # ⚠️ `anchos` va en CENTÍMETROS, igual que en `_tabla`: es la misma regla
     # —han de caber en los 16,79 útiles— y una prueba la comprueba en los dos
@@ -687,6 +761,15 @@ def _cuadro_imagen(doc, encabezados, filas, anchos, resaltar=(),
     ancho_cm = ancho_cm or sum(anchos)
     png = dibujar_cuadro(encabezados, filas, anchos,
                          resaltar=set(resaltar), pt=CUERPO_TABLA)
+    # ⚠️ Un dibujo NO se parte entre dos páginas: lo que no entra se pierde por
+    # abajo sin avisar. Si el cuadro sale más alto que la caja, se coloca más
+    # angosto para que quepa — más chico es peor que grande, pero recortado es
+    # peor que las dos cosas.
+    from PIL import Image
+    im = Image.open(io.BytesIO(png))
+    alto_cm = im.height / im.width * ancho_cm
+    if alto_cm > ALTO_UTIL:
+        ancho_cm *= ALTO_UTIL / alto_cm
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(2)
@@ -827,6 +910,75 @@ def _rotulo_concepto(clave: str) -> str:
     return CONCEPTOS_CLUB.get(clave, clave.replace("_", " ").capitalize())
 
 
+def _cuadro_canales(doc, datos: dict, mes_ing: str) -> None:
+    """Por dónde entraron las reservas: el mes y el acumulado.
+
+    Owner, 2026-09-30: *«en el excel hay un tab de canales, traer ese acá,
+    resumido YTD month»*.
+
+    ⚠️ **Se agrupa por el código del PMS y no por el canal comercial.** Antes
+    salían cuatro renglones —OTA, Direct Client, Inhouse y «Sin asignar»— y el
+    más grande era «Sin asignar»: tres códigos que nadie clasificó todavía. Un
+    cuadro cuyo renglón mayor se llama «sin asignar» no dice por dónde entró la
+    reserva, dice que falta configurar algo. Con el código se lee EXPEDIA,
+    BOOKING, PROMOCIONES — que es lo que el owner mira en el Excel.
+
+    ⚠️ El ADR se recalcula sobre los totales del período. Promediar los ADR
+    mensuales de un canal le daría el mismo peso a un mes de dos noches que a
+    uno de cuarenta.
+    """
+    mes = int(datos.get("mes") or 12)
+    acc: dict[str, dict] = {}
+    for m in (datos.get("room_stats") or {}).get("meses") or []:
+        n_mes = int(m.get("month") or 0)
+        if not m.get("cargado") or n_mes > mes:
+            continue
+        for f in m.get("canales") or []:
+            clave = (f.get("canal_code") or f.get("canal") or "—").strip()
+            d = acc.setdefault(clave, {
+                "rotulo": (f"{clave} · {f['canal']}" if f.get("canal") else clave),
+                "cuenta": bool(f.get("cuenta_para_kpis", True)),
+                "m_noc": 0.0, "m_rev": 0.0, "y_noc": 0.0, "y_rev": 0.0})
+            noc, rev = float(f.get("nights_occupied") or 0), float(f.get("revenue") or 0)
+            d["y_noc"] += noc
+            d["y_rev"] += rev
+            if n_mes == mes:
+                d["m_noc"] += noc
+                d["m_rev"] += rev
+    if not acc:
+        _pendiente(doc, "Canales",
+                   "la estadística del PMS no está cargada para este escenario.")
+        return
+
+    def fila(d: dict) -> list:
+        return [d["rotulo"],
+                f"{d['m_noc']:,.0f}", usd(d["m_rev"]),
+                usd(d["m_rev"] / d["m_noc"]) if d["m_noc"] else "—",
+                f"{d['y_noc']:,.0f}", usd(d["y_rev"]),
+                usd(d["y_rev"] / d["y_noc"]) if d["y_noc"] else "—"]
+
+    filas = [fila(d) for d in sorted(acc.values(), key=lambda x: -x["y_rev"])]
+
+    def total(solo_cuenta: bool) -> dict:
+        ds = [d for d in acc.values() if d["cuenta"] or not solo_cuenta]
+        return {"rotulo": "Total" if solo_cuenta else "Con todos los canales (PDF)",
+                **{k: sum(d[k] for d in ds)
+                   for k in ("m_noc", "m_rev", "y_noc", "y_rev")}}
+
+    filas.append(fila(total(True)))
+    resaltar = {len(filas) - 1}
+    # ⚠️ La fila del PDF sólo si hay cortesías. Sin ellas repetiría el total y
+    # se leería como que algo no cuadra.
+    if any(not d["cuenta"] for d in acc.values()):
+        filas.append(fila(total(False)))
+    _tabla(doc,
+           [("Canal", ""), ("Noches", mes_ing), ("Ingreso", mes_ing),
+            ("ADR", mes_ing), ("Noches", "Acumulado"),
+            ("Ingreso", "Acumulado"), ("ADR", "Acumulado")],
+           filas, anchos=[4.4, 1.85, 2.4, 2.0, 1.85, 2.4, 1.85],
+           resaltar=resaltar)
+
+
 def _cuadro_membresias(doc, datos: dict) -> None:
     """Los socios del Club, como los cargó el mes.
 
@@ -909,6 +1061,60 @@ def _perspectivas(doc, datos: dict, act: dict, bud: dict, fcs: dict | None,
             "todavía no se cargaron. Lo que la mueve es lo mismo que movió el "
             "acumulado — ocupación, tarifa y la escala del gasto operativo—, y "
             "cada cierre la vuelve a medir.")
+
+
+#: Los renglones del cuadro de volumen, con cómo se lee cada uno.
+#:
+#: Owner, 2026-09-30: *«acá debe haber un cuadro como imagen para hablar del
+#: volumen, hay mucha información que se puede poner acá»*.
+VOLUMEN = [
+    ("Noches disponibles", lambda c: kpi(c, "rooms_available"), "num"),
+    ("Noches vendidas", lambda c: kpi(c, "rooms_occupied"), "num"),
+    ("% Ocupación", lambda c: kpi(c, "occupancy_pct"), "pct"),
+    ("Huéspedes", lambda c: kpi(c, "guests"), "num"),
+    # La razón que el encabezado no trae y que explica el volumen: cuánta gente
+    # entra por noche vendida. Sube la ocupación de las camas sin mover la de
+    # las habitaciones, y es lo que separa una noche de pareja de una de familia.
+    #
+    # ⚠️ Hubo aquí un renglón de «noches vendidas por día» y se sacó: los días
+    # del período salían de dividir las disponibles entre las unidades, y las
+    # unidades no viajan en el encabezado. Quedaba un 16 escrito a mano —el de
+    # Amarena— que en cualquier otra propiedad habría dado un número creíble y
+    # falso.
+    ("Huéspedes por noche vendida",
+     lambda c: (kpi(c, "guests") / kpi(c, "rooms_occupied")
+                if kpi(c, "rooms_occupied") else 0.0), "raz"),
+]
+
+
+def _cuadro_volumen(doc, act: dict, bud: dict, mes_ing: str) -> None:
+    """De dónde sale el volumen: el mes y el acumulado, contra el presupuesto.
+
+    ⚠️ Las dos razones del pie NO se acumulan sumando: se recalculan sobre los
+    totales del período, que es la misma regla de todo el informe.
+    """
+    def celda(v: float, fmt: str) -> str:
+        return (pct(v) if fmt == "pct" else f"{v:,.2f}" if fmt == "raz"
+                else f"{v:,.0f}")
+
+    filas = []
+    for rotulo, lee, fmt in VOLUMEN:
+        fila = [rotulo]
+        for corte in ("month", "ytd"):
+            a, b = lee(act[corte]), lee(bud[corte])
+            d = a - b
+            fila += [celda(a, fmt), celda(b, fmt),
+                     # La variación de un porcentaje va en PUNTOS, no en otro
+                     # porcentaje: «+10.18pp» dice cuánto subió la ocupación;
+                     # «+124%» dice otra cosa.
+                     (f"{d * 100:+,.2f}pp" if fmt == "pct"
+                      else f"{d:+,.2f}" if fmt == "raz" else f"{d:+,.0f}")]
+        filas.append(fila)
+    _tabla(doc,
+           [("Indicador", ""), ("Real", mes_ing), ("Presupuesto", mes_ing),
+            ("Variación", ""), ("Real", "Acumulado"),
+            ("Presupuesto", "Acumulado"), ("Variación", "")],
+           filas, anchos=[4.4, 1.95, 2.25, 1.95, 1.95, 2.25, 1.95])
 
 
 def _pendiente(doc, titulo: str, que_falta: str) -> None:
@@ -1242,6 +1448,7 @@ def build_executive_summary(datos: dict) -> bytes:
             f"{kpi(ytd_b, 'guests'):,.0f} ({d_pax:+,.0f}). La ocupación cerró en "
             f"{pct(kpi(ytd_a, 'occupancy_pct'))} contra "
             f"{pct(kpi(ytd_b, 'occupancy_pct'))} del presupuesto.")
+    _cuadro_volumen(doc, act, bud, mes_ing)
 
     _h(doc, "2.2 Tarifa (calidad del ingreso)", nivel=2)
     _p(doc, f"La tarifa promedio acumulada es de {usd(kpi(ytd_a, 'adr'))} contra "
@@ -1251,8 +1458,19 @@ def build_executive_summary(datos: dict) -> bytes:
             f"disponible, así que refleja todo lo que factura la propiedad y no "
             f"sólo la noche vendida.")
     if datos.get("adr_por_mes"):
+        # ⚠️ El acumulado NO es el promedio de la columna (owner, 2026-09-30:
+        # *«debe haber un YTD al final de cada columna»*). La tarifa y la
+        # ocupación son razones: el promedio de seis ADR mensuales le da el
+        # mismo peso a un mes de 20 noches que a uno de 202, y el número que
+        # sale no existe en ningún lado. Sale del MISMO corte que el resto del
+        # informe, que ya los trae ponderados.
+        filas = [*datos["adr_por_mes"], [
+            f"YTD {mes_ing}", usd(kpi(ytd_a, "adr")),
+            pct(kpi(ytd_a, "occupancy_pct")),
+            f"{kpi(ytd_a, 'rooms_occupied'):,.0f}"]]
         _tabla(doc, ["Mes", "Tarifa promedio", "Ocupación", "Noches vendidas"],
-               datos["adr_por_mes"], anchos=[4.15, 4.15, 4.15, 4.15])
+               filas, anchos=[4.15, 4.15, 4.15, 4.15],
+               resaltar={len(filas) - 1})
 
     # ── 2.3 Revenue mix ──────────────────────────────────────────────────────
     _h(doc, "2.3 Composición del ingreso", nivel=2)
@@ -1260,9 +1478,16 @@ def build_executive_summary(datos: dict) -> bytes:
     if mix:
         _p(doc, "Aporte de cada departamento en el acumulado, contra el "
                 "presupuesto:")
+        # ⚠️ La suma es de lo LISTADO, y por eso se llama «Total ingresos»: son
+        # todas las líneas de ingreso del P&L, así que da el ingreso del
+        # período. Si algún día se lista un subconjunto, el rótulo miente antes
+        # que el número.
+        tot = datos.get("mix_total")
         _tabla(doc, ["Departamento", "Acumulado real", "Presupuesto",
                      "Variación $", "Variación %"],
-               mix, anchos=[5.4, 3.1, 3.1, 2.9, 2.2])
+               [*mix, *([tot] if tot else [])],
+               anchos=[5.4, 3.1, 3.1, 2.9, 2.2],
+               resaltar={len(mix)} if tot else set())
     else:
         _pendiente(doc, "Composición del ingreso",
                    "el detalle por departamento no vino en esta corrida.")
@@ -1274,11 +1499,7 @@ def build_executive_summary(datos: dict) -> bytes:
 
     # ── 2.5 Análisis de canales ──────────────────────────────────────────────
     _h(doc, "2.5 Análisis de canales", nivel=2)
-    # ⚠️ Se agrupa por `canal` —el canal comercial— y no por `canal_code`, que
-    # es el market code del PMS: hay decenas y cada uno con dos reservas. El
-    # código sin canal asignado cae en «Sin asignar», que es información: dice
-    # cuánto ingreso no se puede atribuir todavía.
-    _cuadro_room_stats(doc, datos, "canales", "canal", "Canal")
+    _cuadro_canales(doc, datos, mes_ing)
 
     # ── 2.6 Membresías ───────────────────────────────────────────────────────
     _h(doc, "2.6 Membresías actuales", nivel=2)
