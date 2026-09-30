@@ -56,6 +56,7 @@ import ResumenDoceMeses, { armar as armarResumen, filasResumen }
   from "./ResumenDoceMeses";
 import { getTabsApagados } from "@/lib/tabsVisibles";
 import { capitulosDelPaquete, leerPaquete } from "@/lib/paqueteCuadros";
+import { cuadroCheckbookCortes } from "@/lib/checkbookCortes";
 import PaqueteCuadros from "./PaqueteCuadros";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
@@ -110,6 +111,31 @@ const VISTAS = [
   { key: "pl" },          // el primero que existió; hoy lo cubre `estado`
 ] as const;
 type Vista = typeof VISTAS[number]["key"];
+
+/** Capítulos que sólo existen en el archivo, no en la barra de sub-tabs.
+ *
+ *  Owner, 2026-09-30: *«quiero agregar todos estos tabs al excel que bajo para
+ *  el resumen ejecutivo, con el mismo formato: opex mes, ytd y full year;
+ *  salarios mes, ytd y full year…»*.
+ *
+ *  Los checkbooks viven en su propia pantalla (menú → Checkbooks) y no son
+ *  sub-tabs de acá. Pero el archivo del cierre es uno solo, y pedirle a alguien
+ *  que baje dos Excel y los pegue a mano es pedirle que un mes se olvide.
+ *
+ *  ⚠️ **No pasan por `tab_enablement`.** Esa matriz gobierna sub-tabs de esta
+ *  pantalla, y estos no lo son: si se filtraran por ella nunca aparecerían,
+ *  porque no tienen fila. Se apagan desde «Armar paquete», como todo lo demás.
+ */
+const EXTRAS = [
+  { key: "cb_opex", clase: "opex", rotulo: "Checkbook · Opex" },
+  { key: "cb_payroll", clase: "payroll", rotulo: "Checkbook · Salarios" },
+  { key: "cb_cost", clase: "cost", rotulo: "Checkbook · Costo de ventas" },
+  { key: "cb_property", clase: "property", rotulo: "Checkbook · Gastos de propiedad" },
+] as const;
+
+/** Todas las claves que pueden entrar al archivo, en su orden por defecto. */
+const CLAVES_DEL_PAQUETE = () =>
+  [...VISTAS.map(v => v.key), ...EXTRAS.map(e => e.key)] as string[];
 
 /** El «Total F&B Cost Detail» del owner, replicado (2026-08-14).
  *
@@ -1683,6 +1709,33 @@ export default function MonthEndPLPage() {
       }
       return cuadros;
     },
+    // ── Los checkbooks, en los tres cortes ──────────────────────────────
+    //
+    // ⚠️ El MISMO cuadro que la pantalla de Checkbooks (`cuadroCheckbookCortes`)
+    // y las MISMAS reglas: la varianza del full year es Forecast contra Budget,
+    // y su primera columna es el Forecast Current, no el Actual —que ahí repite
+    // el YTD—. Un segundo armado diría otra cosa el día que una regla cambie.
+    ...Object.fromEntries(EXTRAS.map(e => [e.key, async () => {
+      const tipoDe = (id: string) => escenarios.find(x => x.id === id)?.type ?? "";
+      const dame = (tipo: string) =>
+        ranuras.find(id => id && tipoDe(id) === tipo) ?? "";
+      const visibles = [dame("ACTUAL"), dame("BUDGET"), dame("FORECAST")]
+        .filter(Boolean);
+      if (!visibles.length) return [];
+      const actualFull =
+        escenarios.find(x => x.is_current_forecast)?.id || dame("FORECAST") || "";
+      // El Current se PIDE aunque no sea columna propia: sólo ocupa el lugar
+      // del Actual en el año completo.
+      const ids = [...new Set([...visibles, actualFull].filter(Boolean))];
+      const d = await getDetalleDeCelda(ids, e.clase, "");
+      const c = cuadroCheckbookCortes(e.rotulo.replace("Checkbook · ", ""),
+                                      d, mes, escenarios, "", deptos,
+                                      { visibles, actualDelFullYear: actualFull });
+      // Sólo el TOTAL y nada más: ese libro está vacío para estas versiones, y
+      // una hoja con una sola fila en cero se lee como «no hubo gasto».
+      return c.filas.length > 1 ? [c] : [];
+    }])),
+
     formato: async () => {
       const id = ranuras[varA];
       if (!id) return [];
@@ -1894,6 +1947,13 @@ export default function MonthEndPLPage() {
    * Y el ORDEN es el de `VISTAS`, la misma lista que la fila de botones: el
    * documento se lee en el mismo orden en que se miró la pantalla.
    */
+  /** El nombre de un capítulo. Los sub-tabs lo sacan del diccionario; los
+   *  extras traen el suyo, porque no son tabs y no tienen traducción. */
+  const rotuloDelCapitulo = useCallback((k: string) => {
+    const extra = EXTRAS.find(e => e.key === k);
+    return extra ? extra.rotulo : t(`tab_${k}`);
+  }, [t]);
+
   /** Las vistas que van al archivo, en el orden elegido.
    *
    *  ⚠️ **Una sola definición para el Excel y para el Word.** Antes el Word
@@ -1905,7 +1965,7 @@ export default function MonthEndPLPage() {
    *  El orden lo elige el usuario en el panel; sin elección, el de la pantalla.
    */
   const capitulosDelArchivo = useCallback(() => capitulosDelPaquete(
-    VISTAS.map(v => v.key), subOcultos,
+    CLAVES_DEL_PAQUETE(), subOcultos,
     typeof window === "undefined" ? { fuera: [], orden: [] } : leerPaquete(HOTEL_ID),
     k => !!CAPITULOS[k as Vista],
     // `paqueteRev` sólo está para que esto se recalcule al guardar el panel.
@@ -2364,7 +2424,7 @@ export default function MonthEndPLPage() {
       {panelVistas && (
         <VistasVisibles
           vistas={VISTAS.map(v => v.key)}
-          rotulo={k => t(`tab_${k}`)}
+          rotulo={rotuloDelCapitulo}
           onCambio={setSubOcultos}
           onCerrar={() => setPanelVistas(false)} />
       )}
@@ -2417,10 +2477,10 @@ export default function MonthEndPLPage() {
           de orden de cada hoja. */}
       {armando && (
         <PaqueteCuadros
-          vistas={VISTAS.map(v => v.key)}
+          vistas={CLAVES_DEL_PAQUETE()}
           ocultos={subOcultos}
           tiene={k => !!CAPITULOS[k as Vista]}
-          rotulo={k => t(`tab_${k}`)}
+          rotulo={rotuloDelCapitulo}
           hotel={HOTEL_ID}
           onCerrar={() => setArmando(false)}
           onCambio={() => setPaqueteRev(n => n + 1)} />
