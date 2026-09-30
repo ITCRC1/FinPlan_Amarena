@@ -284,8 +284,16 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
         "rangos": rangos,
         "room_stats": room_stats,
         "membresias": membresias,
+        # ⚠️ El forecast RESUELTO, no `body.forecast_id`.
+        #
+        # De acá sale el escenario de las secciones 1.3.1 a 1.3.5. Con el id
+        # crudo, un llamado que no manda `forecast_id` armaba la cascada del
+        # año con el Forecast —que sí se resuelve— y el desglose por
+        # departamento con el ACTUAL, porque `_seccion_detalle` cae al actual
+        # cuando no hay forecast. El informe quedaba con un año completo de
+        # 1.199 noches y un detalle de ocho meses debajo, sin que nada avisara.
         "ids": {"actual": body.actual_id, "budget": body.budget_id,
-                "forecast": body.forecast_id},
+                "forecast": forecast_id},
         "adr_por_mes": adr_mes,
         "positivos": positivos,
         "negativos": negativos,

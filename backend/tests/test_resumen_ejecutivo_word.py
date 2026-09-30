@@ -900,6 +900,42 @@ def test_el_FORECAST_se_resuelve_si_no_vino():
     assert 'forecast_id: dame("FORECAST") || actualFullPL || undefined,' in pagina
 
 
+def test_el_detalle_del_ANO_COMPLETO_sale_del_forecast():
+    """Las secciones 1.3.1 a 1.3.5 desglosan la MISMA columna que la cascada.
+
+    \u26a0\ufe0f `_seccion_detalle` cae al Actual cuando no le dan un forecast, y esa
+    caida es MUDA: el informe quedaba con una cascada del ano completo de 1.199
+    noches y, dos parrafos abajo, un desglose de los ocho meses cargados. Los
+    dos cuadros se ven perfectamente normales y no suman lo mismo.
+
+    Pasaba porque `datos["ids"]["forecast"]` llevaba `body.forecast_id` —el id
+    CRUDO— y no el que resuelve `_forecast_current()`: la cascada usaba el
+    forecast resuelto y el desglose no lo veia.
+    """
+    from app.export.executive_summary import _renglones_del_detalle
+
+    datos = {
+        "detalle": {
+            # El actual: ocho meses cargados y nada mas.
+            "A": {"revenue": {"4000": [10.0] * 8 + [0.0] * 4}},
+            # El forecast: los mismos ocho, mas lo que falta.
+            "F": {"revenue": {"4000": [10.0] * 8 + [99.0] * 4}},
+            "B": {"revenue": {"4000": [20.0] * 12}},
+        },
+        "departamentos": {}, "nombres_cuenta": {"4000": "Habitaciones"},
+    }
+    con_forecast = _renglones_del_detalle(datos, "revenue", "F", "B", (1, 12))
+    assert con_forecast[0][1] == pytest.approx(10 * 8 + 99 * 4)
+    # Y el respaldo da OTRO numero, sin decirlo: por eso el id tiene que llegar.
+    con_actual = _renglones_del_detalle(datos, "revenue", "A", "B", (1, 12))
+    assert con_actual[0][1] == pytest.approx(80.0)
+
+    api = API.read_text(encoding="utf-8")
+    assert '"forecast": forecast_id}' in api, \
+        "el desglose recibe el id crudo y no el resuelto"
+    assert '"forecast": body.forecast_id' not in api
+
+
 def test_la_portada_dice_el_NOMBRE_del_hotel_y_no_su_codigo():
     """La pantalla manda `HOTEL_ID` —«AMA»—, que es el codigo del despliegue.
     El informe del 30/09 salio con «AMA» bajo el titulo."""
