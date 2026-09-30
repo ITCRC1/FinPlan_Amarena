@@ -15,6 +15,13 @@
  * 3. **Por departamento** — la matriz Ingresos / Costo / Payroll / Opex /
  *    Reparto / Bajo GOP / Total gasto.
  *
+ * **Con una versión al lado.** Owner, 2026-09-29: *«puedes poner a la par el
+ * budget o el forecast, la versión que yo quiera para que compare el actual.
+ * algunas solamente serán por cuenta total. no pasa nada. pero al menos
+ * comparar contra algo»*. La auditoría decía de qué está hecho el mes pero no
+ * contra qué medirlo: un renglón de $23.709 de Opex no es alto ni bajo hasta
+ * que hay un presupuesto al lado. El cruce vive en `lib/auditoriaCompara`.
+ *
  * ⚠️ **Nada se calcula acá.** La atribución de cada monto a su línea la hace el
  * backend con `pl_engine.linea_de_fila`, que reusa las mismas funciones que
  * arman el P&L. Rehacerla en la pantalla daría una segunda verdad: una
@@ -26,6 +33,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { getAuditoria, type Auditoria as Datos, type AuditoriaCuadre,
          type AuditoriaFila, type Scenario } from "@/lib/api";
+import { compararDetalle, difDe, indiceDe, sumaContra,
+         type FilaComparada } from "@/lib/auditoriaCompara";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -42,6 +51,9 @@ const TDL: React.CSSProperties = { padding: "3px 10px", fontSize: 11.5 };
 const TH: React.CSSProperties = {
   ...TD, fontWeight: 700, borderBottom: "1px solid var(--border-medium)",
 };
+
+/** La raya que separa esta versión de la de al lado. */
+const BL = "2px solid var(--border-medium)";
 
 const SEL: React.CSSProperties = {
   padding: "5px 9px", fontSize: 12, borderRadius: 5,
@@ -94,9 +106,16 @@ function primeroDe(escenarios: Scenario[], tipo: string): string {
 }
 
 export default function Auditoria({ escenarios, inicial, mes, horizonte = "month",
-                                   compacto = true }: {
+                                   compacto = true, compara = "", onCompara }: {
   escenarios: Scenario[];
   inicial?: string;
+  /** La versión contra la que se compara. `""` = sin comparar.
+   *
+   *  ⚠️ La manda la PANTALLA y no es estado de acá: el Excel arma el mismo
+   *  cuadro, y si cada uno eligiera por su cuenta el archivo podría estar
+   *  comparando contra otra versión que la pantalla de la que salió. */
+  compara?: string;
+  onCompara?: (id: string) => void;
   /** ⚠️ El mes lo MANDA la pantalla. No hay estado propio ni selector acá.
    *
    *  Owner, 2026-09-08: *«el único que debe escoger es la parte de arriba y
@@ -121,6 +140,9 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
 }) {
   const [scenarioId, setScenarioId] = useState("");
   const [datos, setDatos] = useState<Datos | null>(null);
+  /** La versión de al lado. Su fallo NO se lleva la pantalla: la auditoría sin
+   *  comparación sigue contestando la pregunta principal, que es si cuadra. */
+  const [datosB, setDatosB] = useState<Datos | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Sólo las líneas que NO cuadran. Es el modo en que se usa esta pantalla
@@ -147,6 +169,23 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
   }, [scenarioId, mes, horizonte]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const cargarB = useCallback(async () => {
+    if (!compara || compara === scenarioId) { setDatosB(null); return; }
+    try { setDatosB(await getAuditoria(compara, mes, horizonte)); }
+    catch { setDatosB(null); }
+  }, [compara, scenarioId, mes, horizonte]);
+
+  useEffect(() => { cargarB(); }, [cargarB]);
+
+  /** El índice de la versión de al lado: por cuenta, por desglose y por
+   *  renglón del P&L. */
+  const ix = useMemo(() => indiceDe(datosB), [datosB]);
+  const comparando = !!ix;
+  const rotuloB = useMemo(() => {
+    const e = escenarios.find(x => x.id === compara);
+    return e ? `${e.type} ${e.version}` : "Comparar";
+  }, [escenarios, compara]);
 
   const cuadre = useMemo(() => {
     const filas = datos?.cuadre ?? [];
@@ -199,10 +238,11 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
   const porDepto = useMemo(() => {
     const out = new Map<string, {
       nombre: string;
-      grupos: Map<string, AuditoriaFila[]>;
+      grupos: Map<string, FilaComparada[]>;
       total: number;
+      contra: number;
     }>();
-    for (const f of datos?.detalle ?? []) {
+    for (const f of compararDetalle(datos?.detalle ?? [], ix)) {
       // ⚠️ `Compacto` esconde las OPCIONES del catálogo que no se movieron.
       // Es el mismo interruptor que ya gobierna los sub-tabs, y el pedido
       // original: «las líneas que no tienen saldo que no se vean
@@ -210,15 +250,17 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
       // puede usar, no sólo las 12 que usó.
       if (compacto && !f.movimiento) continue;
       const g = out.get(f.dept_code)
-        || { nombre: f.dept_name, grupos: new Map<string, AuditoriaFila[]>(), total: 0 };
+        || { nombre: f.dept_name, grupos: new Map<string, FilaComparada[]>(),
+             total: 0, contra: 0 };
       const bolsa = g.grupos.get(f.tipo) || [];
       bolsa.push(f);
       g.grupos.set(f.tipo, bolsa);
       g.total += f.monto;
+      g.contra += f.contra ?? 0;
       out.set(f.dept_code, g);
     }
     return [...out.entries()].map(([code, g]) => ({
-      code, nombre: g.nombre, total: g.total,
+      code, nombre: g.nombre, total: g.total, contra: g.contra,
       grupos: [...g.grupos.entries()]
         .sort((a, b) => orden(a[0]) - orden(b[0]))
         // ⚠️ Dentro de cada naturaleza, PRIMERO lo que se movió y de mayor a
@@ -232,12 +274,20 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
         .map(([tipo, filas]) => [tipo, [...filas].sort((x, y) => {
           if (x.movimiento !== y.movimiento) return x.movimiento ? -1 : 1;
           if (!x.movimiento) return x.account_code.localeCompare(y.account_code);
+          // ⚠️ Lo que sólo está del otro lado va DESPUÉS de lo que se ejecutó,
+          // aunque el monto presupuestado sea grande: primero lo que pasó,
+          // después lo que se esperaba y no pasó.
+          if (x.soloContra !== y.soloContra) return x.soloContra ? 1 : -1;
+          if (x.soloContra) return Math.abs(y.contra ?? 0) - Math.abs(x.contra ?? 0);
           return Math.abs(y.monto) - Math.abs(x.monto);
-        })] as [string, AuditoriaFila[]]),
+        })] as [string, FilaComparada[]]),
     }));
-  }, [datos, compacto]);
+  }, [datos, compacto, ix]);
 
   const columnas = datos?.columnas ?? [];
+  /** Cuántas columnas tiene cada cuadro, para los `colSpan` de las bandas. */
+  const nCuadre = 4 + (comparando ? 2 : 0);
+  const nDet = 5 + (comparando ? 2 : 0);
   const descuadres = (datos?.cuadre ?? [])
     .filter(f => f.dif !== null && Math.abs(f.dif) >= 0.005);
 
@@ -259,6 +309,14 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                        padding: "0 4px" }}>
           {datos?.periodo ?? MESES[mes - 1]}
         </span>
+        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>al lado:</span>
+        <select value={compara} onChange={e => onCompara?.(e.target.value)}
+                style={SEL} title="La versión contra la que se compara el detalle">
+          <option value="">— sin comparar —</option>
+          {escenarios.filter(e => e.id !== scenarioId).map(e => (
+            <option key={e.id} value={e.id}>{e.type} · {e.version} · {e.year}</option>
+          ))}
+        </select>
         <button onClick={() => setSoloDif(x => !x)}
           title="Dejar sólo los renglones cuyo detalle no suma lo que dice el motor"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600,
@@ -382,12 +440,22 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                          borderBottom: "2px solid var(--text-primary)" }}>
               Dif.
             </th>
+            {comparando && <>
+              <th style={{ ...TH, minWidth: 130, borderLeft: BL,
+                           borderBottom: "2px solid var(--text-primary)" }}>
+                {rotuloB}
+              </th>
+              <th style={{ ...TH, minWidth: 120, fontStyle: "italic",
+                           borderBottom: "2px solid var(--text-primary)" }}>
+                Var vs {rotuloB}
+              </th>
+            </>}
           </tr></thead>
           <tbody>
             {cuadre.map((f, i) => {
               // ── Un blanco, para que el cuadro respire entre bloques ──
               if (f.tipo === "esp") {
-                return <tr key={`esp-${i}`}><td colSpan={4} style={{ height: 10 }} /></tr>;
+                return <tr key={`esp-${i}`}><td colSpan={nCuadre} style={{ height: 10 }} /></tr>;
               }
 
               // ── El encabezado de sección: una banda, no una fila más ──
@@ -398,7 +466,7 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
               if (f.tipo === "sec") {
                 return (
                   <tr key={`sec-${i}`}>
-                    <td colSpan={4} style={{
+                    <td colSpan={nCuadre} style={{
                       padding: "7px 10px",
                       fontSize: 10.5, fontWeight: 800, letterSpacing: 1,
                       textTransform: "uppercase", color: "#fff",
@@ -474,11 +542,35 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                         color: mal ? "var(--negative)" : "var(--text-disabled)" }}>
                     {f.dif === null ? "" : usd(f.dif)}
                   </td>
+                  {/* ── La versión de al lado ──────────────────────────────
+                      ⚠️ El motor de B, NO la suma de su detalle: el cuadre de
+                      B es problema de B, y mezclarlos haría que un descuadre
+                      de allá se leyera como una variación de acá. */}
+                  {comparando && (() => {
+                    const b = f.linea ? ix!.porLinea.get(f.linea) : undefined;
+                    const hay = b !== undefined;
+                    const v = hay ? (f.motor ?? 0) - b! : null;
+                    return <>
+                      <td className="mono" style={{ ...TD, fontWeight: peso, borderLeft: BL,
+                            fontSize: f.hito ? 12.5 : 11.5,
+                            paddingTop: total ? 6 : 3, paddingBottom: total ? 6 : 3,
+                            color: hay ? undefined : "var(--text-disabled)" }}>
+                        {hay ? usd(b!) : ""}
+                      </td>
+                      <td className="mono" style={{ ...TD, fontWeight: peso,
+                            fontStyle: "italic",
+                            paddingTop: total ? 6 : 3, paddingBottom: total ? 6 : 3,
+                            color: v === null ? "var(--text-disabled)"
+                              : Math.abs(v) < 0.005 ? "var(--text-disabled)" : undefined }}>
+                        {v === null ? "" : usd(v)}
+                      </td>
+                    </>;
+                  })()}
                 </tr>
               );
             })}
             {!cuadre.length && (
-              <tr><td colSpan={4} style={{ ...TDL, color: "var(--text-secondary)" }}>
+              <tr><td colSpan={nCuadre} style={{ ...TDL, color: "var(--text-secondary)" }}>
                 {soloDif ? "No hay diferencias." : "Sin datos para este mes."}
               </td></tr>
             )}
@@ -499,6 +591,10 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
               Renglón del P&L
             </th>
             <th style={{ ...TH, minWidth: 110 }}>Monto US$</th>
+            {comparando && <>
+              <th style={{ ...TH, minWidth: 120, borderLeft: BL }}>{rotuloB}</th>
+              <th style={{ ...TH, minWidth: 110, fontStyle: "italic" }}>Var</th>
+            </>}
           </tr></thead>
           <tbody>
             {porDepto.map(d => (
@@ -509,7 +605,7 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                 {/* El departamento: barra completa, para que se lea como corte
                     y no como una fila más. */}
                 <tr>
-                  <td colSpan={5} style={{
+                  <td colSpan={nDet} style={{
                     ...TDL, fontWeight: 800, fontSize: 12.5,
                     padding: "7px 10px",
                     background: "var(--bg-elevated, #EDF1F5)",
@@ -539,6 +635,19 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                                    color: colorDe(tipo) }}>
                         {usd(filas.reduce((x, f) => x + f.monto, 0))}
                       </td>
+                      {comparando && (() => {
+                        const a = filas.reduce((x, f) => x + f.monto, 0);
+                        const b = sumaContra(filas);
+                        return <>
+                          <td style={{ ...TD, fontSize: 10.5, fontWeight: 800,
+                                       paddingTop: 7, paddingBottom: 2, borderLeft: BL,
+                                       color: colorDe(tipo) }}>{usd(b)}</td>
+                          <td style={{ ...TD, fontSize: 10.5, fontWeight: 800,
+                                       fontStyle: "italic",
+                                       paddingTop: 7, paddingBottom: 2,
+                                       color: colorDe(tipo) }}>{usd(a - b)}</td>
+                        </>;
+                      })()}
                     </tr>
                     {filas.map((f, i) => (
                       <Fragment key={`${d.code}-${tipo}-${i}`}>
@@ -547,7 +656,7 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                           movimiento de cero y no como una cuenta sin usar. */}
                       {!f.movimiento && (i === 0 || filas[i - 1].movimiento) && (
                         <tr>
-                          <td colSpan={5} style={{
+                          <td colSpan={nDet} style={{
                             ...TDL, paddingLeft: 34, paddingTop: 5,
                             fontSize: 10, fontStyle: "italic",
                             color: "var(--text-disabled)",
@@ -570,6 +679,17 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                         </td>
                         <td style={TDL}>
                           {f.account_name}{f.outlet ? ` · ${f.outlet}` : ""}
+                          {/* ⚠️ La partida que la otra versión tiene y ésta no.
+                              Sin rótulo se lee como un movimiento de cero, que
+                              es lo contrario: es plata esperada que no pasó. */}
+                          {f.soloContra && (
+                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700,
+                                           padding: "1px 5px", borderRadius: 3,
+                                           background: "var(--bg-elevated, #EDF1F5)",
+                                           color: "var(--text-secondary)" }}>
+                              sólo en {rotuloB}
+                            </span>
+                          )}
                         </td>
                         {/* La naturaleza YA está en el subtítulo; acá iba
                             repetida en cada fila sin agrupar nada. En su lugar
@@ -581,6 +701,31 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                           {f.linea || "⚠ no cae en ninguna línea"}
                         </td>
                         <td style={TD}>{usd(f.monto)}</td>
+                        {comparando && (() => {
+                          const v = difDe(f);
+                          return <>
+                            <td style={{ ...TD, borderLeft: BL,
+                                  color: f.contra === null
+                                    ? "var(--text-disabled)" : undefined }}
+                                title={f.porTotal
+                                  ? `${rotuloB} no tiene este desglose: es el TOTAL de la `
+                                    + `cuenta en el departamento.`
+                                  : f.contra === null && f.movimiento
+                                  ? `${rotuloB} no tiene esta cuenta, o ya se comparó en la `
+                                    + `fila de arriba por el total.`
+                                  : undefined}>
+                              {f.contra === null ? "" : usd(f.contra)}
+                              {f.porTotal && (
+                                <span style={{ color: "var(--text-disabled)",
+                                               marginLeft: 4, fontSize: 10 }}>tot.</span>
+                              )}
+                            </td>
+                            <td style={{ ...TD, fontStyle: "italic",
+                                  color: v === null ? "var(--text-disabled)" : undefined }}>
+                              {v === null ? "" : usd(v)}
+                            </td>
+                          </>;
+                        })()}
                       </tr>
                       </Fragment>
                     ))}
@@ -596,6 +741,16 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                                borderTop: "1px solid var(--border-medium)" }}>
                     {usd(d.total)}
                   </td>
+                  {comparando && <>
+                    <td style={{ ...TD, fontWeight: 800, paddingTop: 5, borderLeft: BL,
+                                 borderTop: "1px solid var(--border-medium)" }}>
+                      {usd(d.contra)}
+                    </td>
+                    <td style={{ ...TD, fontWeight: 800, fontStyle: "italic", paddingTop: 5,
+                                 borderTop: "1px solid var(--border-medium)" }}>
+                      {usd(d.total - d.contra)}
+                    </td>
+                  </>}
                 </tr>
               </Fragment>
             ))}

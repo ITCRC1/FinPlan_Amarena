@@ -40,6 +40,7 @@ import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import TresCortes from "./TresCortes";
 import { cortesDe, cuadroTresCortes, estadisticasDeLosCortes } from "@/lib/tresCortes";
+import { compararDetalle, indiceDe, sumaContra } from "@/lib/auditoriaCompara";
 import Auditoria from "./Auditoria";
 // El Profit by Department del owner, tal como ya está construido bajo Cierre de
 // Mes. Se importa la pantalla entera a propósito: ver el comentario del sub-tab
@@ -387,6 +388,12 @@ export default function MonthEndPLPage() {
   const [ranuras, setRanuras] = useState<string[]>(Array(RANURAS).fill(""));
   const [varA, setVarA] = useState(0);
   const [varB, setVarB] = useState(1);
+  /** Contra qué versión compara la Auditoría su detalle. `""` = sin comparar.
+   *
+   *  ⚠️ Vive acá y no adentro del sub-tab porque el Excel arma el MISMO cuadro:
+   *  si cada uno eligiera por su cuenta, el archivo podría estar comparando
+   *  contra otra versión que la pantalla de la que salió, y nada lo diría. */
+  const [audContra, setAudContra] = useState("");
   const [datos, setDatos] = useState<PLCompareVersion[]>([]);
   const [gastos, setGastos] = useState<GastoEscenario[]>([]);
   const [avisoGasto, setAvisoGasto] = useState<string | null>(null);
@@ -1406,7 +1413,14 @@ export default function MonthEndPLPage() {
       // mientras la pantalla muestra el acumulado — y el que lo abra mañana no
       // tendría cómo notar la diferencia.
       const a = await getAuditoria(id, mes, horizonte);
-      const cab = `${a.escenario} · ${a.periodo} ${year} · USD`;
+      // ⚠️ La MISMA versión de al lado que la pantalla (`audContra`). Un fallo
+      // acá deja el archivo sin las dos columnas, no sin archivo.
+      const b = audContra && audContra !== id
+        ? await getAuditoria(audContra, mes, horizonte).catch(() => null) : null;
+      const ix = indiceDe(b);
+      const rotB = b ? b.escenario : "";
+      const cab = `${a.escenario} · ${a.periodo} ${year} · USD`
+        + (b ? ` — al lado: ${rotB}` : "");
 
       // ⚠️ La Auditoría son TRES cuadros, no uno. El capítulo armaba sólo el
       // primero —el cuadre— y el owner lo vio enseguida: «el tab de auditoría
@@ -1424,6 +1438,10 @@ export default function MonthEndPLPage() {
           { label: "P&L (motor)", ancho: 17, formato: "usd2" as const },
           { label: "Suma del detalle", ancho: 17, formato: "usd2" as const },
           { label: "Dif.", ancho: 14, formato: "usd2" as const },
+          ...(ix ? [
+            { label: rotB, ancho: 17, formato: "usd2" as const },
+            { label: `Var vs ${rotB}`, ancho: 17, formato: "usd2" as const },
+          ] : []),
         ],
         // Las filas en blanco del P&L no viajan: en una hoja impresa una fila
         // vacía se lee como un dato que falta.
@@ -1431,7 +1449,15 @@ export default function MonthEndPLPage() {
                        .map((f: AuditoriaCuadre) => ({
           label: (f.tipo === "det" || f.tipo === "der") ? "    " + f.nombre : f.nombre,
           es_total: f.tipo === "sec" || f.tipo === "tot" || f.tipo === "sub",
-          valores: [f.motor, f.detalle, f.dif],
+          valores: [f.motor, f.detalle, f.dif,
+                    ...(ix ? (() => {
+                      // El MOTOR de la otra versión, no la suma de su detalle:
+                      // el cuadre de allá es problema de allá, y mezclarlos
+                      // haría que un descuadre suyo se leyera como variación.
+                      const m = f.linea ? ix.porLinea.get(f.linea) : undefined;
+                      return [m ?? null,
+                              m === undefined ? null : (f.motor ?? 0) - m];
+                    })() : [])],
         })),
       }];
 
@@ -1454,7 +1480,14 @@ export default function MonthEndPLPage() {
       // comprobar que son lo mismo.
       const ORDEN_NAT = ["Ingresos", "Costo de ventas", "Payroll", "Opex",
                          "Reparto", "Bajo GOP"];
-      const conMonto = a.detalle.filter(f => f.movimiento);
+      // ⚠️ El MISMO cruce que la pantalla (`compararDetalle`): el total de una
+      // cuenta se cuelga de UNA sola fila, así que la columna suma lo que
+      // tiene que sumar aunque el desglose de los dos lados no coincida.
+      const cruzado = compararDetalle(a.detalle, ix);
+      const conMonto = cruzado.filter(f => f.movimiento);
+      /** Las dos columnas de al lado, o ninguna. */
+      const alLado = (av: number | null, bv: number | null) =>
+        ix ? [bv, av === null || bv === null ? null : av - bv] : [];
       if (conMonto.length) {
         const porDepto = new Map<string, { nombre: string; filas: typeof conMonto }>();
         for (const f of conMonto) {
@@ -1468,7 +1501,9 @@ export default function MonthEndPLPage() {
           filas.push({
             label: g.nombre ? `${code} · ${g.nombre}` : code,
             es_total: true, nivel: 0,
-            valores: [null, null, g.filas.reduce((x, f) => x + f.monto, 0)],
+            valores: [null, null, g.filas.reduce((x, f) => x + f.monto, 0),
+                      ...alLado(g.filas.reduce((x, f) => x + f.monto, 0),
+                                sumaContra(g.filas))],
           });
           const nats = [...new Set(g.filas.map(f => f.tipo))].sort(
             (x, y) => (ORDEN_NAT.indexOf(x) + 1 || 99) - (ORDEN_NAT.indexOf(y) + 1 || 99));
@@ -1476,17 +1511,24 @@ export default function MonthEndPLPage() {
             const suyas = g.filas.filter(f => f.tipo === nat)
               .sort((x, y) => Math.abs(y.monto) - Math.abs(x.monto));
             filas.push({ label: nat, es_total: false, nivel: 1,
-                         valores: [null, null, null] });
+                         valores: [null, null, null, ...alLado(null, null)] });
             for (const f of suyas) {
               filas.push({
-                label: f.account_name, es_total: false, nivel: 2,
+                // El rótulo dice cuándo la partida sólo existe del otro lado:
+                // en cero y sin marca se lee como un movimiento de cero, que es
+                // lo contrario de «se presupuestó y no pasó».
+                label: f.soloContra ? `${f.account_name} (sólo en ${rotB})`
+                                    : f.account_name,
+                es_total: false, nivel: 2,
                 valores: [f.account_code, f.linea || "(no cae en ninguna línea)",
-                          f.monto],
+                          f.monto, ...alLado(f.monto, f.contra)],
               });
             }
             filas.push({
               label: `Subtotal ${nat}`, es_total: true, nivel: 1,
-              valores: [null, null, suyas.reduce((x, f) => x + f.monto, 0)],
+              valores: [null, null, suyas.reduce((x, f) => x + f.monto, 0),
+                        ...alLado(suyas.reduce((x, f) => x + f.monto, 0),
+                                  sumaContra(suyas))],
             });
           }
           // El renglón en blanco entre departamentos. Sin él, el subtotal de
@@ -1505,6 +1547,10 @@ export default function MonthEndPLPage() {
             { label: "Cuenta", ancho: 10, formato: "texto" as const },
             { label: "Renglón del P&L", ancho: 24, formato: "texto" as const },
             { label: "Monto US$", ancho: 16, formato: "usd2" as const },
+            ...(ix ? [
+              { label: rotB, ancho: 16, formato: "usd2" as const },
+              { label: `Var vs ${rotB}`, ancho: 16, formato: "usd2" as const },
+            ] : []),
           ],
           filas,
         });
@@ -3316,7 +3362,8 @@ export default function MonthEndPLPage() {
 
       {vista === "auditoria" && (
         <Auditoria escenarios={escenarios} inicial={ranuras[0] || undefined}
-                   mes={mes} horizonte={horizonte} compacto={compacto} />
+                   mes={mes} horizonte={horizonte} compacto={compacto}
+                   compara={audContra} onCompara={setAudContra} />
       )}
 
       {/* Profit by Department — mes · YTD · full year.
