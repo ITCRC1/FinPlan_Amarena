@@ -163,7 +163,8 @@ def test_el_DOCUMENTO_lleva_los_tres_cortes_rotulados():
     cambia el anio. Y las columnas tienen que decir de que corte son: tres
     bloques de versiones con el mismo nombre no se distinguen."""
     cuerpo = _franja()
-    assert "cortesDe(mes)" in cuerpo
+    # ⚠️ Desde el 2026-09-30 lleva tambien el ano: «Agosto 2026».
+    assert "cortesDe(mes, year)" in cuerpo
     assert "estadisticasDeLosCortes(" in cuerpo
     assert "${c.titulo} · ${etiqueta(" in cuerpo
 

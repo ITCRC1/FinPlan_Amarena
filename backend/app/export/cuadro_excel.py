@@ -36,6 +36,8 @@ tabs (allocations tiene 12 cuadros, cash flow directo 6) bajan todo de una.
 """
 from __future__ import annotations
 
+import io
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -236,6 +238,21 @@ def _con_grupo(base: Border, col: dict) -> Border:
                   bottom=base.bottom)
 
 
+#: El valor calculado de cada celda que lleva fórmula: `(hoja, celda) → número`.
+#:
+#: ⚠️ **Por qué hace falta.** `openpyxl` escribe `<f>B14-C14</f>` y NADA más: la
+#: celda no trae el resultado. Excel debería calcularlo al abrir —el libro sale
+#: con `fullCalcOnLoad`— pero si el usuario tiene el cálculo en Manual, o abre
+#: el archivo en un visor que no evalúa, **las celdas salen en blanco**. Le pasó
+#: al owner (2026-09-30): *«no pusiste los cálculos de las varianzas»* y *«los
+#: checkbooks no tienen subtotales ni totales»* — estaban, como fórmula, y no se
+#: veían.
+#:
+#: Un archivo de Excel de verdad guarda las dos cosas: la fórmula y su último
+#: resultado. Eso es lo que se hace acá.
+_VALORES_DE_FORMULA: dict[tuple[str, str], float] = {}
+
+
 def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     columnas = cuadro.get("columnas") or []
     filas = cuadro.get("filas") or []
@@ -338,8 +355,10 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
         for i, valor in enumerate(f.get("valores") or [], start=2):
             if i > n_col:
                 break
-            celda = ws.cell(fila, i, _formula(columnas[i - 1], f, filas,
-                                              i, fila, PRIMERA_FILA) or valor)
+            formula = _formula(columnas[i - 1], f, filas, i, fila, PRIMERA_FILA)
+            celda = ws.cell(fila, i, formula or valor)
+            if formula is not None and isinstance(valor, (int, float)):
+                _VALORES_DE_FORMULA[(ws.title, celda.coordinate)] = float(valor)
             fmt = FORMATOS.get(fmt_fila or columnas[i - 1].get("formato") or "usd",
                                FORMATOS["usd"])
             if fmt:
@@ -519,8 +538,80 @@ def _banda_del_bloque(hoja: str) -> str:
     return _BANDA_RESTO
 
 
+def _con_resultados(blob: bytes, valores: dict[tuple[str, str], float]) -> bytes:
+    """El mismo libro, con el RESULTADO guardado al lado de cada fórmula.
+
+    ⚠️ **No es un adorno: es lo que hace que los números se vean.** `openpyxl`
+    escribe la fórmula sin su resultado, y una celda así sale en blanco en
+    cualquier programa que no la evalúe al abrir —incluido Excel con el cálculo
+    en Manual—. Un archivo de Excel de verdad guarda las dos cosas.
+
+    ⚠️ Si algo sale mal, se devuelve el libro TAL CUAL. Un archivo con las
+    fórmulas sin resultado se arregla con F9; uno corrupto no se abre.
+    """
+    if not valores:
+        return blob
+    try:
+        import re
+        import xml.etree.ElementTree as ET
+        import zipfile
+
+        zin = zipfile.ZipFile(io.BytesIO(blob))
+        # Qué archivo es cada hoja. El orden de `sheetN.xml` no es garantía:
+        # se sigue el r:id, que es lo que el formato define.
+        NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+        libro = ET.fromstring(zin.read("xl/workbook.xml"))
+        rels = ET.fromstring(zin.read("xl/_rels/workbook.xml.rels"))
+        destino = {r.get("Id"): r.get("Target") for r in rels}
+        archivo_de = {}
+        for h in libro.iter(f"{NS}sheet"):
+            t = destino.get(h.get(f"{R}id"), "")
+            archivo_de[h.get("name")] = "xl/" + t.lstrip("/").removeprefix("xl/")
+
+        por_archivo: dict[str, dict[str, float]] = {}
+        for (hoja, celda), v in valores.items():
+            if hoja in archivo_de:
+                por_archivo.setdefault(archivo_de[hoja], {})[celda] = v
+
+        salida = io.BytesIO()
+        with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                datos = zin.read(item.filename)
+                celdas = por_archivo.get(item.filename)
+                if celdas:
+                    texto = datos.decode("utf-8")
+
+                    def pegar(m, celdas=celdas):
+                        ref, cuerpo = m.group(1), m.group(0)
+                        if ref not in celdas:
+                            return cuerpo
+                        # `.10g` deja el número como lo escribiría Excel, sin
+                        # arrastrar los decimales del binario.
+                        valor = f"{celdas[ref]:.10g}"
+                        # ⚠️ `openpyxl` YA escribe un `<v></v>` VACÍO en cada
+                        # celda con fórmula. Ése es el que hay que reemplazar:
+                        # un resultado en blanco es lo que hacía que la celda
+                        # saliera vacía. Si algún día dejara de escribirlo, se
+                        # inserta detrás de `</f>`.
+                        if "<v></v>" in cuerpo:
+                            return cuerpo.replace("<v></v>", f"<v>{valor}</v>")
+                        return cuerpo.replace("</f>", f"</f><v>{valor}</v>", 1)
+
+                    texto = re.sub(
+                        r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?<f>.*?</f>'
+                        r'(?:<v>[^<]*</v>)?</c>',
+                        pegar, texto, flags=re.S)
+                    datos = texto.encode("utf-8")
+                zout.writestr(item, datos)
+        return salida.getvalue()
+    except Exception:
+        return blob
+
+
 def build_cuadros_workbook(cuadros: list[dict]) -> bytes:
     """Un libro con una hoja por cuadro, y un índice adelante."""
+    _VALORES_DE_FORMULA.clear()      # el libro anterior no contamina a éste
     wb = Workbook()
     wb.remove(wb.active)
     usados: set[str] = set()
@@ -533,4 +624,4 @@ def build_cuadros_workbook(cuadros: list[dict]) -> bytes:
         _indice(wb, cuadros or [], nombres)
     if not wb.sheetnames:            # nunca devolver un libro sin hojas
         wb.create_sheet("Sin datos")
-    return workbook_to_bytes(wb)
+    return _con_resultados(workbook_to_bytes(wb), _VALORES_DE_FORMULA)

@@ -1762,7 +1762,7 @@ export default function MonthEndPLPage() {
         // ⚠️ No se deriva del detalle: sale del mismo endpoint que lo pone en
         // la pantalla, y si el archivo lo calculara por su cuenta serían dos
         // verdades.
-        stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes),
+        stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes, year),
                                                       d.versiones ?? []);
         cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
                                       stats, actualFullPL, visibles));
@@ -2226,7 +2226,7 @@ export default function MonthEndPLPage() {
     // la de ese forecast. Pidiendo sólo las ranuras, esa celda saldría vacía.
     const ids = idsDelPL();
     if (!ids.length) return null;
-    const cortes = cortesDe(mes);
+    const cortes = cortesDe(mes, year);
     // ⚠️ Los mismos cortes del cuadro. `estadisticasDeLosCortes` ya deja en
     // `null` la versión que falle —.catch(() => null)—, así que una versión
     // caída no se lleva el documento entero.

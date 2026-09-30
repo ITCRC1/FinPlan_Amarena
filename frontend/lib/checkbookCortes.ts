@@ -46,7 +46,8 @@ import { celdasDe, cortesDe, parDe, ROTULO_VAR, rotulosDeVersion, suma,
 
 /** Los tres cortes de un mes. Reexportado para que la pantalla arme su fila de
  *  encabezado con exactamente los mismos que el cuadro. */
-export const cortesDelCheckbook = (mes: number): Corte[] => cortesDe(mes);
+export const cortesDelCheckbook = (mes: number, anio?: number): Corte[] =>
+  cortesDe(mes, anio);
 
 /** Cuántas columnas ocupa un corte: una por columna de la vista, más la
  *  varianza si hay par que restar.
@@ -82,7 +83,11 @@ export function cuadroCheckbookCortes(
   const todas = datos.versiones ?? [];
   const vista = vistaDe(todas, opciones.visibles, opciones.actualDelFullYear,
                         escenarios);
-  const cortes = cortesDe(mes);
+  // ⚠️ El año sale de la VERSIÓN, que es lo único que lo sabe acá: el detalle
+  // de celda no lo trae. Owner, 2026-09-30: *«en algún lugar hay que poner el
+  // año»*, y va en el rótulo del corte.
+  const anio = escenarios.find(e => e.id === todas[0]?.scenario_id)?.year;
+  const cortes = cortesDe(mes, anio);
   const doce = Array.from({ length: 12 }, (_, i) => i);
   /** El rótulo corto de cada versión: «Actual», «Budget», «Forecast». */
   const corto = rotulosDeVersion(todas, escenarios);
@@ -202,7 +207,8 @@ export function cuadroCheckbookCortes(
   });
 
   return {
-    titulo: `Checkbook · ${rotulo} · mes, YTD y full year`,
+    titulo: `Checkbook · ${rotulo}${anio ? ` ${anio}` : ""}`
+            + ` · mes, YTD y full year`,
     subtitulo: `${datos.versiones?.[0]?.fuente ?? ""} · USD — en el full year `
       + `la primera columna es el Forecast Current y la varianza es Forecast `
       + `contra Budget: el Actual del año todavía no existe, son los meses `

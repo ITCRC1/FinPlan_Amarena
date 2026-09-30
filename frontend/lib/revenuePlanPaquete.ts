@@ -93,6 +93,13 @@ export interface ArmadoDeIngresos {
  * mostrando el forecast en la primera columna y sin nada contra qué leerlo.
  * Es la misma vista del P&L y de los checkbooks.
  */
+/** El año, para el rótulo del corte. Sale de la versión: el armado no lo trae.
+ *  Owner, 2026-09-30: *«en algún lugar hay que poner el año»*. */
+function anioDelArmado(a: ArmadoDeIngresos): number | undefined {
+  return a.escenarios.find(e => e.id === a.visibles[0])?.year;
+}
+
+
 function vistaDelArmado(a: ArmadoDeIngresos) {
   const todas = [...new Set([...a.visibles, a.actualDelFullYear]
     .filter(Boolean))].map(id => ({ scenario_id: id }));
@@ -108,7 +115,7 @@ export function filasDelArmado(
 ): FilaCuadro[] {
   const usadas = a.visibles.map(id => a.fuentes[id]).filter(Boolean);
   if (!usadas.length) return [];
-  const cortes = cortesDe(a.mes);
+  const cortes = cortesDe(a.mes, anioDelArmado(a));
   const { todas, vista } = vistaDelArmado(a);
   /** ⚠️ `vi` es un índice de VERSIÓN, no una posición de columna: `celdasDe` ya
    *  aplicó la regla del año completo. */
@@ -143,7 +150,7 @@ export function cuadroDelArmado(
   const f = formatoDeVista(cual);
   const fmt = (f === "pct" ? "pct" : f === "usd" ? "usd2" : "num") as
     "pct" | "usd2" | "num";
-  const cortes = cortesDe(a.mes);
+  const cortes = cortesDe(a.mes, anioDelArmado(a));
   const { todas, vista } = vistaDelArmado(a);
   const idDe = (col: number, ci: number) =>
     todas[vista.vi(col, ci)]?.scenario_id ?? "";

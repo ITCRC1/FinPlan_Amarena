@@ -16,6 +16,7 @@ Este cuadro es el que usan TODOS los botones de Excel que pasan por
 auditoria y los capitulos del cierre.
 """
 import io
+import pathlib
 
 from openpyxl import load_workbook
 
@@ -394,3 +395,70 @@ def test_NINGUNA_hoja_baja_con_la_cuadricula_de_Excel():
     for nombre in wb.sheetnames:
         assert wb[nombre].sheet_view.showGridLines is False, \
             f"la hoja «{nombre}» baja con la cuadricula"
+
+
+# ═════════ La formula tiene que VERSE, 2026-09-30 ════════════════════════════
+#
+# Owner, mirando el Excel bajado: *«no pusiste los calculos de las
+# varianzas… actual menos Budget»* y *«los checkbooks no tienen subtotales ni
+# totales, hay que volver a poner todo eso»*.
+#
+# Estaban. Como formula, y en blanco.
+
+def _celda_cruda(blob: bytes, hoja: str, ref: str) -> str:
+    import re
+    import zipfile
+    import xml.etree.ElementTree as ET
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    libro = ET.fromstring(z.read("xl/workbook.xml"))
+    rels = {r.get("Id"): r.get("Target")
+            for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))}
+    for h in libro.iter(f"{NS}sheet"):
+        if h.get("name") == hoja:
+            t = rels[h.get(f"{R}id")]
+            xml = z.read("xl/" + t.lstrip("/").removeprefix("xl/")).decode()
+            m = re.search(r'<c r="%s".*?</c>' % ref, xml, re.S)
+            return m.group() if m else ""
+    return ""
+
+
+def test_la_formula_baja_CON_su_resultado():
+    """⚠️ `openpyxl` escribe `<f>B5-C5</f><v></v>`: la formula, y un resultado
+    VACIO. Excel deberia calcularlo al abrir —el libro sale con
+    `fullCalcOnLoad`— pero si el usuario tiene el calculo en Manual, o lo abre
+    en un visor que no evalua, la celda sale EN BLANCO.
+
+    Le paso al owner con las varianzas del P&L y con los subtotales de los
+    checkbooks: estaban, y no se veian. Un archivo de Excel de verdad guarda
+    las dos cosas.
+    """
+    blob = build_cuadros_workbook([_con_var()])
+    celda = _celda_cruda(blob, "Tres cortes", "D5")
+    assert "<f>B5-C5</f>" in celda, celda
+    assert "<v>20</v>" in celda, f"la formula bajo sin resultado: {celda}"
+
+
+def test_el_SUBTOTAL_tambien_baja_con_su_resultado():
+    blob = build_cuadros_workbook([_con_var()])
+    celda = _celda_cruda(blob, "Tres cortes", "B7")
+    assert "<f>B5+B6</f>" in celda, celda
+    assert "<v>140</v>" in celda, f"el subtotal bajo sin resultado: {celda}"
+
+
+def test_si_la_inyeccion_falla_el_libro_sale_IGUAL():
+    """⚠️ Un archivo con las formulas sin resultado se arregla con F9; uno
+    corrupto no se abre. El camino de escape devuelve el libro tal cual."""
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/export/cuadro_excel.py").read_text(encoding="utf-8")
+    cuerpo = src[src.index("def _con_resultados("):src.index("def build_cuadros_workbook(")]
+    assert "except Exception:" in cuerpo and "return blob" in cuerpo
+
+
+def test_un_libro_NO_arrastra_las_formulas_del_anterior():
+    """El diccionario es de modulo: sin limpiarlo, el segundo libro escribiria
+    resultados de celdas del primero."""
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/export/cuadro_excel.py").read_text(encoding="utf-8")
+    assert "_VALORES_DE_FORMULA.clear()" in src

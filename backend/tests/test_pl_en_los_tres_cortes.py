@@ -49,7 +49,7 @@ def test_los_tres_cortes_salen_del_MISMO_arreglo_de_doce():
     mes es un indice, el YTD los primeros N, el full year los doce."""
     src = LOGICA.read_text(encoding="utf-8")
     assert "export function cortesDe" in src
-    assert 'clave: "mes", titulo: MESES[mes - 1], meses: [mes - 1]' in src
+    assert 'clave: "mes", titulo: `${MESES[mes - 1]}${y}`, meses: [mes - 1]' in src
     assert "Array.from({ length: mes }, (_, i) => i)" in src
     assert "Array.from({ length: 12 }, (_, i) => i)" in src
     # Una sola llamada PARA DIBUJAR: los tres cortes salen del mismo arreglo.
@@ -174,7 +174,7 @@ def test_el_Word_pide_el_mismo_encabezado_que_la_pantalla():
     pag = PAGINA.read_text(encoding="utf-8")
     # ⚠️ Y se pide UNA vez para los tres ambitos: el encabezado es de la
     # propiedad, no del ambito.
-    assert "stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes)," in pag
+    assert "stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes, year)," in pag
     assert "cuadroTresCortes(d, mes, escenarios, a.clave, compacto," in pag
 
 
@@ -420,3 +420,31 @@ def test_el_rotulo_corto_es_UNO_para_todos_los_armados():
         assert "ROTULO_VAR" in s, f"{ruta} escribe su propio rotulo de varianza"
         if "tresCortes" not in ruta:
             assert "rotulosDeVersion" in s, f"{ruta} arma su propio rotulo corto"
+
+
+def test_el_ANO_va_en_el_rotulo_del_corte():
+    """Owner, 2026-09-30, mirando el Excel: *«en algun lugar hay que poner el
+    ano… puede ir en el Agosto: que sea Agosto 2026, YTD Agosto 2026 y Full
+    Year 2026»*.
+
+    Un archivo que se archiva y se manda tiene que decir de que ano es. El
+    titulo de la hoja lo dice, pero la hoja se imprime, se recorta y se pega en
+    otro lado.
+
+    ⚠️ Sin el ano el rotulo sale como antes: hay pantallas que llaman a
+    `cortesDe` sin el dato a mano, y un «Agosto undefined» seria peor que no
+    ponerlo.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "export function cortesDe(mes: number, anio?: number): Corte[]" in src
+    assert 'const y = anio ? ` ${anio}` : "";' in src
+    assert "titulo: `YTD ${MESES[mes - 1]}${y}`" in src
+    assert "titulo: `Full Year${y}`" in src
+    # Y el cuadro lo pasa.
+    assert "cortesDe(mes, datos.year)" in src
+
+
+def test_el_YTD_dice_el_MES_ENTERO():
+    """«YTD Ago 2026» al lado de «Agosto 2026» se lee como dos meses distintos."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "`YTD ${MES3[mes - 1]}`" not in src

@@ -112,7 +112,9 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  const cortes: Corte[] = useMemo(() => cortesDe(mes), [mes]);
+  // El año va en el rótulo del corte, igual que en el archivo.
+  const cortes: Corte[] = useMemo(() => cortesDe(mes, datos?.year),
+    [mes, datos?.year]);
   // `?? []` crea un arreglo nuevo en cada render, y de él cuelgan varios
   // `useMemo`: sin esto se recalculan siempre.
   const versiones = useMemo(() => datos?.versiones ?? [], [datos]);

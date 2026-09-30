@@ -169,13 +169,23 @@ export const suma = (a: number[] | undefined, meses: number[]) =>
 
 
 /** Los tres cortes de un mes de cierre. El mes es un índice; el YTD son los
- *  primeros N; el full year son los doce. */
-export function cortesDe(mes: number): Corte[] {
+ *  primeros N; el full year son los doce.
+ *
+ *  ⚠️ **`anio` va en el rótulo.** Owner, 2026-09-30, mirando el Excel: *«en
+ *  algún lugar hay que poner el año… puede ir en el Agosto: que sea Agosto
+ *  2026, YTD Agosto 2026 y Full Year 2026»*. Un archivo que se archiva y se
+ *  manda tiene que decir de qué año es; el título de la hoja lo dice, pero la
+ *  hoja se imprime, se recorta y se pega en otro lado.
+ *
+ *  Sin `anio` el rótulo sale como antes: hay pantallas que lo llaman sin el
+ *  dato a mano y un «Agosto undefined» sería peor que no ponerlo. */
+export function cortesDe(mes: number, anio?: number): Corte[] {
+  const y = anio ? ` ${anio}` : "";
   return [
-    { clave: "mes", titulo: MESES[mes - 1], meses: [mes - 1] },
-    { clave: "ytd", titulo: `YTD ${MES3[mes - 1]}`,
+    { clave: "mes", titulo: `${MESES[mes - 1]}${y}`, meses: [mes - 1] },
+    { clave: "ytd", titulo: `YTD ${MESES[mes - 1]}${y}`,
       meses: Array.from({ length: mes }, (_, i) => i) },
-    { clave: "full", titulo: "Full Year",
+    { clave: "full", titulo: `Full Year${y}`,
       meses: Array.from({ length: 12 }, (_, i) => i) },
   ];
 }
@@ -386,7 +396,7 @@ export function cuadroTresCortes(
    *  quitar. */
   visibles?: string[],
 ): Cuadro {
-  const cortes = cortesDe(mes);
+  const cortes = cortesDe(mes, datos.year);
   const versiones = datos.versiones ?? [];
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>

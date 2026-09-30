@@ -196,7 +196,12 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
 
   /** El cuadro de los tres cortes. ⚠️ Es EL MISMO que baja al Excel — la
    *  pantalla lo dibuja, no lo vuelve a armar. */
-  const cortes = useMemo(() => cortesDelCheckbook(mes), [mes]);
+  // El año va en el rótulo del corte, igual que en el archivo.
+  const anioCb = useMemo(
+    () => escenarios.find(e => e.id === versiones[0]?.scenario_id)?.year,
+    [escenarios, versiones]);
+  const cortes = useMemo(() => cortesDelCheckbook(mes, anioCb),
+    [mes, anioCb]);
   /** Qué columnas se dibujan y quién ocupa cada una.
    *
    *  ⚠️ La MISMA que arma el cuadro. Antes la pantalla recortaba las versiones
