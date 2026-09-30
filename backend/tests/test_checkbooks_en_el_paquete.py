@@ -126,3 +126,51 @@ def test_caen_al_ACTUAL_cuando_la_principal_no_tiene_el_dato():
     assert "const conRespaldo = useCallback(" in s
     assert 'e.type === "ACTUAL"' in s
     assert "for (const id of conRespaldo())" in s
+
+
+def test_el_ARMADO_DE_INGRESOS_completa_el_consolidado():
+    """Owner, 2026-09-30: *«ahora hagamos merge al archivo de resumen ejecutivo.
+    agreguemos al final para tener ahora si un consolidado»*.
+
+    Con esto el paquete del cierre queda con todo: la cascada en tres cortes por
+    ambito, los cuatro checkbooks, los dos cuadros del Dashboard y las OCHO
+    vistas del armado de ingresos — en UN archivo.
+    """
+    s = _src()
+    assert 'key: "armado"' in s
+    assert "cuadrosDelArmado({" in s
+    assert "cargarFuentesIngresos(" in s
+    # Va de ULTIMO, que es donde se pidio.
+    i_armado = s.index('key: "armado"')
+    i_pms = s.index('key: "pms"')
+    assert i_armado > i_pms
+
+
+def test_el_armado_NO_se_reescribe_para_el_paquete():
+    """⚠️ Lo bajan dos lugares: el boton de Armado de ingresos y el paquete del
+    cierre. Dos versiones del mismo cuadro empiezan iguales y se separan en el
+    primer arreglo que alguien hace de un lado — y entonces el consolidado y el
+    suelto dirian cosas distintas de los mismos datos."""
+    front = pathlib.Path(__file__).resolve().parents[2] / "frontend"
+    lib = front / "lib/revenuePlanPaquete.ts"
+    assert lib.exists()
+    src = lib.read_text(encoding="utf-8")
+    assert "export function cuadrosDelArmado" in src
+    assert "export const VISTAS_INGRESOS" in src
+    # Las dos pantallas la usan.
+    rp = (front / "app/month-end/revenue-plan/page.tsx").read_text(encoding="utf-8")
+    assert "cuadrosDelArmado({" in rp
+    assert 'from "@/lib/revenuePlanPaquete"' in rp
+
+
+def test_el_armado_hereda_las_reglas_del_full_year():
+    """La primera columna del año es el Forecast Current y la varianza es
+    Forecast contra Budget. Vienen con el cuadro por no haberlo reescrito."""
+    front = pathlib.Path(__file__).resolve().parents[2] / "frontend"
+    src = (front / "lib/revenuePlanPaquete.ts").read_text(encoding="utf-8")
+    assert "ci === 2 && vi === 0 && a.actualDelFullYear" in src
+    assert 'from "@/lib/tresCortes"' in src
+    # Y la agregacion de cada vista sigue siendo la de su lib: aca no se suma
+    # una razon por accidente.
+    assert 'from "@/lib/revenuePlanCortes"' in src
+    assert "totalDeIngresos(" in src and "valorDeIngresos(" in src

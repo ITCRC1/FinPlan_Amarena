@@ -60,6 +60,7 @@ import {
   type FuenteIngresos, type VistaIngresos,
 } from "@/lib/revenuePlanCortes";
 import { celdasDe, cortesDe, parDe } from "@/lib/tresCortes";
+import { cuadrosDelArmado } from "@/lib/revenuePlanPaquete";
 
 const MES_LARGO = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                    "Julio", "Agosto", "Setiembre", "Octubre", "Noviembre",
@@ -358,41 +359,6 @@ export default function RevenuePlanPage() {
     return [...cuerpo, ...(pie.valores.some(v => v !== null) ? [pie] : [])];
   }, [visibles, fuentes, cortes, columnas, escenarios, idDe]);
 
-  /** El cuadro de UNA vista: sus columnas y sus filas ya calculadas.
-   *
-   *  ⚠️ El nombre de la pestaña es el de la vista. Ocho hojas con el mismo
-   *  nombre las desempata Excel con un número y hay que abrirlas una por una
-   *  para saber cuál es Ocupación. */
-  const cuadroDeLaVista = useCallback((
-    cual: VistaIngresos, rotuloVista: string, filas: FilaCuadro[],
-  ): Cuadro => {
-    const f = formato(cual);
-    const fmt = (f === "pct" ? "pct" : f === "usd" ? "usd2" : "num") as
-      "pct" | "usd2" | "num";
-    return {
-      titulo: `${rotuloVista} · mes, YTD y full year`,
-      subtitulo: `${MES_LARGO[(mes || 12) - 1]} — en el full year la primera `
-        + `columna es el Forecast Current y la varianza es Forecast contra `
-        + `Budget.`
-        + (ES_PROMEDIO(cual)
-           ? ` Esta vista son razones: el valor de un corte de varios meses es `
-             + `un promedio, no un acumulado.` : ""),
-      hoja: rotuloVista.slice(0, 31),
-      columnas: [
-        { label: cual === "canales" ? "Canal" : "Tipo de habitación",
-          ancho: 34, formato: "texto" },
-        ...cortes.flatMap((c, ci) => [
-          ...columnas.map((_v, vi) => ({
-            label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
-            ancho: 15, formato: fmt })),
-          ...(parDe(c, columnas, escenarios)
-            ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: fmt }] : []),
-        ]),
-      ],
-      filas,
-    };
-  }, [cortes, columnas, escenarios, idDe, etiqueta, mes]);
-
   /** Las de la vista que está en pantalla. */
   const filasCorte = useMemo(
     () => (corte === "cortes" ? filasDeLaVista(vista) : []),
@@ -419,14 +385,13 @@ export default function RevenuePlanPage() {
       // miran de a una; el archivo se archiva y se manda, y bajar sólo la
       // pestaña abierta lo convierte en una foto de dónde estaba parado quien
       // lo bajó.
-      const hojas: Cuadro[] = [];
-      for (const v of VISTAS) {
-        const filas = filasDeLaVista(v.key);
-        // Una vista sin filas no baja como hoja vacía: se leería como «no hay
-        // inventario», que es una afirmación.
-        if (!filas.length) continue;
-        hojas.push(cuadroDeLaVista(v.key, v.rotulo, filas));
-      }
+      // ⚠️ El MISMO armado que usa el paquete del cierre
+      // (`lib/revenuePlanPaquete`). Dos versiones del mismo cuadro se separan
+      // en el primer arreglo que alguien hace de un lado.
+      const hojas = cuadrosDelArmado({
+        fuentes, visibles, actualDelFullYear: actualFull, mes: mes || 12,
+        escenarios, rotuloMes: MES_LARGO[(mes || 12) - 1],
+      });
       if (!hojas.length) { alert("No hay nada que bajar con estas versiones."); return; }
       try { await bajarCuadros(`Planning_cortes_${MES_LARGO[(mes || 12) - 1]}`, hojas); }
       catch (e) { alert(e instanceof Error ? e.message : "No se pudo generar el Excel"); }

@@ -60,6 +60,9 @@ import { getTabsApagados } from "@/lib/tabsVisibles";
 import { capitulosDelPaquete, leerPaquete } from "@/lib/paqueteCuadros";
 import { cuadroCheckbookCortes } from "@/lib/checkbookCortes";
 import { cuadroResumenConsolidado } from "@/lib/resumenConsolidado";
+import {
+  cargarFuentesIngresos, cuadrosDelArmado,
+} from "@/lib/revenuePlanPaquete";
 import { cuadroDelAnio } from "@/components/MembresiasAnioTabla";
 import PaqueteCuadros from "./PaqueteCuadros";
 
@@ -148,6 +151,11 @@ const EXTRAS = [
 const DEL_DASHBOARD = [
   { key: "pms", rotulo: "Resumen consolidado · PMS" },
   { key: "membresias", rotulo: "Membresías del club" },
+  // El armado de ingresos: OCHO hojas en un solo capítulo (owner, 2026-09-30:
+  // «hagamos merge al archivo de resumen ejecutivo; agreguemos al final para
+  // tener ahora sí un consolidado»). Va de último, que es donde el owner lo
+  // pidió: el cierre se lee de arriba abajo y el armado es el sustento.
+  { key: "armado", rotulo: "Armado de ingresos (8 hojas)" },
 ] as const;
 
 /** Todas las claves que pueden entrar al archivo, en su orden por defecto. */
@@ -1773,6 +1781,29 @@ export default function MonthEndPLPage() {
       }
       return [];
     },
+    // ── El armado de ingresos, sus ocho vistas ──────────────────────────
+    //
+    // ⚠️ El MISMO armado que la pantalla de Armado de ingresos
+    // (`lib/revenuePlanPaquete`). Reescribirlo acá daría dos versiones del
+    // mismo cuadro, y el consolidado diría una cosa y el suelto otra sobre los
+    // mismos datos.
+    armado: async () => {
+      const tipoDe = (id: string) => escenarios.find(x => x.id === id)?.type ?? "";
+      const dame = (tipo: string) =>
+        ranuras.find(id => id && tipoDe(id) === tipo) ?? "";
+      const visibles = [dame("ACTUAL"), dame("BUDGET"), dame("FORECAST")]
+        .filter(Boolean);
+      if (!visibles.length) return [];
+      const actualFull =
+        escenarios.find(x => x.is_current_forecast)?.id || dame("FORECAST") || "";
+      const fuentes = await cargarFuentesIngresos(
+        [...visibles, actualFull].filter(Boolean));
+      return cuadrosDelArmado({
+        fuentes, visibles, actualDelFullYear: actualFull, mes,
+        escenarios, rotuloMes: MESES[mes - 1],
+      });
+    },
+
     membresias: async () => {
       for (const id of conRespaldo()) {
         try {
