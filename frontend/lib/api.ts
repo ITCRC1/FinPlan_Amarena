@@ -2713,6 +2713,41 @@ export interface EstadisticasCierre {
   /** Ingreso del Club ÷ socios-mes. Ponderado, no promedio simple. */
   club_cuota_promedio: number | null;
 }
+/**
+ * El Resumen Ejecutivo del mes, en Word.
+ *
+ * Owner, 2026-09-30, entregando el `Executive Summary` de CWL: *«usa este
+ * formato como estándar y prepara uno igual para agosto en Amarena. quiero el
+ * informe en word»*.
+ *
+ * ⚠️ Lo arma el BACKEND con los mismos agregadores del cierre. No se le manda
+ * lo que la pantalla tiene dibujado: un informe a dueños que dependa de qué
+ * sub-tab estaba abierto cuando alguien lo bajó no se puede archivar.
+ */
+export async function bajarResumenEjecutivo(body: {
+  actual_id: string; budget_id: string; forecast_id?: string;
+  mes: number; propiedad?: string;
+}): Promise<void> {
+  const res = await fetch(`${BASE}/reports/executive-summary/word/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo generar el informe (${res.status}): `
+                    + (await res.text()).slice(0, 300));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Executive_Summary_${body.mes}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function getEstadisticasCierre(
   scenarioId: string, desde: number, hasta: number,
 ): Promise<EstadisticasCierre> {

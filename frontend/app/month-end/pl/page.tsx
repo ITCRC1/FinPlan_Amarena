@@ -24,6 +24,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTranslations } from "next-intl";
 import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
+  bajarResumenEjecutivo,
   getAuditoria, getPLDetail, getComentariosPL, guardarComentarioPL,
   getDetalleDeCelda,
   getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
@@ -2040,6 +2041,39 @@ export default function MonthEndPLPage() {
     }
   }
 
+  /** El Resumen Ejecutivo del mes, en Word.
+   *
+   *  Owner, 2026-09-30, entregando el `Executive Summary` de CWL como formato
+   *  estándar: *«prepara uno igual para agosto en Amarena. quiero el informe en
+   *  word»*.
+   *
+   *  ⚠️ Lo arma el BACKEND con los mismos agregadores del cierre. Mandarle lo
+   *  que la pantalla tiene dibujado haría que el informe dependiera de qué
+   *  sub-tab estaba abierto cuando alguien lo bajó, y dos copias del mismo mes
+   *  dirían cosas distintas.
+   *
+   *  Las tres versiones salen de las ranuras: la comparación es Actual contra
+   *  Budget en el mes y el acumulado, y Forecast contra Budget en el año. */
+  async function bajarResumen() {
+    const tipoDe = (id: string) => escenarios.find(e => e.id === id)?.type ?? "";
+    const dame = (t: string) => ranuras.find(id => id && tipoDe(id) === t) ?? "";
+    const actual = dame("ACTUAL"), budget = dame("BUDGET");
+    if (!actual || !budget) {
+      setError("Para el Resumen Ejecutivo hacen falta un ACTUAL y un BUDGET en "
+               + "las ranuras de arriba: la comparación es contra el presupuesto.");
+      return;
+    }
+    try {
+      await bajarResumenEjecutivo({
+        actual_id: actual, budget_id: budget,
+        forecast_id: dame("FORECAST") || undefined,
+        mes, propiedad: HOTEL_ID,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo generar el informe");
+    }
+  }
+
   async function bajarWord() {
     // ⚠️ **Primero, que la pantalla haya cargado.**
     //
@@ -2225,6 +2259,12 @@ export default function MonthEndPLPage() {
             es lo mismo que dibuja la fila de sub-tabs. */}
         <button onClick={bajarWord} title="Reporte de cierre en Word, con espacio para comentar cada cuadro"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Word</button>
+        <button onClick={bajarResumen}
+          title="El Resumen Ejecutivo del mes en Word: el mes, el acumulado y el año, con la prosa que explica cada variación"
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600,
+                   background: "var(--brand)", color: "#fff", border: "none" }}>
+          ⬇ Resumen Ejecutivo
+        </button>
 
       </div>
 

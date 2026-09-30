@@ -787,8 +787,10 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                 </tr>
               </Fragment>
             ))}
+            {/* ⚠️ `nDet` y no un 5 fijo: con la comparación son SIETE
+                columnas, y el aviso quedaba corto dejando dos celdas sueltas. */}
             {!porDepto.length && (
-              <tr><td colSpan={5} style={{ ...TDL, color: "var(--text-secondary)" }}>
+              <tr><td colSpan={nDet} style={{ ...TDL, color: "var(--text-secondary)" }}>
                 Sin detalle por cuenta para este mes.
               </td></tr>
             )}

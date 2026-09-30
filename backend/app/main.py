@@ -57,6 +57,8 @@ from app.api.pl_detail_api import router as pl_detail_router
 from app.api.payroll_position_report_api import router as payroll_position_report_router
 from app.api.provisioning_api import router as provisioning_router
 from app.api.export_api import router as export_router
+from app.api.executive_summary_api import (
+    router as executive_summary_router)
 from app.api.pl_full_detail_api import router as pl_full_detail_router
 from app.api.club_stats_api import router as club_stats_router
 from app.api.owners_q_api import router as owners_q_router
@@ -176,6 +178,7 @@ app.include_router(actuals_router, prefix="/api", dependencies=_guard)
 app.include_router(mapping_router, prefix="/api", dependencies=_guard)
 app.include_router(audit_router, prefix="/api", dependencies=_guard)
 app.include_router(auditoria_router, prefix="/api", dependencies=_guard)
+app.include_router(executive_summary_router, prefix="/api", dependencies=_guard)
 app.include_router(detalle_celda_router, prefix="/api", dependencies=_guard)
 app.include_router(comentario_pl_router, prefix="/api", dependencies=_guard)
 app.include_router(collab_router, prefix="/api", dependencies=_guard)
