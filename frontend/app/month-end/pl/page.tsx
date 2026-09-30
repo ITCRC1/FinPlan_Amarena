@@ -60,7 +60,8 @@ import ResumenDoceMeses, { armar as armarResumen, filasResumen }
 import { getTabsApagados } from "@/lib/tabsVisibles";
 import { capitulosDelPaquete, leerPaquete } from "@/lib/paqueteCuadros";
 import { cuadroCheckbookCortes } from "@/lib/checkbookCortes";
-import { cuadroResumenConsolidado } from "@/lib/resumenConsolidado";
+import { cuadroCanalesDelPms,
+         cuadroResumenConsolidado } from "@/lib/resumenConsolidado";
 import {
   cargarFuentesIngresos, cuadrosDelArmado,
 } from "@/lib/revenuePlanPaquete";
@@ -150,7 +151,7 @@ const EXTRAS = [
  *  y `cuadroDelAnio`— porque cada uno baja su propio Excel desde el Dashboard.
  *  Acá se enganchan los MISMOS. */
 /** Las hojas que NO llevan la franja de estadísticas arriba. */
-const SIN_FRANJA = new Set(["pms", "membresias"]);
+const SIN_FRANJA = new Set(["pms", "membresias", "canalespms"]);
 
 /** La descripción de una línea de cada hoja, para el Índice.
  *
@@ -179,6 +180,12 @@ const DESCRIPCION: Record<string, string> = {
 
 const DEL_DASHBOARD = [
   { key: "pms", rotulo: "Resumen consolidado · PMS" },
+  // ⚠️ Los canales de VERDAD, los del PMS. Reemplazan a la hoja «Canales de
+  // venta» del armado, que traía la CONFIGURACIÓN —«Direct · mix 45%»— y para
+  // el Actual salía vacía, porque un actual no tiene mix presupuestado (owner,
+  // 2026-09-30: «poner este nuevo tab acá y cambiar lo que sale actualmente
+  // como canales»).
+  { key: "canalespms", rotulo: "Canales del PMS" },
   { key: "membresias", rotulo: "Membresías del club" },
   // El armado de ingresos: OCHO hojas en un solo capítulo (owner, 2026-09-30:
   // «hagamos merge al archivo de resumen ejecutivo; agreguemos al final para
@@ -1834,6 +1841,18 @@ export default function MonthEndPLPage() {
         fuentes, visibles, actualDelFullYear: actualFull, mes,
         escenarios, rotuloMes: MESES[mes - 1],
       });
+    },
+
+    canalespms: async () => {
+      for (const id of conRespaldo()) {
+        try {
+          const a = await getAnioRoomStats(id);
+          if (a.meses.some((m: { cargado: boolean }) => m.cargado)) {
+            return [cuadroCanalesDelPms(a)];
+          }
+        } catch { /* se prueba el siguiente */ }
+      }
+      return [];
     },
 
     membresias: async () => {

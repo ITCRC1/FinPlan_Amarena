@@ -48,7 +48,16 @@ export const VISTAS_INGRESOS = [
   // ingresos la sigue mostrando—; lo que se saca es la HOJA del archivo.
   { key: "ocupacion", rotulo: "Ocupación" },
   { key: "pax", rotulo: "Pax" },
-  { key: "canales", rotulo: "Canales de venta" },
+  // ⚠️ **«Canales de venta» NO va.** Traía la CONFIGURACIÓN del mix y de las
+  // comisiones —«Direct · mix 45%», «Travel Agency · comisión»—, que es lo que
+  // se parametriza para calcular la tarifa neta; para el Actual salía vacía,
+  // porque un actual no tiene mix presupuestado.
+  //
+  // Los canales de verdad —por dónde entraron las reservas— están en la hoja
+  // «Canales PMS», que sale de la estadística del PMS (owner, 2026-09-30:
+  // «poner este nuevo tab acá y cambiar lo que sale actualmente como
+  // canales»). La pantalla de Armado de ingresos sigue mostrando la
+  // configuración, que es donde se edita.
   { key: "net", rotulo: "Net rate" },
   { key: "revenue", rotulo: "Total revenue" },
 ] as const;

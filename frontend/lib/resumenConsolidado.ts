@@ -232,3 +232,95 @@ export function cuadroResumenConsolidado(anio: AnioRoomStats): Cuadro {
     filas,
   };
 }
+
+
+/* ══════════════════ Los canales de verdad, del PMS ═══════════════════════ */
+
+/**
+ * El acumulado por CANAL del PMS: noches, pax, ingreso y ADR.
+ *
+ * Owner, 2026-09-30, tachando la hoja «Canales de venta» del paquete y
+ * mandando la captura de la vista «Canal × habitación»: *«poner este nuevo tab
+ * acá, y cambiar lo que sale actualmente como canales»*.
+ *
+ * ⚠️ **Lo que salía no eran los canales: era su CONFIGURACIÓN.** La hoja vieja
+ * traía «Direct · mix 45%», «Travel Agency · comisión», que es lo que se
+ * parametriza para calcular la tarifa neta — y para el Actual estaba vacía,
+ * porque un actual no tiene mix presupuestado. Esto trae por dónde entraron las
+ * reservas de verdad.
+ *
+ * ⚠️ **Las tasas se recalculan sobre los totales.** El ADR de un canal en el
+ * acumulado es su ingreso sobre sus noches, no el promedio de sus ADR
+ * mensuales: promediar le daría el mismo peso a un mes de dos noches que a uno
+ * de cuarenta.
+ *
+ * ⚠️ **Un mes sin cargar no entra.** Un cero se lee como «ese canal no vendió»,
+ * y con una propiedad que abrió a mitad de año eso convierte un acumulado
+ * incompleto en un mal semestre.
+ */
+export function cuadroCanalesDelPms(anio: AnioRoomStats): Cuadro {
+  const acc = new Map<string, {
+    rotulo: string; cuenta: boolean; noches: number; pax: number; rev: number;
+  }>();
+  for (const m of anio.meses) {
+    if (!m.cargado) continue;
+    for (const c of m.canales ?? []) {
+      const clave = c.canal_code || c.canal || "—";
+      const d = acc.get(clave) ?? {
+        // El código del PMS es el que el owner reconoce —«EXPEDIA HOTEL
+        // COLLECT»—; el canal comercial va al lado porque es el que decide si
+        // ese ingreso paga comisión.
+        rotulo: c.canal ? `${clave} · ${c.canal}` : clave,
+        cuenta: c.cuenta_para_kpis, noches: 0, pax: 0, rev: 0,
+      };
+      d.noches += c.nights_occupied ?? 0;
+      d.pax += c.pax ?? 0;
+      d.rev += c.revenue ?? 0;
+      acc.set(clave, d);
+    }
+  }
+  const filas: FilaCuadro[] = [...acc.values()]
+    .sort((a, b) => b.rev - a.rev || b.noches - a.noches)
+    .map(d => ({
+      label: d.rotulo,
+      valores: [d.cuenta ? "Sí" : "No", d.noches, d.pax, d.rev,
+                d.noches ? d.rev / d.noches : null],
+    }));
+  // ⚠️ El TOTAL es el de las noches que CUENTAN, que es la base de todos los
+  // indicadores del cierre. La fila de abajo trae el archivo entero para poder
+  // cuadrar contra el PDF sin abrir la aplicación.
+  const suma = (f: (d: { noches: number; pax: number; rev: number }) => number,
+                solo?: boolean) =>
+    [...acc.values()].filter(d => !solo || d.cuenta).reduce((a, d) => a + f(d), 0);
+  const nb = suma(d => d.noches, true);
+  const rb = suma(d => d.rev, true);
+  const nt = suma(d => d.noches);
+  const rt = suma(d => d.rev);
+  filas.push({
+    label: "TOTAL", es_total: true,
+    valores: ["", nb, suma(d => d.pax, true), rb, nb ? rb / nb : null],
+  });
+  if (Math.abs(nt - nb) > 0.005) {
+    filas.push({
+      label: "Con todos los canales (PDF)",
+      valores: ["", nt, suma(d => d.pax), rt, nt ? rt / nt : null],
+    });
+  }
+  return {
+    titulo: `Canales del PMS ${anio.year} · acumulado`,
+    subtitulo: `${anio.escenario} — noches, pax e ingreso por dónde entró la `
+      + `reserva. Los indicadores van sobre las noches que cuentan; las `
+      + `cortesías se listan y se restan. Las tasas se recalculan sobre los `
+      + `totales del período, no se promedian.`,
+    hoja: `Canales PMS ${anio.year}`.slice(0, 31),
+    columnas: [
+      { label: "Canal", ancho: 34, formato: "texto" },
+      { label: "Cuenta", ancho: 9, formato: "texto" },
+      { label: "Noches", ancho: 12, formato: "num" },
+      { label: "Pax", ancho: 11, formato: "num" },
+      { label: "Ingreso", ancho: 16, formato: "usd2" },
+      { label: "ADR", ancho: 14, formato: "usd2" },
+    ],
+    filas,
+  };
+}

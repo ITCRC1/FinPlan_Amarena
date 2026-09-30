@@ -74,3 +74,55 @@ def test_la_regla_es_la_MISMA_que_la_del_PMS():
     modelo = (pathlib.Path(__file__).resolve().parents[1]
               / "app/models/market_code.py").read_text(encoding="utf-8")
     assert "cuenta_para_kpis: Mapped[bool]" in modelo
+
+
+# ═════════ Los canales de verdad reemplazan a su configuracion ═══════════════
+
+FRONT = pathlib.Path(__file__).resolve().parents[2] / "frontend"
+
+
+def test_la_hoja_de_CANALES_trae_los_del_PMS_y_no_la_configuracion():
+    """Owner, 2026-09-30, tachando la hoja «Canales de venta»: *«poner este
+    nuevo tab aca, y cambiar lo que sale actualmente como canales»*.
+
+    ⚠️ Lo que salia no eran los canales: era su CONFIGURACION —«Direct · mix
+    45%», «Travel Agency · comision»—, que es lo que se parametriza para
+    calcular la tarifa neta. Para el Actual salia VACIA, porque un actual no
+    tiene mix presupuestado.
+    """
+    lib = (FRONT / "lib/resumenConsolidado.ts").read_text(encoding="utf-8")
+    assert "export function cuadroCanalesDelPms(" in lib
+    paquete = (FRONT / "lib/revenuePlanPaquete.ts").read_text(encoding="utf-8")
+    assert '{ key: "canales", rotulo: "Canales de venta" },' not in paquete
+    pagina = (FRONT / "app/month-end/pl/page.tsx").read_text(encoding="utf-8")
+    assert '{ key: "canalespms", rotulo: "Canales del PMS" },' in pagina
+    assert "cuadroCanalesDelPms(a)" in pagina
+
+
+def test_el_ADR_por_canal_NO_se_promedia():
+    """El ADR de un canal en el acumulado es su ingreso sobre sus noches.
+    Promediar le daria el mismo peso a un mes de dos noches que a uno de
+    cuarenta."""
+    lib = (FRONT / "lib/resumenConsolidado.ts").read_text(encoding="utf-8")
+    cuerpo = lib[lib.index("export function cuadroCanalesDelPms"):]
+    assert "d.noches ? d.rev / d.noches : null" in cuerpo
+    assert "/ 12" not in cuerpo and "length" not in cuerpo.split("filas.push")[0]
+
+
+def test_el_TOTAL_son_las_noches_que_CUENTAN():
+    """Y debajo va el archivo entero, para poder cuadrar contra el PDF sin
+    abrir la aplicacion."""
+    lib = (FRONT / "lib/resumenConsolidado.ts").read_text(encoding="utf-8")
+    cuerpo = lib[lib.index("export function cuadroCanalesDelPms"):]
+    assert 'label: "TOTAL", es_total: true' in cuerpo
+    assert '"Con todos los canales (PDF)"' in cuerpo
+    # La cortesia se LISTA —no se esconde— con su columna que dice que no cuenta.
+    assert 'd.cuenta ? "Sí" : "No"' in cuerpo
+
+
+def test_un_mes_sin_cargar_NO_entra():
+    """Un cero se lee como «ese canal no vendio», y con una propiedad que abrio
+    a mitad de ano eso convierte un acumulado incompleto en un mal semestre."""
+    lib = (FRONT / "lib/resumenConsolidado.ts").read_text(encoding="utf-8")
+    cuerpo = lib[lib.index("export function cuadroCanalesDelPms"):]
+    assert "if (!m.cargado) continue;" in cuerpo
