@@ -38,7 +38,7 @@ import pathlib
 import pytest
 
 from app.api.pl_detail_api import (AMBITOS, CLUB, CONSOLIDADO, CLUB_FILAS,
-                                   HOTEL_OVERHEAD, HOTEL_QUITA, _control,
+                                   HOTEL_QUITA, _control,
                                    _plantilla_hotel, _que_resta_el_hotel, _serie)
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
@@ -55,7 +55,7 @@ def _rotulos(plantilla, tipo=None):
 # ── La cascada del owner, completa ───────────────────────────────────────────
 
 @pytest.mark.parametrize("rotulo", [
-    "TOTAL REVENUES", "Total Operationg expenses", "OPERATING PROFIT",
+    "TOTAL REVENUES", "Total Operating expenses", "OPERATING PROFIT",
     "TOTAL OVERHEAD EXPENSES", "TOTAL GROSS OPERATING PROFIT",
     "TOTAL NON OP EXPENSES", "EBITDA BEFORE CAPITAL", "CAPITAL EXPENSE",
     "EBITDA AFTER CAPITAL", "EARNINGS BEFORE INCOME TAXES", "NET PROFIT",
@@ -64,14 +64,22 @@ def test_estan_todos_los_totales_del_libro(rotulo):
     assert rotulo in _rotulos(CONSOLIDADO)
 
 
-def test_los_rotulos_conservan_las_erratas_del_owner():
-    """«Total Operationg expenses» está mal escrito EN SU LIBRO.
+def test_las_DOS_erratas_se_corrigieron_y_las_rarezas_no():
+    """⚠️ Esto dice lo CONTRARIO de lo que decia hasta el 2026-09-30.
 
-    Corregirlo rompería el cotejo contra el archivo, que es para lo que sirve
-    este reporte. La errata es parte del formato, no un descuido nuestro.
+    «Total Operationg expenses» y «Total Slary and Benefits» estaban mal
+    escritos EN EL LIBRO del owner, y se mantenian a proposito para que el
+    cotejo contra su archivo fuera literal. El 2026-09-30 pidio corregirlos: *«de
+    paso corrige el typo»*.
+
+    Lo que SI se conserva son las rarezas que no son erratas: «Miscellaneous
+    Revenue» va con dos espacios porque asi esta en su Excel, y ahi el cotejo
+    sigue mandando.
     """
-    assert "Total Operationg expenses" in _rotulos(CONSOLIDADO)
-    assert "Total Slary and Benefits" in _rotulos(CLUB_FILAS)
+    assert "Total Operating expenses" in _rotulos(CONSOLIDADO)
+    assert "Total Operationg expenses" not in _rotulos(CONSOLIDADO)
+    assert "Total Salary and Benefits" in _rotulos(CLUB_FILAS)
+    assert "Total Slary and Benefits" not in _rotulos(CLUB_FILAS)
     assert "Miscellaneous  Revenue" in _rotulos(CONSOLIDADO)   # dos espacios
 
 
@@ -83,11 +91,29 @@ def test_el_hotel_saca_el_club_del_detalle():
     assert "Madresal Club" in _rotulos(CONSOLIDADO, "det")
 
 
-def test_el_hotel_abre_los_departamentos_de_servicio():
-    hotel = _rotulos(_plantilla_hotel(list(CONSOLIDADO)), "det")
-    for r in ("Claro Huerta", "Cafeteria", "Laundry"):
-        assert r in hotel
-    assert "Area Recreativa" not in hotel
+def test_el_hotel_NO_duplica_los_departamentos_de_servicio():
+    """⚠️ Esto dice lo CONTRARIO de lo que decia hasta el 2026-09-30, y es a
+    proposito.
+
+    `_plantilla_hotel` reemplazaba la fila «Area Recreativa» por Claro Huerta,
+    Cafeteria y Laundry. Eso era correcto cuando el Consolidado resumia esos
+    tres en una sola linea. El 2026-08-28 se agregaron como renglones propios
+    —para que se viera el sobrante del reparto— y nadie quito la expansion:
+    desde entonces el Hotel traia **las tres filas dos veces**, con los mismos
+    numeros, y ademas perdia «Area Recreativa».
+
+    Owner, 2026-09-30: *«Laundry aparece dos veces en Overhead con los mismos
+    numeros»*. Eran tres; las otras dos no se notaban porque dan cero.
+    """
+    # ⚠️ Se cuenta DENTRO del overhead, por el codigo. «Laundry» aparece cuatro
+    # veces en el P&L —ingreso, gasto, utilidad y overhead— y las cuatro son
+    # legitimas: son secciones distintas. Contar por rotulo sobre todo el cuadro
+    # confundiria eso con el duplicado.
+    hotel = _plantilla_hotel(list(CONSOLIDADO))
+    oh = [r for t, r, c in hotel
+          if t == "det" and any(x.startswith("OH_") for x in c)]
+    for r in ("Claro Huerta", "Cafeteria", "Laundry", "Area Recreativa"):
+        assert oh.count(r) == 1, f"«{r}» sale {oh.count(r)} veces en overhead"
 
 
 def test_el_overhead_no_se_parte():
@@ -125,7 +151,7 @@ def test_al_ingreso_se_le_resta_el_ingreso_del_club(libro):
 
 
 def test_al_gasto_se_le_resta_el_gasto_del_club(libro):
-    r = _que_resta_el_hotel("Total Operationg expenses", ["TOTAL_OPERATING_EXPENSES"],
+    r = _que_resta_el_hotel("Total Operating expenses", ["TOTAL_OPERATING_EXPENSES"],
                             libro, libro["PROFIT_CLUB"])
     assert r == [75.0] * 12, "el gasto del Club es su opex MÁS su costo de ventas"
 
@@ -180,7 +206,7 @@ def _fila(rotulo, valor):
 
 def test_el_control_calcula_la_diferencia():
     filas = [_fila("TOTAL REVENUES", 100.0),
-             _fila("Total Operationg expenses", 60.0),
+             _fila("Total Operating expenses", 60.0),
              _fila("TOTAL OVERHEAD EXPENSES", 30.0),
              _fila("NET PROFIT", 10.0)]
     assert _control(filas)["diferencia"] == 0.0

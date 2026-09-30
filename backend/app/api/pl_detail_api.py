@@ -58,6 +58,8 @@ from sqlalchemy import select
 from app.auth import get_current_user
 from app.db import get_session
 from app.errores import ErrorApi
+from app.engine import pl_engine
+from app.models.actual_entry import ActualEntry
 from app.models.club_membership_stat import ClubMembershipStat
 from app.models.scenario import Scenario
 from app.models.scenario_stat import ScenarioStat
@@ -69,6 +71,12 @@ AMBITOS = ("consolidado", "hotel", "club")
 #: Las líneas del Club. En el ámbito `hotel` se restan; en `club` son lo único.
 CLUB = {"revenue": "REV_CLUB", "opex": "OPEX_CLUB",
         "cost": "COS_CLUB", "profit": "PROFIT_CLUB"}
+
+#: El departamento del Club en el mayor.
+CLUB_DEPT = "260"
+#: Las columnas de los doce meses en las tablas del mayor y de los checkbooks.
+MESES_COL = ("jan", "feb", "mar", "apr", "may", "jun",
+             "jul", "aug", "sep", "oct", "nov", "dec")
 
 #: (tipo, rótulo, [códigos que suma]). `tipo`:
 #:   sec   encabezado de sección, sin números
@@ -109,7 +117,7 @@ CONSOLIDADO: list[tuple] = [
                                        "COS_TRANSPORTATION", "OPEX_INNOCEANA",
                                        "COS_INNOCEANA"]),
     ("esp", "", []),
-    ("tot", "Total Operationg expenses", ["TOTAL_OPERATING_EXPENSES"]),
+    ("tot", "Total Operating expenses", ["TOTAL_OPERATING_EXPENSES"]),
     ("esp", "", []),
     ("sec", "Operating Profit", []),
     ("det", "Rooms", ["PROFIT_ROOMS"]),
@@ -187,7 +195,10 @@ CONSOLIDADO: list[tuple] = [
 #: Lo que cambia en la hoja `P&L Detail Hotel`: el Club sale del detalle, y el
 #: overhead lista los tres departamentos de servicio que el consolidado resume.
 HOTEL_QUITA = {"Madresal Club"}
-HOTEL_OVERHEAD = [
+#: ⚠️ **Sin uso desde el 2026-09-30, y se deja como registro.** Ver
+#: `_plantilla_hotel`: estas tres filas se insertaban donde el Consolidado ya
+#: las traía, y el Hotel las mostraba duplicadas.
+_HOTEL_OVERHEAD_HISTORICO = [
     ("det", "Claro Huerta", ["OH_CLARO_HUERTA"]),
     ("det", "Cafeteria", ["OH_CAFETERIA"]),
     ("det", "Laundry", ["OH_LAUNDRY"]),
@@ -207,7 +218,7 @@ CLUB_FILAS: list[tuple] = [
     ("det", "Payroll Taxes", ["@CLUB_CARGAS"]),
     ("det", "Employee Benefits", ["@CLUB_BENEFICIOS"]),
     ("esp", "", []),
-    ("sub", "Total Slary and Benefits", ["@CLUB_PLANILLA"]),
+    ("sub", "Total Salary and Benefits", ["@CLUB_PLANILLA"]),
     ("esp", "", []),
     ("sec", "Operating Expenses", []),
     # ⚠️ **Sin la planilla.** `OPEX_CLUB` del motor YA la contiene: es el gasto
@@ -221,7 +232,13 @@ CLUB_FILAS: list[tuple] = [
     ("esp", "", []),
     ("tot", "Total Gastos", ["OPEX_CLUB", "COS_CLUB"]),
     ("esp", "", []),
-    ("tot", "NET PROFIT", ["PROFIT_CLUB"]),
+    # ⚠️ Lo que el 260 tiene abajo del GOP —el Owners Fee— vuelve al Club. Vivía
+    # en el P&L del Hotel porque `linea_de_fila` resuelve las 8xxx sin mirar el
+    # departamento (owner, 2026-09-30).
+    ("sec", "Below GOP", []),
+    ("det", "Owners Fee y otros", ["@CLUB_BAJO_GOP"]),
+    ("esp", "", []),
+    ("tot", "NET PROFIT", ["PROFIT_CLUB", "@CLUB_BAJO_GOP"]),
     ("esp", "", []),
     # El seguro de propiedad va DEBAJO del GOP en el motor, así que no entra en
     # la utilidad del departamento. Se muestra como memo —el owner lo tiene
@@ -330,7 +347,7 @@ async def pl_detail(
 
 #: Los rotulos del cuadro de cierre, en el orden del owner.
 CLAVE_CIERRE = [
-    "TOTAL REVENUES", "Total Operationg expenses", "OPERATING PROFIT",
+    "TOTAL REVENUES", "Total Operating expenses", "OPERATING PROFIT",
     "TOTAL OVERHEAD EXPENSES", "TOTAL GROSS OPERATING PROFIT",
     "TOTAL NON OP EXPENSES", "EBITDA BEFORE CAPITAL", "EBITDA AFTER CAPITAL",
     "EARNINGS BEFORE INCOME TAXES", "NET PROFIT",
@@ -398,10 +415,14 @@ async def _cascada(s, scenario_id: str, ambito: str):
     """
     por_codigo = await _serie_por_codigo(s, scenario_id)
     club_profit = _serie(por_codigo, [CLUB["profit"]])
+    # Lo que el 260 puso abajo del GOP. El Hotel se lo resta y el Club se lo
+    # suma: el Consolidado no cambia, sólo deja de estar del lado equivocado.
+    bajo_gop_club = await _bajo_gop_del_club(s, scenario_id)
 
     if ambito == "club":
         plantilla = CLUB_FILAS
-        derivadas = await _derivadas_del_club(s, scenario_id, por_codigo)
+        derivadas = await _derivadas_del_club(s, scenario_id, por_codigo,
+                                              bajo_gop_club)
     else:
         plantilla = list(CONSOLIDADO)
         derivadas = {}
@@ -422,6 +443,13 @@ async def _cascada(s, scenario_id: str, ambito: str):
             resta = _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit)
             if resta:
                 serie = [a - b for a, b in zip(serie, resta)]
+            # ⚠️ Y lo del Club que vive abajo del GOP —el Owners Fee del 260—,
+            # que `_que_resta_el_hotel` no alcanza porque sólo mira ingreso,
+            # gasto operativo y el resultado.
+            for code in codigos:
+                suyo = bajo_gop_club.get(code)
+                if suyo:
+                    serie = [a - b for a, b in zip(serie, suyo)]
         salida.append(serie)
     return plantilla, salida
 
@@ -503,26 +531,98 @@ def _que_resta_el_hotel(rotulo, codigos, por_codigo, club_profit):
     return None
 
 
+#: Las cuentas de clase 8 del Club, por línea del P&L.
+#:
+#: ⚠️ **`pl_engine.linea_de_fila` resuelve las 8xxx SIN mirar el departamento.**
+#: El 8005 del 260 —el Owners Fee del Club— cae en la misma línea de Management
+#: Fees que el del hotel, y el Hotel no le resta al Club nada por debajo del
+#: GOP: sólo ingreso y gasto operativo. Resultado: 5.942,28 YTD del Club
+#: apareciendo en el P&L del Hotel (owner, 2026-09-30).
+#:
+#: Se corrige ACÁ y no en el motor a propósito: el Consolidado suma lo mismo de
+#: las dos formas, y mover la línea en `calculate_full_pl` cambiaría de renglón
+#: una plata que hoy cuadra contra el libro. Acá sólo se reparte entre Hotel y
+#: Club, que es exactamente lo que estaba mal.
+_LINEAS_BAJO_GOP_DEL_CLUB = (
+    "MGMT_FEE_3", "MGMT_FEE_5_ROYALTIES", "ROYALTIES", "RENT",
+    "PROPERTIES_INSURANCE", "PROPERTY_INSURANCE",
+)
+
+
+async def _bajo_gop_del_club(s, scenario_id: str) -> dict[str, list[float]]:
+    """Lo que el departamento 260 puso en cada línea de abajo del GOP.
+
+    Sale del MAYOR, que es donde vive el departamento: las líneas del motor ya
+    perdieron esa dimensión. Un escenario sin mayor —un presupuesto— devuelve
+    vacío, y entonces no hay nada que repartir.
+    """
+    out: dict[str, list[float]] = {}
+    filas = (await s.execute(select(ActualEntry).where(
+        ActualEntry.scenario_id == scenario_id,
+        ActualEntry.dept_code == CLUB_DEPT))).scalars().all()
+    for e in filas:
+        code = (e.account_code or "").strip()
+        if not code.startswith("8"):
+            continue
+        linea, _ = pl_engine.linea_de_fila(code, CLUB_DEPT)
+        if not linea:
+            continue
+        serie = out.setdefault(linea, [0.0] * 12)
+        for i, col in enumerate(MESES_COL):
+            serie[i] += float(getattr(e, col, None) or 0)
+    return out
+
+
 def _plantilla_hotel(plantilla: list[tuple]) -> list[tuple]:
-    """Saca el Club del detalle y abre los tres departamentos de servicio.
+    """Saca el Club del detalle del Hotel.
 
     El overhead NO se parte: administración, ventas y mantenimiento sirven al
     hotel y al Club por igual, y en el libro del owner el total de overhead es
     idéntico en las dos hojas.
+
+    ⚠️ **Ya no se insertan `HOTEL_OVERHEAD`.** Esa expansión era de cuando el
+    Consolidado resumía Claro Huerta, Cafetería y Laundry en una sola línea.
+    El 2026-08-28 se agregaron los tres al Consolidado como renglones propios
+    —para que se viera el sobrante del reparto— y nadie quitó la expansión:
+    desde entonces el P&L del Hotel traía **las tres filas dos veces**, con los
+    mismos números.
+
+    Owner, 2026-09-30: *«Laundry aparece dos veces en Overhead con los mismos
+    números»*. Eran tres; las otras dos no se notaban porque dan cero.
+
+    ⚠️ Y no eran idénticas: las del Consolidado suman `OH_x` + `COH_x` y las de
+    la expansión sólo `OH_x`. Se queda la del Consolidado, que es la completa —
+    quedarse con la otra habría escondido el costo de esos departamentos.
     """
-    out = []
-    for fila in plantilla:
-        tipo, rotulo, codigos = fila
-        if tipo == "det" and rotulo in HOTEL_QUITA:
-            continue
-        if tipo == "det" and rotulo == "Area Recreativa":
-            out.extend(HOTEL_OVERHEAD)
-            continue
-        out.append(fila)
-    return out
+    return [f for f in plantilla
+            if not (f[0] == "det" and f[1] in HOTEL_QUITA)]
 
 
-async def _derivadas_del_club(s, scenario_id: str, por_codigo) -> dict:
+async def _planilla_del_club(s, scenario_id: str) -> list[float]:
+    """La planilla del 260 que ESTÁ DENTRO de `OPEX_CLUB`, mes a mes.
+
+    ⚠️ **No sale de `payroll_concept_entries`, y ése era el bug.**
+
+    `OPEX_CLUB` mezcla: para los meses cerrados de un forecast trae la planilla
+    del MAYOR y para los proyectados la del checkbook. Restarle siempre la del
+    checkbook deja adentro la diferencia entre las dos, y esa diferencia se ve
+    como salarios metidos en «Operating Expenses» — que es justo lo que el owner
+    encontró en el Forecast (2026-09-30), y por eso en Actual y Budget estaba
+    bien: ahí las dos fuentes coinciden porque sólo hay una.
+
+    `gasto_por_clase._por_mes` hace exactamente la misma mezcla que el motor —es
+    de donde salen los cuatro totales del cierre—, así que lo que resta es lo
+    que de verdad está adentro.
+    """
+    from app.api.gasto_por_clase_api import _por_mes
+
+    detalle: dict = {}
+    await _por_mes(s, scenario_id, detalle)
+    return list((detalle.get("payroll") or {}).get(CLUB_DEPT) or [0.0] * 12)
+
+
+async def _derivadas_del_club(s, scenario_id: str, por_codigo,
+                              bajo_gop: dict | None = None) -> dict:
     """Las filas del Club que el P&L no emite como línea propia.
 
     La planilla del Club se abre en salario / cargas / beneficios, que es como
@@ -555,8 +655,22 @@ async def _derivadas_del_club(s, scenario_id: str, por_codigo) -> dict:
 
     seguro = _serie(por_codigo, ["PROPERTY_INSURANCE"])
     opex = _serie(por_codigo, ["OPEX_CLUB", "COS_CLUB"])
-    planilla = [a + b + c for a, b, c in zip(salario, cargas, beneficios)]
-    return {
+
+    # ⚠️ **La planilla que se RESTA es la que está adentro de `OPEX_CLUB`**, no
+    # la del checkbook. Ver `_planilla_del_club`.
+    dentro = await _planilla_del_club(s, scenario_id)
+    desglose = [a + b + c for a, b, c in zip(salario, cargas, beneficios)]
+
+    # El desglose sale del checkbook y puede no sumar lo que hay adentro —pasa
+    # en un forecast con meses cerrados—. Se ajusta la fila de BENEFICIOS, que
+    # es la bolsa, para que las tres sumen el total real: si no, el subtotal de
+    # planilla y el «Total Gastos» de abajo dirían cosas distintas y el cuadro
+    # cerraría igual contra sí mismo.
+    ajuste = [d - x for d, x in zip(dentro, desglose)]
+    beneficios = [b + a for b, a in zip(beneficios, ajuste)]
+    planilla = dentro
+
+    salida = {
         "@CLUB_SALARIO": salario,
         "@CLUB_CARGAS": cargas,
         "@CLUB_BENEFICIOS": beneficios,
@@ -567,6 +681,12 @@ async def _derivadas_del_club(s, scenario_id: str, por_codigo) -> dict:
         # dos veces (ver `CLUB_FILAS`).
         "@CLUB_OPEX_SIN_PLANILLA": [o - p for o, p in zip(opex, planilla)],
     }
+    # Lo que el 260 puso abajo del GOP vuelve al Club, que es de donde salió.
+    for code, serie in (bajo_gop or {}).items():
+        salida["@CLUB_" + code] = serie
+    salida["@CLUB_BAJO_GOP"] = [
+        sum(v[i] for v in (bajo_gop or {}).values()) for i in range(12)]
+    return salida
 
 
 async def _kpis(s, scenario_id: str) -> dict:
@@ -645,7 +765,7 @@ def _control(filas: list[dict], ambito: str = "consolidado") -> dict:
         # de un descuadre que era del control, no del dato.
         gastos = total("Total Gastos")
     else:
-        gastos = (total("Total Operationg expenses") + total("TOTAL OVERHEAD EXPENSES")
+        gastos = (total("Total Operating expenses") + total("TOTAL OVERHEAD EXPENSES")
                   + total("TOTAL NON OP EXPENSES") + total("CAPITAL EXPENSE")
                   + total("FINANCIAL EXPENSES") + total("TOTAL DEPRECIATIONS")
                   + total("Income Taxes (30%)"))
