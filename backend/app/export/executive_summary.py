@@ -85,12 +85,23 @@ def pct(v: float | None, dec: int = 2) -> str:
 
 
 def var_pct(act: float, base: float) -> float | None:
-    """La variación relativa. `None` cuando la base es cero.
+    """La variación relativa. `None` cuando NO significa nada.
 
-    ⚠️ No es «infinito» ni «100%»: dividir entre cero no da un porcentaje, y
-    escribir uno ahí inventa una magnitud. El texto dice «n/d» y sigue.
+    Dos casos, y el segundo es el que engaña:
+
+    ⚠️ **Base cero.** Dividir entre cero no da un porcentaje. Escribir «100%» o
+    «∞» ahí inventa una magnitud.
+
+    ⚠️ **Base NEGATIVA.** Acá el signo se da vuelta y el número miente. El
+    EBITDA de Amarena en agosto mejoró de −203,8K a −122,7K —81,1K a favor— y
+    la fórmula da **−39,8%**, que se lee como un deterioro del 40%. En un
+    informe a dueños eso es peor que no poner nada: la frase dice «above plan»
+    y el paréntesis dice lo contrario.
+
+    Con base negativa manda la palabra —«above» / «below» con el monto—, que no
+    se puede leer al revés.
     """
-    return None if abs(base) < 0.005 else (act - base) / base
+    return None if base <= 0.005 else (act - base) / base
 
 
 def signo(v: float) -> str:

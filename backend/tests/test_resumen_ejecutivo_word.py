@@ -216,3 +216,31 @@ def test_el_endpoint_esta_montado():
         encoding="utf-8")
     assert "executive_summary_router" in main
     assert "app.include_router(executive_summary_router" in main
+
+
+def test_con_base_NEGATIVA_no_se_escribe_porcentaje():
+    """⚠️ El error que este informe tuvo con los numeros reales de Amarena.
+
+    El EBITDA de agosto mejoro de -203,8K a -122,7K —81,1K a favor— y la formula
+    da **-39,8%**, que se lee como un deterioro del 40%. La frase decia «above
+    plan» y el parentesis decia lo contrario, en el mismo renglon.
+
+    Con base negativa manda la palabra, que no se puede leer al reves.
+    """
+    assert var_pct(-122_660.0, -203_773.0) is None
+    assert var_pct(100.0, 0.0) is None
+    assert var_pct(306_124.0, 180_516.0) == pytest.approx(0.6959, rel=1e-3)
+
+
+def test_el_informe_real_no_contradice_su_propio_texto():
+    """Con los tres renglones de utilidad en negativo —el caso de Amarena en
+    agosto— ninguna frase puede llevar un porcentaje que apunte al otro lado."""
+    d = _datos()
+    for corte in ("month", "ytd", "full"):
+        for v in (d["actual"], d["budget"], d["forecast"]):
+            for ln in v[corte]["lines"]:
+                if ln["line_code"] in ("EBITDA_BEFORE", "NET_PROFIT", "GOP"):
+                    ln["amount_usd"] = -abs(ln["amount_usd"])
+    t = _texto(build_executive_summary(d))
+    assert "MONTHLY EXECUTIVE SUMMARY" in t   # se genera igual
+    assert "n/d%" not in t
