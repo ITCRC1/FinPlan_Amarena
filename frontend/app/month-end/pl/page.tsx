@@ -2118,6 +2118,12 @@ export default function MonthEndPLPage() {
     return [...puestas, actualFullPL];
   }, [ranuras, actualFullPL]);
 
+  /** Lo mismo, estable entre renders, para la franja de estadísticas.
+   *
+   *  ⚠️ `idsDelPL()` devuelve un arreglo nuevo cada vez: pasarlo como prop sin
+   *  memorizar reiniciaría la carga de la franja en cada render. */
+  const idsFranja = useMemo(() => idsDelPL(), [idsDelPL]);
+
   const conRespaldo = useCallback(() => {
     const puestos = ranuras.filter(Boolean);
     const anio = escenarios.find(e => e.id === puestos[0])?.year;
@@ -2751,10 +2757,17 @@ export default function MonthEndPLPage() {
           quince copias serian quince lugares donde arreglar el dia que cambie
           un calculo, y basta olvidar uno para que dos sub-tabs muestren
           ocupaciones distintas del mismo mes. */}
+      {/* ⚠️ Las MISMAS versiones y la MISMA vista que el cuadro de abajo.
+          Antes recibía sólo `ranuras`, así que en el año completo su primera
+          columna era el Actual —ocho meses cargados— mientras el cuadro
+          mostraba el Forecast: 539 noches arriba y 1.199 abajo, en la misma
+          pantalla (owner, 2026-09-30). */}
       <Estadisticas
-        scenarioIds={ranuras}
-        etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
-        mes={mes} escenarios={escenarios} />
+        scenarioIds={idsFranja}
+        etiquetas={idsFranja.map(id => etiqueta(id))}
+        visibles={ranuras.filter(Boolean)}
+        actualDelFullYear={actualFullPL}
+        mes={mes} anio={year} escenarios={escenarios} />
 
       {vista === "fb" && (() => {
         /* Total F&B Cost Detail. Único cuadro que no sale del P&L — ver

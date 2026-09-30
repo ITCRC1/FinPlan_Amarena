@@ -265,7 +265,9 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
                 <th key={c.clave} colSpan={vista.columnas.length + (parDe(c) ? 1 : 0)}
                     style={{ ...TH, textAlign: "center", borderLeft: BL,
                              color: "var(--text-primary)", fontSize: 11.5 }}>
-                  {c.titulo} {datos.year}
+                  {/* ⚠️ El año lo trae `c.titulo` (`cortesDe(mes, datos.year)`).
+                      Volver a escribirlo acá daba «FULL YEAR 2026 2026». */}
+                  {c.titulo}
                 </th>
               ))}
             </tr>

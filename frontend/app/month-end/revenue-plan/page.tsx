@@ -308,7 +308,11 @@ export default function RevenuePlanPage() {
 
   /* ══════════════ El cuadro de los tres cortes ══════════════════════════ */
 
-  const cortes = useMemo(() => cortesDe(mes || 12), [mes]);
+  // El anio va en el rotulo, igual que en el Excel y en el P&L: la pantalla y
+  // el archivo tienen que decir el mismo periodo.
+  const anioCortes = useMemo(
+    () => escenarios.find(e => e.id === visibles[0])?.year, [escenarios, visibles]);
+  const cortes = useMemo(() => cortesDe(mes || 12, anioCortes), [mes, anioCortes]);
   /** Todas las versiones que viajan: las que ocupan columna más el Forecast
    *  Current, que se pide aunque no sea columna.
    *

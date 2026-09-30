@@ -37,7 +37,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type EstadisticasCierre, type Scenario } from "@/lib/api";
 import {
-  ANCHO_DATO, ANCHO_ROTULO, cortesDe, estadisticasDeLosCortes, parDe,
+  ANCHO_DATO, ANCHO_ROTULO, cortesDe, estadisticasDeLosCortes, parDe, vistaDe,
 } from "@/lib/tresCortes";
 
 const num = (n: number | null | undefined) =>
@@ -126,13 +126,37 @@ const FILAS: {
     crudo: d => d.club_cuota_promedio, dif: usd },
 ];
 
-export default function Estadisticas({ scenarioIds, etiquetas, mes,
+export default function Estadisticas({ scenarioIds, etiquetas, mes, anio,
+                                      visibles, actualDelFullYear = "",
                                       escenarios = [] }: {
-  /** Las versiones elegidas arriba, en su orden. Las vacías se ignoran. */
+  /** Las versiones que se PIDEN, en su orden. Las vacías se ignoran.
+   *
+   *  ⚠️ No es lo mismo que las columnas: el Forecast Current viaja acá aunque
+   *  no esté en ninguna ranura, porque es quien ocupa la primera columna del
+   *  año completo. Ver `visibles`. */
   scenarioIds: string[];
   etiquetas: string[];
   /** El mes del cierre: define el corte «mes» y hasta dónde llega el YTD. */
   mes: number;
+  /** El año, para que el rótulo diga «Agosto 2026» y no sólo «Agosto». El
+   *  cuadro de abajo ya lo dice, y dos encabezados pegados que no coinciden se
+   *  leen como dos períodos distintos. */
+  anio?: number;
+  /** Los ids que SON columna, en orden. Sin esto, todos los pedidos.
+   *
+   *  ⚠️ **Es lo que separa «se pide» de «se ve».** Sin esta lista, el Forecast
+   *  Current volvería a aparecer como una columna más en los tres cortes. */
+  visibles?: string[];
+  /** Quién ocupa la primera columna del año completo: el Forecast Current.
+   *
+   *  ⚠️ **Sin esto la franja muestra el ACTUAL en el año completo** y el cuadro
+   *  de abajo el Forecast — el mismo encabezado, en la misma pantalla,
+   *  contestando dos cosas distintas. Owner, 2026-09-30, con las dos capturas:
+   *  *«es full year pero esta versión dice Actual Final 2026; en realidad acá
+   *  debe estar tal cual está en la vista de cierre»*. La franja decía 539
+   *  noches —los ocho meses cargados— y la tabla 1.199, los doce del
+   *  forecast. */
+  actualDelFullYear?: string;
   /** Para saber qué par se resta en cada corte. ⚠️ El tipo sale de acá y no
    *  del rótulo: el rótulo es texto libre. Sin esto la franja no puede llevar
    *  su columna de varianza, y sin ella nunca cuadra con el cuadro de abajo,
@@ -147,15 +171,26 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
     .map((id, i) => ({ id, rotulo: etiquetas[i] }))
     .filter(x => x.id);
   const clave = usadas.map(u => u.id).join(",");
-  const cortes = useMemo(() => cortesDe(mes), [mes]);
+  const cortes = useMemo(() => cortesDe(mes, anio), [mes, anio]);
   /** ⚠️ La MISMA regla que el cuadro de abajo (`parDe`): en el full year se
    *  resta Forecast contra Budget, no Actual. Si la franja restara otro par,
    *  las dos varianzas de la misma columna dirían cosas distintas. */
   const versiones = useMemo(
     () => usadas.map(u => ({ scenario_id: u.id })), [clave]);   // eslint-disable-line react-hooks/exhaustive-deps
+  /** Qué versión cae en cada columna de cada corte.
+   *
+   *  ⚠️ **La MISMA `vistaDe` que el cuadro de abajo.** La franja repartía sus
+   *  columnas por su cuenta —una por versión pedida, en orden— y en el año
+   *  completo eso deja al Actual en la primera, que son los meses cargados y
+   *  nada más. Con la vista, las dos tablas nombran y leen la misma versión en
+   *  la misma columna. */
+  const visto = (visibles ?? []).join(",");
+  const vista = useMemo(
+    () => vistaDe(versiones, visibles, actualDelFullYear, escenarios),
+    [versiones, visto, actualDelFullYear, escenarios]);          // eslint-disable-line react-hooks/exhaustive-deps
   const parDeCorte = useCallback(
-    (c: typeof cortes[number]) => parDe(c, versiones, escenarios),
-    [versiones, escenarios]);
+    (c: typeof cortes[number]) => parDe(c, versiones, escenarios, vista),
+    [versiones, escenarios, vista]);
 
   const cargar = useCallback(async () => {
     const ids = clave ? clave.split(",") : [];
@@ -190,9 +225,14 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
    *  noche vendida y la tarifa sale más alta sin que nada lo delate. */
   // ⚠️ Se mira SÓLO el corte del mes: con los tres, la misma versión saldría
   // tres veces en el aviso diciendo exactamente lo mismo.
-  const brechas = (datos[0] ?? [])
-    .map((d, i) => ({ e: usadas[i]?.rotulo || "",
-                      dif: d ? d.adr_derivado - d.adr : 0 }))
+  // ⚠️ Y sólo de las versiones que TIENEN columna: el Forecast Current viaja
+  // sin columna propia, y nombrarlo acá señalaría algo que no está en pantalla.
+  const brechas = vista.columnas
+    .map((_c, col) => {
+      const i = vista.vi(col, 0);
+      const d = datos[0]?.[i] ?? null;
+      return { e: usadas[i]?.rotulo || "", dif: d ? d.adr_derivado - d.adr : 0 };
+    })
     .filter(x => Math.abs(x.dif) >= 0.01);
 
   return (
@@ -205,12 +245,12 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
             cada número bajo el encabezado del vecino. */}
         <table style={{ borderCollapse: "collapse", tableLayout: "fixed",
                         minWidth: ANCHO_ROTULO + cortes.reduce(
-                          (a, c) => a + (usadas.length
+                          (a, c) => a + (vista.columnas.length
                             + (parDeCorte(c) ? 1 : 0)) * ANCHO_DATO, 0) }}>
           <colgroup>
             <col style={{ width: ANCHO_ROTULO }} />
             {cortes.flatMap((c, ci) => [
-              ...usadas.map((_u, i) => (
+              ...vista.columnas.map((_col, i) => (
                 <col key={`${c.clave}-${i}`} style={{ width: ANCHO_DATO }} />)),
               ...(parDeCorte(c)
                 ? [<col key={`${c.clave}-v`} style={{ width: ANCHO_DATO }} />] : []),
@@ -221,7 +261,7 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
               <th style={{ ...TDL, ...TH_ESTATICO }} />
               {cortes.map((c, ci) => (
                 <th key={c.clave}
-                    colSpan={usadas.length + (parDeCorte(c) ? 1 : 0)}
+                    colSpan={vista.columnas.length + (parDeCorte(c) ? 1 : 0)}
                     style={{ ...TD, ...TH_ESTATICO, textAlign: "center",
                              fontWeight: 800, color: "var(--brand)",
                              borderLeft: ci ? BL : undefined }}>
@@ -235,12 +275,16 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
                 ESTADÍSTICAS
               </th>
               {cortes.flatMap((c, ci) => [
-                ...usadas.map((u, i) => (
-                  <th key={c.clave + u.id + i}
+                // ⚠️ El rótulo sale de la VISTA, no de `usadas[i]`: en el año
+                // completo la primera columna es el Forecast Current, y con el
+                // rótulo de la ranura diría «ACTUAL Final» encima de doce meses
+                // de forecast.
+                ...vista.columnas.map((_col, i) => (
+                  <th key={c.clave + i}
                       style={{ ...TD, ...TH_ESTATICO, fontWeight: 700,
                                color: "var(--text-secondary)",
                                borderLeft: ci && !i ? BL : undefined }}>
-                    {u.rotulo}
+                    {usadas[vista.vi(i, ci)]?.rotulo || ""}
                   </th>
                 )),
                 ...(parDeCorte(c) ? [
@@ -260,8 +304,8 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes,
                 <td style={TDL}>{f.rotulo}</td>
                 {cortes.flatMap((c, ci) => {
                   const par = parDeCorte(c);
-                  const celdas = usadas.map((_u, i) => {
-                    const d = datos[ci]?.[i] ?? null;
+                  const celdas = vista.columnas.map((_col, i) => {
+                    const d = datos[ci]?.[vista.vi(i, ci)] ?? null;
                     return (
                       <td key={c.clave + i}
                           style={{ ...TD, fontWeight: f.fuerte ? 800 : 600,
