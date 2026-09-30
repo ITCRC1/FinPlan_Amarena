@@ -26,6 +26,8 @@ import {
   getScenarios, getPLCompare, getGastoPorClase, getCashflowBudget, getFbDetalle, getIngresoDetalle,
   bajarResumenEjecutivo,
   getAuditoria, getPLDetail, getComentariosPL, guardarComentarioPL,
+  getAnioRoomStats,
+  getMembresias,
   getDetalleDeCelda,
   getConsultaCatalogo, correrConsulta, bajarConsultaExcel, getPLDoceMeses,
   type ConsultaFila, type ConsultaCatalogo, type FbDetalle, type FbMes, type IngresoDetalle,
@@ -57,6 +59,8 @@ import ResumenDoceMeses, { armar as armarResumen, filasResumen }
 import { getTabsApagados } from "@/lib/tabsVisibles";
 import { capitulosDelPaquete, leerPaquete } from "@/lib/paqueteCuadros";
 import { cuadroCheckbookCortes } from "@/lib/checkbookCortes";
+import { cuadroResumenConsolidado } from "@/lib/resumenConsolidado";
+import { cuadroDelAnio } from "@/components/MembresiasAnioTabla";
 import PaqueteCuadros from "./PaqueteCuadros";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
@@ -133,9 +137,24 @@ const EXTRAS = [
   { key: "cb_property", clase: "property", rotulo: "Checkbook · Gastos de propiedad" },
 ] as const;
 
+/** Los dos cuadros del Dashboard que también entran al paquete.
+ *
+ *  Owner, 2026-09-30: *«también quiero que incluyas estos 2 excels»* · *«está
+ *  en dashboard»*.
+ *
+ *  ⚠️ No arman nada nuevo: los dos ya tenían su cuadro —`cuadroResumenConsolidado`
+ *  y `cuadroDelAnio`— porque cada uno baja su propio Excel desde el Dashboard.
+ *  Acá se enganchan los MISMOS. */
+const DEL_DASHBOARD = [
+  { key: "pms", rotulo: "Resumen consolidado · PMS" },
+  { key: "membresias", rotulo: "Membresías del club" },
+] as const;
+
 /** Todas las claves que pueden entrar al archivo, en su orden por defecto. */
-const CLAVES_DEL_PAQUETE = () =>
-  [...VISTAS.map(v => v.key), ...EXTRAS.map(e => e.key)] as string[];
+const CLAVES_DEL_PAQUETE = () => [
+  ...VISTAS.map(v => v.key), ...EXTRAS.map(e => e.key),
+  ...DEL_DASHBOARD.map(e => e.key),
+] as string[];
 
 /** El «Total F&B Cost Detail» del owner, replicado (2026-08-14).
  *
@@ -1448,7 +1467,10 @@ export default function MonthEndPLPage() {
       meses: Array.from({ length: mes }, (_, i) => i + 1) },
   ];
 
-  const CAPITULOS: Partial<Record<Vista, () => Promise<Cuadro[]>>> = {
+  // ⚠️ La llave es `string` y ya no `Vista`: el paquete lleva capítulos que NO
+  // son sub-tabs —los cuatro checkbooks y los dos cuadros del Dashboard—, y con
+  // la llave atada a `Vista` no se podrían registrar.
+  const CAPITULOS: Record<string, () => Promise<Cuadro[]>> = {
     // ⚠️ DOS capítulos, no uno. En la pantalla el botón «Totales /
     // Departamental» muestra una vista por vez; en el documento caben las dos,
     // y son dos lecturas distintas del mismo mes — el total dice cuánto y el
@@ -1736,6 +1758,31 @@ export default function MonthEndPLPage() {
       return c.filas.length > 1 ? [c] : [];
     }])),
 
+    // ── Los dos del Dashboard ───────────────────────────────────────────
+    //
+    // ⚠️ Con el MISMO respaldo que allá: si la versión principal no tiene el
+    // dato, se cae al ACTUAL del mismo año. El Dashboard abre con el Budget y
+    // estos dos se cargan en el ACTUAL, así que sin el respaldo la hoja saldría
+    // vacía justo cuando el dato existe.
+    pms: async () => {
+      for (const id of conRespaldo()) {
+        try {
+          const a = await getAnioRoomStats(id);
+          if (a.meses.some((m: { cargado: boolean }) => m.cargado)) return [cuadroResumenConsolidado(a)];
+        } catch { /* se prueba el siguiente */ }
+      }
+      return [];
+    },
+    membresias: async () => {
+      for (const id of conRespaldo()) {
+        try {
+          const a = await getMembresias(id);
+          if (a.meses_cargados.length) return [cuadroDelAnio(a)];
+        } catch { /* se prueba el siguiente */ }
+      }
+      return [];
+    },
+
     formato: async () => {
       const id = ranuras[varA];
       if (!id) return [];
@@ -1947,10 +1994,26 @@ export default function MonthEndPLPage() {
    * Y el ORDEN es el de `VISTAS`, la misma lista que la fila de botones: el
    * documento se lee en el mismo orden en que se miró la pantalla.
    */
+  /** Dónde buscar los cuadros del Dashboard: la versión principal primero y,
+   *  si no tiene nada, el ACTUAL del mismo año.
+   *
+   *  ⚠️ Es la misma regla que usan esos bloques en el Dashboard. Sin ella la
+   *  hoja sale vacía justo cuando el dato existe: el conteo del PMS y las
+   *  membresías se cargan en el ACTUAL, y el cierre suele mirarse contra el
+   *  Budget. */
+  const conRespaldo = useCallback(() => {
+    const puestos = ranuras.filter(Boolean);
+    const anio = escenarios.find(e => e.id === puestos[0])?.year;
+    return [...new Set([...puestos, ...escenarios
+      .filter(e => e.type === "ACTUAL" && (!anio || e.year === anio))
+      .map(e => e.id)])];
+  }, [ranuras, escenarios]);
+
   /** El nombre de un capítulo. Los sub-tabs lo sacan del diccionario; los
    *  extras traen el suyo, porque no son tabs y no tienen traducción. */
   const rotuloDelCapitulo = useCallback((k: string) => {
-    const extra = EXTRAS.find(e => e.key === k);
+    const extra = EXTRAS.find(e => e.key === k)
+      ?? DEL_DASHBOARD.find(e => e.key === k);
     return extra ? extra.rotulo : t(`tab_${k}`);
   }, [t]);
 
@@ -1967,7 +2030,7 @@ export default function MonthEndPLPage() {
   const capitulosDelArchivo = useCallback(() => capitulosDelPaquete(
     CLAVES_DEL_PAQUETE(), subOcultos,
     typeof window === "undefined" ? { fuera: [], orden: [] } : leerPaquete(HOTEL_ID),
-    k => !!CAPITULOS[k as Vista],
+    k => !!CAPITULOS[k],
     // `paqueteRev` sólo está para que esto se recalcule al guardar el panel.
   ), [subOcultos, paqueteRev]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2113,7 +2176,7 @@ export default function MonthEndPLPage() {
     const cuadros: Cuadro[] = [];
     const fallaron: string[] = [];
     for (const clave of capitulosDelArchivo()) {
-      const armar = CAPITULOS[clave as Vista];
+      const armar = CAPITULOS[clave];
       if (!armar) continue;
       try {
         for (const c of await armar()) {
@@ -2205,7 +2268,7 @@ export default function MonthEndPLPage() {
     const cuadros: Cuadro[] = [];
     const afuera: string[] = [];
     for (const clave of activos) {
-      const armar = CAPITULOS[clave as Vista];
+      const armar = CAPITULOS[clave];
       if (!armar) continue;
       let hechos: Cuadro[] = [];
       try {
@@ -2479,7 +2542,7 @@ export default function MonthEndPLPage() {
         <PaqueteCuadros
           vistas={CLAVES_DEL_PAQUETE()}
           ocultos={subOcultos}
-          tiene={k => !!CAPITULOS[k as Vista]}
+          tiene={k => !!CAPITULOS[k]}
           rotulo={rotuloDelCapitulo}
           hotel={HOTEL_ID}
           onCerrar={() => setArmando(false)}

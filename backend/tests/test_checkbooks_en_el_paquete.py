@@ -85,3 +85,44 @@ def test_un_libro_vacio_no_baja_como_hoja_en_cero():
     una afirmacion — y distinta de «este libro no tiene nada cargado»."""
     s = _src()
     assert "return c.filas.length > 1 ? [c] : [];" in s
+
+
+def test_los_dos_cuadros_del_DASHBOARD_tambien_entran():
+    """Owner, 2026-09-30: *«tambien quiero que incluyas estos 2 excels»* ·
+    *«esta en dashboard»*: el Resumen consolidado del PMS y las Membresias del
+    club.
+
+    ⚠️ No arman nada nuevo. Los dos YA tenian su cuadro, porque cada uno baja su
+    propio Excel desde el Dashboard; aca se enganchan los MISMOS. El del PMS
+    estaba escrito adentro del componente y se movio a `lib/resumenConsolidado`
+    justamente para poder reusarlo sin copiarlo.
+    """
+    s = _src()
+    assert "const DEL_DASHBOARD = [" in s
+    assert 'key: "pms"' in s and 'key: "membresias"' in s
+    assert "cuadroResumenConsolidado(a)" in s
+    assert "cuadroDelAnio(a)" in s
+    # Y entran a la lista del panel, como todo lo demas.
+    assert "...DEL_DASHBOARD.map(e => e.key)" in s
+
+
+def test_el_cuadro_del_PMS_es_UNO_solo():
+    """Lo bajan dos botones —el del Dashboard y el paquete—. Dos armados del
+    mismo cuadro se separan en el primer arreglo que alguien hace de un lado."""
+    front = pathlib.Path(__file__).resolve().parents[2] / "frontend"
+    lib = (front / "lib/resumenConsolidado.ts").read_text(encoding="utf-8")
+    assert "export function cuadroResumenConsolidado" in lib
+    comp = (front / "components/ResumenConsolidado.tsx").read_text(encoding="utf-8")
+    assert "cuadroResumenConsolidado(anio)" in comp
+    # El componente ya no arma sus columnas a mano.
+    assert 'label: "Total / Prom."' not in comp
+
+
+def test_caen_al_ACTUAL_cuando_la_principal_no_tiene_el_dato():
+    """⚠️ El conteo del PMS y las membresias se cargan en el ACTUAL, y el cierre
+    suele mirarse contra el Budget. Sin el respaldo la hoja saldria vacia justo
+    cuando el dato existe — y una hoja vacia se lee como «no hubo»."""
+    s = _src()
+    assert "const conRespaldo = useCallback(" in s
+    assert 'e.type === "ACTUAL"' in s
+    assert "for (const id of conRespaldo())" in s

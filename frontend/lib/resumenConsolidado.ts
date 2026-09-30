@@ -1,4 +1,5 @@
-import type { AnioMes } from "@/lib/api";
+import type { AnioMes, AnioRoomStats } from "@/lib/api";
+import type { Cuadro, FilaCuadro } from "@/lib/exportCuadro";
 
 /**
  * La aritmética del Resumen Consolidado, sin una línea de pantalla.
@@ -186,3 +187,48 @@ export const RENGLONES: Renglon[] = [
       return n ? sum(ms, m => porCat(m, "revenue")) / n : null;
     } },
 ];
+
+/* ══════════════════════ El archivo ══════════════════════════════════════ */
+
+const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
+              "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+/**
+ * El cuadro del resumen del PMS, para el Excel.
+ *
+ * ⚠️ Vive acá y no adentro del componente porque lo bajan DOS botones: el del
+ * propio cuadro en el Dashboard y el paquete del cierre (owner, 2026-09-30:
+ * *«también quiero que incluyas estos 2 excels»*). Dos armados del mismo cuadro
+ * empiezan iguales y se separan en el primer arreglo que alguien hace de un
+ * lado — y entonces el archivo suelto y el del paquete dirían cosas distintas
+ * de los mismos datos.
+ */
+export function cuadroResumenConsolidado(anio: AnioRoomStats): Cuadro {
+  const cargados = anio.meses.filter(m => m.cargado);
+  const ctx: Ctx = {
+    unidades: (anio.room_types ?? []).reduce((a, r) => a + r.units, 0),
+  };
+  const filas: FilaCuadro[] = RENGLONES.map(r => ({
+    label: r.rotulo,
+    es_total: !!r.banda,
+    formato: r.formato === "usd" ? "usd2" : r.formato === "pct" ? "pct" : "num",
+    // ⚠️ Un mes sin cargar va en `null` y NO en cero: una columna en cero dice
+    // que ese mes no tuvo movimiento, que es una afirmación distinta.
+    valores: [...anio.meses.map(m => (m.cargado ? r.valor([m], ctx) : null)),
+              r.valor(cargados, ctx)],
+  }));
+  return {
+    titulo: `Resumen consolidado ${anio.year} · estadística del PMS`,
+    subtitulo: `${anio.escenario} — los indicadores van sobre las noches`
+      + ` pagadas; las cifras con cortesías del archivo del PMS, al pie.`
+      + ` Las columnas en blanco son meses sin cargar.`,
+    hoja: `Resumen PMS ${anio.year}`,
+    columnas: [
+      { label: "Indicador", ancho: 44, formato: "texto" },
+      ...anio.meses.map(m => ({ label: `${MES3[m.month - 1]} ${anio.year}`,
+                                ancho: 14, formato: "num" as const })),
+      { label: "Total / Prom.", ancho: 16, formato: "num" },
+    ],
+    filas,
+  };
+}

@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getAnioRoomStats, type AnioRoomStats, type Scenario } from "@/lib/api";
 import { bajarCuadros, type Cuadro, type FilaCuadro } from "@/lib/exportCuadro";
-import { RENGLONES, type Ctx, type Formato } from "@/lib/resumenConsolidado";
+import {
+  cuadroResumenConsolidado, RENGLONES, type Ctx, type Formato,
+} from "@/lib/resumenConsolidado";
 
 /**
  * El Resumen Consolidado del reporte del PMS, al pie del Dashboard.
@@ -98,30 +100,13 @@ export default function ResumenConsolidado({ scenarioId, scenarios, month }: {
    *  ni ocupación sobre disponibles, y hay que decirlo. */
   const sinResumen = cargados.filter(m => !m.resumen);
 
+  /** ⚠️ El cuadro lo arma `lib/resumenConsolidado`: el mismo que usa el
+   *  paquete del cierre. Dos armados del mismo cuadro se separan en el primer
+   *  arreglo que alguien hace de un lado. */
   async function bajar() {
     if (!anio) return;
-    const filas: FilaCuadro[] = RENGLONES.map(r => ({
-      label: r.rotulo,
-      es_total: !!r.banda,
-      formato: r.formato === "usd" ? "usd2" : r.formato === "pct" ? "pct" : "num",
-      valores: [...anio.meses.map(m => (m.cargado ? r.valor([m], ctx) : null)),
-                r.valor(cargados, ctx)],
-    }));
-    const cuadro: Cuadro = {
-      titulo: `Resumen consolidado ${anio.year} · estadística del PMS`,
-      subtitulo: `${anio.escenario} — los indicadores van sobre las noches`
-        + ` pagadas; las cifras con cortesías del archivo del PMS, al pie.`
-        + ` Las columnas en blanco son meses sin cargar.`,
-      hoja: `Resumen ${anio.year}`,
-      columnas: [
-        { label: "Indicador", ancho: 44, formato: "texto" },
-        ...anio.meses.map(m => ({ label: `${MESES[m.month - 1]} ${anio.year}`,
-                                  ancho: 14, formato: "num" as const })),
-        { label: "Total / Prom.", ancho: 16, formato: "num" },
-      ],
-      filas,
-    };
-    try { await bajarCuadros(`ResumenConsolidado_${anio.year}`, [cuadro]); }
+    try { await bajarCuadros(`ResumenConsolidado_${anio.year}`,
+                             [cuadroResumenConsolidado(anio)]); }
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
   }
 

@@ -38,7 +38,9 @@ def _cuerpo() -> str:
 def test_sale_del_MISMO_registro_que_el_Word():
     """⚠️ Un segundo armado sería un segundo lugar donde olvidarse un sub-tab —
     que es exactamente el defecto que el Word acaba de tener."""
-    assert "CAPITULOS[clave as Vista]" in _cuerpo()
+    # La llave dejo de ser `Vista`: el paquete lleva capitulos que NO son
+    # sub-tabs —los checkbooks y los dos cuadros del Dashboard—.
+    assert "CAPITULOS[clave]" in _cuerpo()
 
 
 def test_SI_filtra_por_los_escondidos():
