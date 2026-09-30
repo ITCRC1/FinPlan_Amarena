@@ -31,6 +31,18 @@ import { rtLabel } from "@/lib/api";
  * Dejarlos en blanco era la alternativa, y un corte con dos vistas vacías no
  * contesta la pregunta que se hizo.
  *
+ * ## ⚠️ Las filas se cruzan por CÓDIGO, no por id
+ *
+ * Cada versión tiene sus propios `room_type_id`: el mismo «BI02 · Beachfront
+ * Deluxe-Tented Villa» es un id en el Actual y otro en el Budget. Cruzando por
+ * id, el inventario salía **dos veces cada categoría** —cuatro filas con
+ * números sólo en el Actual y otras cuatro sólo en el presupuesto— y la tabla
+ * no se podía leer. Owner, 2026-09-30: *«que no se repita la misma línea de
+ * inventario»*.
+ *
+ * El código es lo que significa lo mismo en las dos versiones. El id sólo
+ * sirve adentro de una.
+ *
  * ⚠️ **Los meses en cero quedan FUERA del promedio**, que es la misma regla que
  * el owner fijó para los socios del Club (2026-09-02: *«quiero que me des un
  * promedio de los meses y no que sume»*, sobre los meses con dato). Amarena
@@ -92,12 +104,28 @@ export function filasDeIngresos(
       }
     } else {
       for (const rt of f.porTipo?.room_types ?? []) {
-        out.set(rt.id, rtLabel(rt.code, rt.name));
+        out.set(claveRt(rt), rtLabel(rt.code, rt.name));
       }
     }
   }
-  return [...out.entries()].map(([clave, label]) => ({ clave, label }));
+  // Orden estable por código. Sin esto el orden lo fija la versión que se
+  // cargó primero, y cambiar de Forecast reacomodaba las filas.
+  return [...out.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([clave, label]) => ({ clave, label }));
 }
+
+/** La llave con la que una categoría se cruza ENTRE versiones.
+ *
+ *  ⚠️ El código, no el id: cada versión tiene sus propios ids para la misma
+ *  categoría. El id queda de respaldo por si alguna no trae código — ahí se
+ *  vuelve a duplicar, pero al menos no desaparece. */
+const claveRt = (rt: { id: string; code?: string | null }) =>
+  (rt.code || "").trim().toUpperCase() || rt.id;
+
+/** El id que ESA versión le da a la categoría de esa llave. */
+const idRt = (f: FuenteIngresos, clave: string) =>
+  (f.porTipo?.room_types ?? []).find(rt => claveRt(rt) === clave)?.id ?? "";
 
 /** Un campo de un tipo de habitación en un mes. */
 const campo = (
@@ -139,26 +167,27 @@ export function valorDeIngresos(
     return promedioVivo(meses.map(m => Number(serie[m - 1] || 0)));
   }
 
-  if (!f.porTipo?.room_types?.some(rt => rt.id === clave)) return null;
+  const rt = idRt(f, clave);
+  if (!rt) return null;
 
   switch (vista) {
     case "inventario": {
       // ⚠️ Las unidades NO se suman: son las mismas todos los meses. El valor
       // del corte es el inventario al final del período.
-      return campo(f, clave, meses[meses.length - 1], "units");
+      return campo(f, rt, meses[meses.length - 1], "units");
     }
-    case "noches":  return sumaDe(f, clave, meses, "nights_occupied");
-    case "pax":     return sumaDe(f, clave, meses, "pax");
-    case "revenue": return sumaDe(f, clave, meses, "revenue");
+    case "noches":  return sumaDe(f, rt, meses, "nights_occupied");
+    case "pax":     return sumaDe(f, rt, meses, "pax");
+    case "revenue": return sumaDe(f, rt, meses, "revenue");
     case "ocupacion": {
-      const disp = sumaDe(f, clave, meses, "nights_available");
-      return disp ? sumaDe(f, clave, meses, "nights_occupied") / disp : 0;
+      const disp = sumaDe(f, rt, meses, "nights_available");
+      return disp ? sumaDe(f, rt, meses, "nights_occupied") / disp : 0;
     }
     case "net": {
       // Ingreso ÷ noches del período. El promedio de doce tarifas le daría el
       // mismo peso a un mes con tres noches que a uno lleno.
-      const noc = sumaDe(f, clave, meses, "nights_occupied");
-      return noc ? sumaDe(f, clave, meses, "revenue") / noc : 0;
+      const noc = sumaDe(f, rt, meses, "nights_occupied");
+      return noc ? sumaDe(f, rt, meses, "revenue") / noc : 0;
     }
   }
   return null;
@@ -176,7 +205,7 @@ export function totalDeIngresos(
   vista: VistaIngresos, f: FuenteIngresos, filas: FilaIngresos[], meses: number[],
 ): number | null {
   if (vista === "rack" || vista === "canales") return null;
-  const rts = filas.map(x => x.clave);
+  const rts = filas.map(x => idRt(f, x.clave)).filter(Boolean);
   const sum = (c: Parameters<typeof campo>[3]) =>
     rts.reduce((a, rt) => a + sumaDe(f, rt, meses, c), 0);
   switch (vista) {

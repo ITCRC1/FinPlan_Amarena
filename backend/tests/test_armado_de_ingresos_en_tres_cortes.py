@@ -52,10 +52,10 @@ def test_lo_que_NO_se_suma():
     villas donde hay 8."""
     src = LOGICA.read_text(encoding="utf-8")
     # Inventario: el ultimo mes del rango, no la suma.
-    assert 'campo(f, clave, meses[meses.length - 1], "units")' in src
+    assert 'campo(f, rt, meses[meses.length - 1], "units")' in src
     # Ocupacion y net rate: cocientes del PERIODO.
-    assert 'disp ? sumaDe(f, clave, meses, "nights_occupied") / disp : 0' in src
-    assert 'noc ? sumaDe(f, clave, meses, "revenue") / noc : 0' in src
+    assert 'disp ? sumaDe(f, rt, meses, "nights_occupied") / disp : 0' in src
+    assert 'noc ? sumaDe(f, rt, meses, "revenue") / noc : 0' in src
 
 
 def test_el_promedio_deja_fuera_los_meses_en_cero():
@@ -91,7 +91,9 @@ def test_lo_que_una_version_no_tiene_va_en_NULL():
     src = LOGICA.read_text(encoding="utf-8")
     assert "if (!r) return null;" in src
     assert "if (!c) return null;" in src
-    assert "if (!f.porTipo?.room_types?.some(rt => rt.id === clave)) return null;" in src
+    # La categoria que esa version no tiene: se resuelve por codigo y no
+    # aparece, en vez de devolver cero.
+    assert "const rt = idRt(f, clave);" in src and "if (!rt) return null;" in src
 
 
 def test_las_filas_son_la_UNION_de_las_versiones():
@@ -144,3 +146,34 @@ def test_un_endpoint_caido_no_se_lleva_la_comparacion():
     pag = PAGINA.read_text(encoding="utf-8")
     assert "Promise.allSettled([" in pag
     assert 'a.status === "fulfilled" ? a.value : null' in pag
+
+
+def test_una_categoria_es_UNA_fila_aunque_cada_version_le_de_otro_id():
+    """⚠️ El error que el owner vio: *«que no se repita la misma linea de
+    inventario»*.
+
+    Cada version tiene sus PROPIOS `room_type_id`: el mismo «BI02 · Beachfront
+    Deluxe-Tented Villa» es un id en el Actual y otro en el Budget. Cruzando por
+    id, el inventario salia dos veces cada categoria —cuatro filas con numeros
+    solo en el Actual y otras cuatro solo en el presupuesto— y la tabla no se
+    podia leer ni cuadrar.
+
+    El CODIGO es lo que significa lo mismo en las dos versiones. El id solo
+    sirve adentro de una.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const claveRt = (rt: { id: string; code?: string | null })" in src
+    assert 'rt.code || ""' in src
+    # Y cada version resuelve SU id a partir de la llave comun.
+    assert "const idRt = (f: FuenteIngresos, clave: string)" in src
+    assert "out.set(claveRt(rt), rtLabel(rt.code, rt.name))" in src
+    # El total tambien: si usara la llave como id, daria cero en la version que
+    # no la tenga — y se leeria como que no hay inventario.
+    assert "filas.map(x => idRt(f, x.clave)).filter(Boolean)" in src
+
+
+def test_el_orden_de_las_filas_no_depende_de_cual_version_cargo_primero():
+    """Sin orden propio lo fija la primera version que llega, y cambiar de
+    Forecast reacomodaba las filas debajo del cursor."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert ".sort((a, b) => a[0].localeCompare(b[0]))" in src
