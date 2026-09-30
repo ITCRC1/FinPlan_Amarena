@@ -704,6 +704,48 @@ def _aggregate_room_type(months: list[dict], room_type_units: dict, names: dict,
     return out
 
 
+async def _cortesia(scenario_id: str, db: AsyncSession) -> dict[tuple[int, str], dict]:
+    """Lo que hay que RESTARLE al PDF: las estancias que no cuentan.
+
+    Owner, 2026-09-30, viendo 218 noches en el armado y 202 en el encabezado:
+    *«hay que sacar, si se puede, las estancias que son complementary»*.
+
+    ⚠️ **La regla ya existía y esto sólo la aplica donde faltaba.** Un market
+    code se marca con `cuenta_para_kpis = False` desde la pantalla del PMS, y
+    ahí mismo dice: *«CPL no cuenta: los números de las cuatro vistas lo
+    excluyen»*. El encabezado estadístico —`scenario_stats`— ya salía sin él;
+    el desglose por categoría, no, porque `actual_room_stats` guarda el TOTAL
+    del PDF. En agosto 2026 son 16 noches de CPL con ingreso cero: el armado
+    decía 218 noches y ADR $236,47 donde el cierre dice 202 y $255,20.
+
+    ⚠️ **Lo guardado no cambia.** `actual_room_stats` sigue siendo el archivo,
+    y sigue cuadrando contra el PDF. Esto mueve la base con la que se MUESTRA
+    el desglose, que es la misma que ya usan los indicadores.
+    """
+    from app.models.market_code import MarketCode
+
+    filas = (await db.execute(select(ActualRoomStatCanal).where(
+        ActualRoomStatCanal.scenario_id == scenario_id))).scalars().all()
+    if not filas:
+        return {}
+    codigos = {m.code: m for m in
+               (await db.execute(select(MarketCode))).scalars().all()}
+    fuera: dict[tuple[int, str], dict] = {}
+    for f in filas:
+        mc = codigos.get((f.canal_code or "").strip().upper())
+        # ⚠️ Sin market code se CUENTA. Un código que nadie clasificó todavía es
+        # una venta a la que le falta el canal, no una cortesía: descontarlo
+        # sería borrar ingreso real del reporte.
+        if mc is None or mc.cuenta_para_kpis:
+            continue
+        d = fuera.setdefault((f.month, f.room_type_name),
+                             {"noches": 0.0, "pax": 0.0, "revenue": 0.0})
+        d["noches"] += float(f.nights_occupied or 0)
+        d["pax"] += float(f.pax or 0)
+        d["revenue"] += float(f.revenue or 0)
+    return fuera
+
+
 async def _room_stats_from_actuals(scenario_id: str, year: int, db: AsyncSession) -> dict | None:
     """Si el escenario tiene room stats REALES cargados (de Opera/PMS), arma la
     respuesta by-room-type con esos datos. Si no hay, devuelve None."""
@@ -711,6 +753,7 @@ async def _room_stats_from_actuals(scenario_id: str, year: int, db: AsyncSession
         ActualRoomStat.scenario_id == scenario_id))).scalars().all()
     if not stats:
         return None
+    fuera = await _cortesia(scenario_id, db)
     # Mapa nombre→código FIJO desde el config del hotel (así los actuales también
     # cargan el código; el link deja de depender solo del nombre).
     scen = await db.get(Scenario, scenario_id)
@@ -728,10 +771,14 @@ async def _room_stats_from_actuals(scenario_id: str, year: int, db: AsyncSession
         rows = []
         for nm in names:
             rec = next((s for s in stats if s.room_type_name == nm and s.month == m), None)
+            q = fuera.get((m, nm)) or {}
             na = float(rec.nights_available) if rec else 0.0
-            no = float(rec.nights_occupied) if rec else 0.0
-            rev = float(rec.revenue) if rec else 0.0
-            pax = float(rec.pax) if rec else 0.0
+            # ⚠️ Las DISPONIBLES no se tocan: la habitación estuvo disponible
+            # aunque la noche se haya regalado. Restarlas subiría la ocupación
+            # en vez de bajarla.
+            no = (float(rec.nights_occupied) if rec else 0.0) - q.get("noches", 0.0)
+            rev = (float(rec.revenue) if rec else 0.0) - q.get("revenue", 0.0)
+            pax = (float(rec.pax) if rec else 0.0) - q.get("pax", 0.0)
             rows.append({"room_type_id": nm, "room_type_code": cf(nm), "room_type_name": nm, "units": units_by_name[nm],
                          "nights_available": na, "nights_occupied": no,
                          "occupancy_pct": (no / na) if na else 0.0, "revenue": rev,
@@ -741,9 +788,13 @@ async def _room_stats_from_actuals(scenario_id: str, year: int, db: AsyncSession
     annual = []
     for nm in names:
         na = sum(float(s.nights_available) for s in stats if s.room_type_name == nm)
-        no = sum(float(s.nights_occupied) for s in stats if s.room_type_name == nm)
-        rev = sum(float(s.revenue) for s in stats if s.room_type_name == nm)
-        pax = sum(float(s.pax) for s in stats if s.room_type_name == nm)
+        q = [v for (mm, n2), v in fuera.items() if n2 == nm]
+        no = (sum(float(s.nights_occupied) for s in stats if s.room_type_name == nm)
+              - sum(v["noches"] for v in q))
+        rev = (sum(float(s.revenue) for s in stats if s.room_type_name == nm)
+               - sum(v["revenue"] for v in q))
+        pax = (sum(float(s.pax) for s in stats if s.room_type_name == nm)
+               - sum(v["pax"] for v in q))
         annual.append({"room_type_id": nm, "room_type_code": cf(nm), "room_type_name": nm, "units": units_by_name[nm],
                        "nights_available": na, "nights_occupied": no,
                        "occupancy_pct": (no / na) if na else 0.0, "revenue": rev,

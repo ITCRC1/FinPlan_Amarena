@@ -35,7 +35,17 @@ import { celdasDe, cortesDe, parDe, ROTULO_VAR, rotulosDeVersion,
 export const VISTAS_INGRESOS = [
   { key: "inventario", rotulo: "Inventario" },
   { key: "noches", rotulo: "Noches por categoría" },
-  { key: "rack", rotulo: "Rack rates" },
+  // ⚠️ **«Rack rates» NO va.** Owner, 2026-09-30, señalando la pestaña: *«favor
+  // quitar este tab ya que no tengo tarifas rack, sólo netas»*.
+  //
+  // Bajaba con la columna del Actual VACÍA y la del Budget repitiendo la neta,
+  // así que la varianza salía siendo la tarifa entera en rojo. Una hoja que
+  // dice «-375,00» de variación sobre un concepto que la propiedad no lleva no
+  // es un dato faltante: es un dato equivocado.
+  //
+  // Devolverla es esta línea: `{ key: "rack", rotulo: "Rack rates" },`. El
+  // cálculo sigue entero en `revenuePlanCortes` —la pantalla de Armado de
+  // ingresos la sigue mostrando—; lo que se saca es la HOJA del archivo.
   { key: "ocupacion", rotulo: "Ocupación" },
   { key: "pax", rotulo: "Pax" },
   { key: "canales", rotulo: "Canales de venta" },
