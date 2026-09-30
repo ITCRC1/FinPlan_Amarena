@@ -184,7 +184,10 @@ def test_la_franja_cae_en_LAS_MISMAS_columnas_QUE_EL_CUADRO():
     """
     cuerpo = _franja()
     assert "celdasDe(cortes, versiones, escenarios," in cuerpo
-    assert "parDe(c, versiones, escenarios)" in cuerpo
+    assert "parDe(c, versiones, escenarios, vista)" in cuerpo
+    # Y las columnas salen de la MISMA vista que las del cuadro.
+    assert "vistaDe(versiones, visibles, actualFullPL, escenarios)" in cuerpo
+    assert "vista.columnas.map(" in cuerpo
 
 
 def test_los_dos_renglones_de_socios_van_al_documento():

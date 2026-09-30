@@ -35,8 +35,13 @@ import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import {
   AMBITOS, ANCHO_DATO, ANCHO_ROTULO,
   celdasDe, cortesDe, cuadroTresCortes, esDelClub, estadisticasDeLosCortes, KPIS,
-  parDe as parDeLib, PIE_ESTADISTICO, suma, usd, valorDe, type Corte,
+  parDe as parDeLib, PIE_ESTADISTICO, suma, usd, valorDe, vistaDe,
+  type Corte,
 } from "@/lib/tresCortes";
+
+/** Cuántas versiones acepta `/reports/pl-detail/`. Más allá de eso las corta en
+ *  silencio, así que el Forecast Current de apoyo sólo se agrega si cabe. */
+const MAX_VERSIONES = 4;
 
 const MES3 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
               "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -60,7 +65,37 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   const [stats, setStats] = useState<(EstadisticasCierre | null)[][]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const ids = useMemo(() => ranuras.filter(Boolean), [ranuras]);
+  /** Los ids que SON columnas: los que el usuario puso en las ranuras. */
+  const visibles = useMemo(() => ranuras.filter(Boolean), [ranuras]);
+
+  /** El Forecast Current: el que ocupa la primera columna del año completo.
+   *
+   *  Lo marca el backend con `is_current_forecast` —es el target de los
+   *  uploads—, no se adivina por el nombre, y se busca entre TODOS los
+   *  escenarios y no entre las ranuras: el owner puede sacarlo de la
+   *  comparación y el año completo lo sigue necesitando. */
+  const forecastFull = useMemo(() => (
+    escenarios.find(e => e.is_current_forecast)?.id
+    || escenarios.find(e => e.type === "FORECAST")?.id
+    || ""
+  ), [escenarios]);
+
+  /** Lo que se le PIDE al backend: las ranuras más el Forecast Current.
+   *
+   *  ⚠️ Se pide aunque no esté en ninguna ranura. Sin sus doce meses, la
+   *  primera columna del año completo es el Actual —2.928 noches disponibles
+   *  donde el año tiene 5.824— y la caída contra el Budget sólo significa que
+   *  el año no terminó (owner, 2026-09-30). Viaja sin columna propia: ver
+   *  `visibles`.
+   *
+   *  ⚠️ Sólo si cabe. Con las cuatro ranuras llenas el backend corta la quinta
+   *  en silencio, y entonces el año completo se queda como estaba — peor que lo
+   *  ideal, pero no un número inventado. */
+  const ids = useMemo(() => {
+    if (!forecastFull || visibles.includes(forecastFull)
+        || visibles.length >= MAX_VERSIONES) return visibles;
+    return [...visibles, forecastFull];
+  }, [visibles, forecastFull]);
 
   const cargar = useCallback(async () => {
     if (!ids.length) { setDatos(null); return; }
@@ -82,19 +117,17 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
   // `useMemo`: sin esto se recalculan siempre.
   const versiones = useMemo(() => datos?.versiones ?? [], [datos]);
 
-  /** El Forecast Current, para la primera columna del año completo. Ver
-   *  `cuadroTresCortes`: el Actual del año repite el YTD. */
-  const actualDelFullYear = useMemo(() => (
-    escenarios.find(e => e.is_current_forecast)?.id
-    || versiones.find(v => escenarios.find(x => x.id === v.scenario_id)?.type
-                           === "FORECAST")?.scenario_id
-    || ""
-  ), [escenarios, versiones]);
+  /** Qué columnas se dibujan y quién ocupa cada una. ⚠️ Vive en el lib: la
+   *  pantalla, el Excel, el Word y la franja tienen que dibujar lo mismo. */
+  const vista = useMemo(
+    () => vistaDe(versiones, visibles, forecastFull, escenarios),
+    [versiones, visibles, forecastFull, escenarios]);
 
   /** ⚠️ La regla del par vive en el lib: la pantalla, el Excel y el Word
    *  tienen que restar lo mismo. */
-  const parDe = useCallback((c: Corte) => parDeLib(c, versiones, escenarios),
-    [versiones, escenarios]);
+  const parDe = useCallback(
+    (c: Corte) => parDeLib(c, versiones, escenarios, vista),
+    [versiones, escenarios, vista]);
 
   // El encabezado de los tres cortes. Se vuelve a pedir cuando cambian las
   // versiones o el mes del cierre — que es lo que mueve los rangos.
@@ -146,7 +179,7 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
         const d = a.clave === ambito
           ? datos : await getPLDetail(a.clave, ids[0], ids.slice(1));
         cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
-                                      stats, actualDelFullYear));
+                                      stats, forecastFull, visibles));
       }
       await bajarCuadros(`FullPL_${MES3[mes - 1]}_${datos.year}`, cuadros);
     } catch (e) {
@@ -161,12 +194,15 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
 
   /** Dónde arranca cada corte dentro de la fila de celdas, para saber cuál
    *  lleva la línea divisoria y cuál es la columna de varianza. */
+  // ⚠️ Se cuenta sobre `vista.columnas` y no sobre `versiones`: el Forecast
+  // Current del año completo viaja en `versiones` sin columna propia, y
+  // contarlo correría todas las divisorias y la columna de varianza.
   const inicios = cortes.map((_, ci) => cortes.slice(0, ci).reduce(
-    (a, x) => a + versiones.length + (parDe(x) ? 1 : 0), 0));
+    (a, x) => a + vista.columnas.length + (parDe(x) ? 1 : 0), 0));
   const esVarianza = (i: number) => !inicios.some(
-    ini => i >= ini && i < ini + versiones.length);
+    ini => i >= ini && i < ini + vista.columnas.length);
   const anchoTotal = 1 + cortes.reduce(
-    (a, c) => a + versiones.length + (parDe(c) ? 1 : 0), 0);
+    (a, c) => a + vista.columnas.length + (parDe(c) ? 1 : 0), 0);
 
   const pintar = (vals: (number | null)[], fuerte: boolean, top: boolean,
                   fmt: (n: number | null) => string = usd) =>
@@ -224,7 +260,7 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
                 ACCOUNT DESCRIPTION
               </th>
               {cortes.map(c => (
-                <th key={c.clave} colSpan={versiones.length + (parDe(c) ? 1 : 0)}
+                <th key={c.clave} colSpan={vista.columnas.length + (parDe(c) ? 1 : 0)}
                     style={{ ...TH, textAlign: "center", borderLeft: BL,
                              color: "var(--text-primary)", fontSize: 11.5 }}>
                   {c.titulo} {datos.year}
@@ -232,13 +268,17 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
               ))}
             </tr>
             <tr>
-              {cortes.flatMap(c => {
+              {cortes.flatMap((c, ci) => {
                 const par = parDe(c);
                 return [
-                  ...versiones.map((v, i) => (
-                    <th key={`${c.clave}-${v.scenario_id}`}
-                        style={{ ...TH, ...(i === 0 ? { borderLeft: BL } : {}) }}>
-                      {etiqueta(v.scenario_id)}
+                  // ⚠️ El rótulo sale de la VISTA, no de `versiones[i]`: en el
+                  // año completo la primera columna es el Forecast Current, y
+                  // con el rótulo de la ranura la columna diría «ACTUAL Final»
+                  // encima de doce meses de forecast.
+                  ...vista.columnas.map((_c, col) => (
+                    <th key={`${c.clave}-${col}`}
+                        style={{ ...TH, ...(col === 0 ? { borderLeft: BL } : {}) }}>
+                      {etiqueta(versiones[vista.vi(col, ci)]?.scenario_id ?? "")}
                     </th>
                   )),
                   ...(par ? [
@@ -254,7 +294,7 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
                 mismas columnas: es el denominador de todo lo que sigue. */}
             {KPIS.map(k => {
               const vals = celdasDe(cortes, versiones, escenarios,
-                (vi, _m, ci) => k.calc(stats[ci]?.[vi] ?? null));
+                (vi, _m, ci) => k.calc(stats[ci]?.[vi] ?? null), vista);
               // ⚠️ Una propiedad sin Club no lleva los tres renglones del Club
               // en blanco: tres filas vacías se leen como un dato que falta.
               if (esDelClub(k.rotulo) && vals.every(v => v === null)) return null;
@@ -286,9 +326,9 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
               // ⚠️ Los encabezados de sección van sin números, no en cero: un
               // cero ahí se leería como «esta sección no tuvo movimiento».
               const vals = seccion
-                ? celdasDe(cortes, versiones, escenarios, () => null)
+                ? celdasDe(cortes, versiones, escenarios, () => null, vista)
                 : celdasDe(cortes, versiones, escenarios,
-                           (vi, meses) => valorDe(f, vi, meses));
+                           (vi, meses) => valorDe(f, vi, meses), vista);
               return (
                 <tr key={fi} style={seccion ? { background: "var(--bg-elevated)" } : undefined}>
                   <td style={{ ...TD_ROT, ...PEGA,

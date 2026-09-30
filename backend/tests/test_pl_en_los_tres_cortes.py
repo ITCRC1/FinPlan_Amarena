@@ -188,7 +188,15 @@ def test_en_el_full_year_la_varianza_es_FORECAST_contra_budget():
     # La regla vive en el lib: la pantalla, el Excel y el Word tienen que
     # restar el mismo par, o el archivo y la pantalla dirian cosas distintas.
     src = LOGICA.read_text(encoding="utf-8")
-    assert 'c.clave === "full" ? iDe("FORECAST") : iDe("ACTUAL")' in src
+    # ⚠️ Desde el 2026-09-30 el contra del ano completo es el CAMPEON de la
+    # vista —quien ocupa su primera columna— y solo cae en `iDe("FORECAST")` si
+    # la vista no da uno. Antes se buscaba el primer FORECAST de la lista, que
+    # puede no ser el que se ve: con dos forecast cargados la columna decia uno
+    # y la varianza restaba el otro.
+    cuerpo = src[src.index("export function parDe"):src.index("export interface Vista")]
+    assert 'iDe("ACTUAL")' in cuerpo
+    assert 'tipoDe(versiones[j]?.scenario_id ?? "") === "FORECAST"' in cuerpo
+    assert 'iDe("FORECAST")' in cuerpo
     # Y el tipo sale de `escenarios`, no del rotulo, que es texto libre.
     assert "escenarios.find(s => s.id === sid)?.type" in src
     assert "no termin" in src
@@ -254,25 +262,25 @@ def test_la_varianza_de_la_franja_sale_de_los_numeros_CRUDOS():
 
 # ═════════ Lo que se rompio y lo que se blindo, 2026-09-30 ═══════════════════
 
-def test_viDe_se_declara_ANTES_de_usarse():
+def test_la_vista_se_declara_ANTES_de_usarse():
     """⚠️ Esto se cayo en produccion sin que nada lo dijera.
 
-    `viDe` —la funcion que en el ano completo pone el Forecast Current en la
-    primera columna— estaba declarada DESPUES de `columnas`, que es quien la
-    usa. Un `const` no existe hasta su linea: armar las columnas tiraba
-    «Cannot access 'viDe' before initialization», y las tres hojas del P&L
-    —Consolidado, Hotel y Club— se caian del Excel y del Word. La pantalla
-    atrapa el fallo por capitulo, asi que el archivo bajaba con tres tabs menos
-    y sin un error a la vista.
+    La funcion que en el ano completo pone el Forecast Current en la primera
+    columna estaba declarada DESPUES de `columnas`, que es quien la usa. Un
+    `const` no existe hasta su linea: armar las columnas tiraba «Cannot access
+    'viDe' before initialization», y las tres hojas del P&L —Consolidado, Hotel
+    y Club— se caian del Excel y del Word. La pantalla atrapa el fallo por
+    capitulo, asi que el archivo bajaba con tres tabs menos y sin un error a la
+    vista.
 
     TypeScript NO lo marca: la zona muerta temporal es de ejecucion, no de
     tipos, y `tsc --noEmit` pasaba limpio.
     """
     src = LOGICA.read_text(encoding="utf-8")
     cuerpo = src[src.index("export function cuadroTresCortes"):]
-    declara = cuerpo.index("const viDe = (vi: number, ci: number)")
+    declara = cuerpo.index("const vista = vistaDe(")
     usa = cuerpo.index("const columnas: ColumnaCuadro[]")
-    assert declara < usa, "viDe se usa antes de declararse: el cuadro no se arma"
+    assert declara < usa, "la vista se usa antes de declararse: el cuadro no se arma"
 
 
 def test_la_VARIANZA_del_cuadro_baja_como_FORMULA():
@@ -298,5 +306,78 @@ def test_la_formula_apunta_a_la_columna_QUE_MUESTRA_cada_operando():
     """
     src = LOGICA.read_text(encoding="utf-8")
     assert "const colDe = (vi: number, ci: number, base: number)" in src
-    assert "viDe(k, ci) === vi" in src
+    assert "vista.vi(col, ci) === vi" in src
     assert "colDe(par[0], ci, base) !== null" in src
+
+
+# ═════════ Quitar el Forecast de las ranuras, 2026-09-30 ═════════════════════
+#
+# Owner, senalando la ranura 3: *«por ahora voy a quitar la vista del
+# comparativo contra el forecast, pero quiero que sea facil de poder
+# instalarlo. si dejo la opcion vacio creo que funciona, pero debes considerar
+# que en el comparativo full year debe ser Forecast y no debe ser la version
+# Actual Final para que contenga los 12 meses»*.
+
+def test_el_forecast_del_ANO_COMPLETO_se_pide_aunque_no_este_en_una_ranura():
+    """⚠️ Sin sus doce meses, la primera columna del ano completo es el Actual
+    —2.928 noches disponibles donde el ano tiene 5.824— y la caida contra el
+    Budget solo significa que el ano no termino.
+
+    Por eso el Forecast Current se PIDE siempre y viaja sin columna propia:
+    sacarlo de una ranura deja de compararlo, no rompe el ano.
+    """
+    comp = COMP.read_text(encoding="utf-8")
+    assert "const ids = useMemo(() => {" in comp
+    assert "return [...visibles, forecastFull];" in comp
+    pagina = (FRONT / "app/month-end/pl/page.tsx").read_text(encoding="utf-8")
+    assert "const idsDelPL = useCallback(() => {" in pagina
+    assert "return [...puestas, actualFullPL];" in pagina
+
+
+def test_lo_que_VIAJA_no_es_lo_que_se_DIBUJA():
+    """Si el forecast de apoyo tuviera columna, volveria a aparecer en los tres
+    cortes — que es justo lo que se quiso quitar."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "export interface Vista {" in src
+    assert "columnas: number[];" in src
+    assert "vi: (col: number, ci: number) => number;" in src
+    comp = COMP.read_text(encoding="utf-8")
+    # La pantalla cuenta columnas por la vista, no por las versiones: con el de
+    # apoyo contado, todas las divisorias y la columna de varianza se corren.
+    assert "versiones.length + (parDe" not in comp
+    assert "vista.columnas.length + (parDe" in comp
+
+
+def test_el_ROTULO_de_la_primera_columna_del_ano_sale_de_la_vista():
+    """Con el rotulo de la ranura, la columna diria «ACTUAL Final» encima de
+    doce meses de forecast — que es peor que no hacer el cambio."""
+    comp = COMP.read_text(encoding="utf-8")
+    assert "etiqueta(versiones[vista.vi(col, ci)]?.scenario_id ?? \"\")" in comp
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "etiqueta(versiones[vista.vi(col, ci)].scenario_id)" in src
+
+
+def test_si_el_Forecast_Current_no_cabe_se_usa_CUALQUIER_forecast():
+    """Con las cuatro ranuras llenas el backend corta la quinta version en
+    silencio. Un forecast de una ranura sigue siendo mejor que el Actual: tiene
+    los doce meses."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert 'versiones.findIndex(v => tipoDe(v.scenario_id) === "FORECAST")' in src
+    assert "const campeon = full >= 0" in src
+
+
+def test_sin_NINGUN_forecast_el_ano_completo_no_inventa_una_varianza():
+    """El ultimo escalon. Restarle doce meses de Budget al Actual da un derrumbe
+    que solo dice que el ano no termino: mejor sin columna de varianza."""
+    src = LOGICA.read_text(encoding="utf-8")
+    cuerpo = src[src.index("export function parDe"):src.index("export interface Vista")]
+    assert "if (contra < 0 || contra === budget) return null;" in cuerpo
+
+
+def test_volver_a_instalarlo_es_elegirlo_en_la_ranura():
+    """«quiero que sea facil de poder instalarlo». No hay bandera ni
+    configuracion: la ranura ES el interruptor."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "visibles?: string[]" in src
+    comp = COMP.read_text(encoding="utf-8")
+    assert "const visibles = useMemo(() => ranuras.filter(Boolean)" in comp

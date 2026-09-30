@@ -44,7 +44,7 @@ import Formato from "./Formato";
 import TresCortes from "./TresCortes";
 import {
   AMBITOS, KPIS, celdasDe, cortesDe, cuadroTresCortes, esDelClub,
-  estadisticasDeLosCortes, parDe,
+  estadisticasDeLosCortes, parDe, vistaDe,
 } from "@/lib/tresCortes";
 import { compararDetalle, indiceDe, sumaContra } from "@/lib/auditoriaCompara";
 import Auditoria from "./Auditoria";
@@ -1743,7 +1743,8 @@ export default function MonthEndPLPage() {
     // acá— porque la varianza del cuadro depende de cuáles sean: sin BUDGET no
     // hay columna de variación, y sin FORECAST el full year no la tiene.
     trescortes: async () => {
-      const ids = ranuras.filter(Boolean);
+      const visibles = ranuras.filter(Boolean);
+      const ids = idsDelPL();
       if (!ids.length) return [];
       // ⚠️ Los TRES ámbitos, una hoja cada uno (owner, 2026-09-30). En pantalla
       // se miran de a uno con el selector; en un archivo que se archiva y se
@@ -1764,7 +1765,7 @@ export default function MonthEndPLPage() {
         stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes),
                                                       d.versiones ?? []);
         cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
-                                      stats, actualFullPL));
+                                      stats, actualFullPL, visibles));
       }
       return cuadros;
     },
@@ -2067,8 +2068,27 @@ export default function MonthEndPLPage() {
   const actualFullPL = useMemo(() => (
     escenarios.find(e => e.is_current_forecast)?.id
     || ranuras.find(id => id && escenarios.find(x => x.id === id)?.type === "FORECAST")
+    || escenarios.find(e => e.type === "FORECAST")?.id
     || ""
   ), [escenarios, ranuras]);
+
+  /** Lo que se le PIDE al P&L Detail: las ranuras más el Forecast Current.
+   *
+   *  ⚠️ Se pide aunque el owner lo haya sacado de las ranuras. Sin sus doce
+   *  meses la primera columna del año completo es el Actual —los meses
+   *  cargados y nada más— y la caída contra el Budget sólo significa que el año
+   *  no terminó (owner, 2026-09-30). Viaja SIN columna propia: las columnas son
+   *  `ranuras`, y de eso se encarga `visibles`.
+   *
+   *  ⚠️ Sólo si cabe: con las cuatro ranuras llenas el backend corta la quinta
+   *  en silencio y el año completo se queda como estaba. */
+  const idsDelPL = useCallback(() => {
+    const puestas = ranuras.filter(Boolean);
+    if (!actualFullPL || puestas.includes(actualFullPL) || puestas.length >= 4) {
+      return puestas;
+    }
+    return [...puestas, actualFullPL];
+  }, [ranuras, actualFullPL]);
 
   const conRespaldo = useCallback(() => {
     const puestos = ranuras.filter(Boolean);
@@ -2198,7 +2218,11 @@ export default function MonthEndPLPage() {
     kpis: { label: string; valores: (string | number | null)[] }[];
     kpis_columnas: string[];
   } | null> {
-    const ids = usadas.map(u => u.id);
+    const visibles = usadas.map(u => u.id);
+    // ⚠️ Las MISMAS versiones que el cuadro, Forecast Current incluido: la
+    // franja tiene una celda por columna, y en el año completo la primera es
+    // la de ese forecast. Pidiendo sólo las ranuras, esa celda saldría vacía.
+    const ids = idsDelPL();
     if (!ids.length) return null;
     const cortes = cortesDe(mes);
     // ⚠️ Los mismos cortes del cuadro. `estadisticasDeLosCortes` ya deja en
@@ -2226,22 +2250,21 @@ export default function MonthEndPLPage() {
     //
     // `celdasDe` es la MISMA función que arma las celdas del cuerpo: mientras
     // las dos la usen, no hay forma de que se desalineen otra vez.
-    const versiones = usadas.map(u => ({ scenario_id: u.id }));
-    const viDe = (vi: number, ci: number) => {
-      if (ci !== 2 || vi !== 0 || !actualFullPL) return vi;
-      const j = versiones.findIndex(v => v.scenario_id === actualFullPL);
-      return j >= 0 ? j : vi;
-    };
+    const versiones = ids.map(id => ({ scenario_id: id }));
+    const vista = vistaDe(versiones, visibles, actualFullPL, escenarios);
     return {
       kpis_columnas: cortes.flatMap((c, ci) => [
-        ...versiones.map((_v, vi) =>
-          `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`),
-        ...(parDe(c, versiones, escenarios) ? [`${c.titulo} · Variance`] : []),
+        ...vista.columnas.map((_col, i) =>
+          `${c.titulo} · ${etiqueta(versiones[vista.vi(i, ci)].scenario_id)}`),
+        ...(parDe(c, versiones, escenarios, vista)
+          ? [`${c.titulo} · Variance`] : []),
       ]),
       kpis: KPIS.map(k => ({
         label: k.rotulo,
+        // ⚠️ `vi` YA viene resuelto por la vista: aplicarle otra vez la regla
+        // del año completo la aplicaría dos veces.
         valores: celdasDe(cortes, versiones, escenarios,
-          (vi, _m, ci) => k.calc(porCorte[ci]?.[viDe(vi, ci)] ?? null)),
+          (vi, _m, ci) => k.calc(porCorte[ci]?.[vi] ?? null), vista),
       })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
                            || f.valores.some(v => v !== null)),
     };

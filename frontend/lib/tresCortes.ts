@@ -192,14 +192,87 @@ export function cortesDe(mes: number): Corte[] {
  *  El tipo sale de `escenarios` y no del rótulo: el rótulo es texto libre. */
 export function parDe(
   c: Corte, versiones: { scenario_id: string }[], escenarios: Scenario[],
+  /** La vista, para que el año completo reste la MISMA versión que está
+   *  mostrando en su primera columna. Sin ella se resta el primer FORECAST de
+   *  la lista, que puede no ser el que se ve: con dos forecast cargados —uno en
+   *  una ranura y el Current— la columna decía uno y la varianza restaba el
+   *  otro. */
+  vista?: Vista,
 ): [number, number] | null {
   const tipoDe = (sid: string) => escenarios.find(s => s.id === sid)?.type ?? "";
   const iDe = (t: string) => versiones.findIndex(v => tipoDe(v.scenario_id) === t);
   const budget = iDe("BUDGET");
   if (budget < 0) return null;
-  const contra = c.clave === "full" ? iDe("FORECAST") : iDe("ACTUAL");
+  let contra: number;
+  if (c.clave !== "full") {
+    contra = iDe("ACTUAL");
+  } else {
+    // El campeón del año completo es quien ocupa su primera columna, siempre
+    // que sea un Forecast. Si no hay ninguno, no hay varianza: restarle doce
+    // meses de Budget al Actual da un derrumbe que sólo dice que el año no
+    // terminó.
+    const j = vista?.vi(0, 2);
+    contra = (j !== undefined && j >= 0
+              && tipoDe(versiones[j]?.scenario_id ?? "") === "FORECAST")
+      ? j : iDe("FORECAST");
+  }
   if (contra < 0 || contra === budget) return null;
   return [contra, budget];
+}
+
+/**
+ * Cómo se dibujan las columnas de un cuadro de tres cortes.
+ *
+ * ⚠️ **`versiones` no es lo mismo que las columnas.** El año completo necesita
+ * el Forecast Current aunque el usuario no lo haya puesto en ninguna ranura: sin
+ * él la primera columna del año es el Actual, que sólo tiene los meses cargados
+ * —2.928 noches disponibles donde el año tiene 5.824— y la caída contra el
+ * Budget sólo significa que el año no terminó (owner, 2026-09-30: *«en el
+ * comparativo full year debe ser Forecast y no la versión Actual Final para que
+ * contenga los 12 meses»*).
+ *
+ * Así que el Forecast Current se PIDE siempre y viaja en `versiones` sin
+ * columna propia. Quitarlo de una ranura deja de comparar contra él sin romper
+ * el año completo, y volver a ponerlo es elegirlo en la ranura otra vez.
+ */
+export interface Vista {
+  /** Los índices de `versiones` que tienen columna, en orden. */
+  columnas: number[];
+  /** Qué versión ocupa la columna `col` en el corte `ci`. */
+  vi: (col: number, ci: number) => number;
+}
+
+export function vistaDe(
+  versiones: { scenario_id: string }[],
+  /** Los ids que SON columnas, en orden. Sin esto, todas. */
+  visibles?: string[],
+  /** Quién ocupa la primera columna del año completo. */
+  actualDelFullYear = "",
+  /** Para poder caer en CUALQUIER forecast si el Current no vino. */
+  escenarios: Scenario[] = [],
+): Vista {
+  const columnas = visibles?.length
+    ? visibles.map(id => versiones.findIndex(v => v.scenario_id === id))
+        .filter(i => i >= 0)
+    : versiones.map((_v, i) => i);
+  // El campeón del año completo, en orden de preferencia:
+  //   1. el Forecast Current, que es el que el owner quiere ver;
+  //   2. CUALQUIER forecast que sí haya venido —con las cuatro ranuras llenas
+  //      el backend corta la quinta versión y el Current se queda afuera, y
+  //      entonces un forecast de una ranura sigue siendo mejor que el Actual:
+  //      tiene los doce meses;
+  //   3. nada, y la columna se queda con lo que haya. Peor que el ideal, pero
+  //      no un número inventado.
+  const tipoDe = (sid: string) => escenarios.find(e => e.id === sid)?.type ?? "";
+  const full = (actualDelFullYear
+    ? versiones.findIndex(v => v.scenario_id === actualDelFullYear) : -1);
+  const campeon = full >= 0
+    ? full : versiones.findIndex(v => tipoDe(v.scenario_id) === "FORECAST");
+  return {
+    columnas,
+    vi: (col, ci) => (ci === 2 && col === 0 && campeon >= 0 ? campeon
+                      : (columnas[col] ?? col)),
+  };
 }
 
 /** El valor de una fila para una versión y un corte. */
@@ -207,22 +280,30 @@ export const valorDe = (
   f: { series: (number[] | null)[] }, vi: number, meses: number[],
 ) => (f.series?.[vi] ? suma(f.series[vi]!, meses) : null);
 
-const resta = (vs: (number | null)[], par: [number, number] | null) =>
-  par && vs[par[0]] !== null && vs[par[1]] !== null ? vs[par[0]]! - vs[par[1]]! : null;
-
-/** Las celdas de una fila: cada corte, cada versión, y la varianza.
+/** Las celdas de una fila: cada corte, cada columna, y la varianza.
  *
- *  `de` recibe también el índice del corte, que es lo que necesitan las filas
- *  del encabezado: su valor no se saca de los meses, sino del corte ya
- *  calculado por el backend para ese rango. */
+ *  `de` recibe el índice de VERSIÓN ya resuelto —no la posición de la columna—
+ *  y el índice del corte, que es lo que necesitan las filas del encabezado: su
+ *  valor no se saca de los meses, sino del corte ya calculado por el backend
+ *  para ese rango.
+ *
+ *  ⚠️ La varianza se calcula sobre las versiones del PAR, no sobre las celdas
+ *  ya dibujadas. Son lo mismo mientras el par esté a la vista, y cuando no lo
+ *  está —el Forecast Current que viaja sin columna— restar posiciones daría la
+ *  diferencia de otras dos versiones. */
 export function celdasDe(
   cortes: Corte[], versiones: { scenario_id: string }[], escenarios: Scenario[],
   de: (vi: number, meses: number[], ci: number) => number | null,
+  vista?: Vista,
 ): (number | null)[] {
+  const v = vista ?? vistaDe(versiones);
   return cortes.flatMap((c, ci) => {
-    const par = parDe(c, versiones, escenarios);
-    const vs = versiones.map((_, i) => de(i, c.meses, ci));
-    return [...vs, ...(par ? [resta(vs, par)] : [])];
+    const par = parDe(c, versiones, escenarios, v);
+    const vs = v.columnas.map((_c, col) => de(v.vi(col, ci), c.meses, ci));
+    if (!par) return vs;
+    const a = de(par[0], c.meses, ci);
+    const b = de(par[1], c.meses, ci);
+    return [...vs, a === null || b === null ? null : a - b];
   });
 }
 
@@ -255,6 +336,14 @@ export function cuadroTresCortes(
    *  el Forecast Current, y tiene que ser la misma en todos. Los checkbooks y
    *  el armado ya lo hacían; faltaban los tres P&L. */
   actualDelFullYear = "",
+  /** Los ids que SON columnas, en orden. Sin esto, todas las que traiga la
+   *  respuesta.
+   *
+   *  ⚠️ El Forecast Current se pide SIEMPRE para poder dibujar el año completo,
+   *  incluso cuando el usuario lo sacó de las ranuras. Sin `visibles` volvería
+   *  a aparecer como columna en los tres cortes, que es justo lo que se quiso
+   *  quitar. */
+  visibles?: string[],
 ): Cuadro {
   const cortes = cortesDe(mes);
   const versiones = datos.versiones ?? [];
@@ -265,30 +354,23 @@ export function cuadroTresCortes(
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>
     !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
-  /** El índice de versión que ocupa una columna en un corte. Sólo cambia en la
-   *  primera del año completo.
-   *
-   *  ⚠️ **Se declara ANTES de `columnas`, que es quien la usa.** Estaba
-   *  declarada después, y un `const` no existe hasta su línea: armar las
-   *  columnas tiraba «Cannot access 'viDe' before initialization» y las tres
-   *  hojas del P&L —consolidado, Hotel y Club— se caían del Excel y del Word
-   *  sin decir por qué. TypeScript no lo marca: la zona muerta temporal es de
-   *  ejecución, no de tipos. */
-  const viDe = (vi: number, ci: number) => {
-    if (ci !== 2 || vi !== 0 || !actualDelFullYear) return vi;
-    const j = versiones.findIndex(v => v.scenario_id === actualDelFullYear);
-    return j >= 0 ? j : vi;
-  };
+  /** ⚠️ **Se declara ANTES de `columnas`, que es quien la usa.** La versión
+   *  anterior de esto era un `const viDe` puesto DESPUÉS, y un `const` no
+   *  existe hasta su línea: armar las columnas tiraba «Cannot access 'viDe'
+   *  before initialization» y las tres hojas del P&L —Consolidado, Hotel y
+   *  Club— se caían del Excel y del Word sin decir por qué. TypeScript no lo
+   *  marca: la zona muerta temporal es de ejecución, no de tipos. */
+  const vista = vistaDe(versiones, visibles, actualDelFullYear, escenarios);
 
-  /** Cuántas columnas ocupa cada corte: sus versiones más la variación, si la
+  /** Cuántas columnas ocupa cada corte: sus columnas más la variación, si la
    *  hay. Hace falta para saber en qué columna del Excel cae cada una. */
   const anchoCorte = (c: Corte) =>
-    versiones.length + (parDe(c, versiones, escenarios) ? 1 : 0);
+    vista.columnas.length + (parDe(c, versiones, escenarios, vista) ? 1 : 0);
 
   /** En qué columna está A LA VISTA la versión `vi` dentro del corte `ci`, o
    *  `null` si ninguna la muestra. */
   const colDe = (vi: number, ci: number, base: number) => {
-    const j = versiones.findIndex((_v, k) => viDe(k, ci) === vi);
+    const j = vista.columnas.findIndex((_c, col) => vista.vi(col, ci) === vi);
     return j < 0 ? null : base + j;
   };
 
@@ -298,10 +380,10 @@ export function cuadroTresCortes(
       // La primera columna de este corte, base 0 sobre `columnas` (la 0 es el
       // rótulo de la fila).
       const base = 1 + cortes.slice(0, ci).reduce((a, x) => a + anchoCorte(x), 0);
-      const par = parDe(c, versiones, escenarios);
+      const par = parDe(c, versiones, escenarios, vista);
       return [
-        ...versiones.map((_v, vi) => ({
-          label: `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`,
+        ...vista.columnas.map((_c, col) => ({
+          label: `${c.titulo} · ${etiqueta(versiones[vista.vi(col, ci)].scenario_id)}`,
           ancho: 16, formato: "usd2" as const })),
         // ⚠️ La variación va como FÓRMULA, no como número (owner, 2026-09-30).
         //
@@ -332,8 +414,10 @@ export function cuadroTresCortes(
   const kpi: FilaCuadro[] = KPIS.map((k): FilaCuadro => ({
     label: k.rotulo, es_total: !!k.fuerte,
     formato: k.fmt === pct ? "pct" : k.fmt === numero ? "num" : "usd2",
+    // ⚠️ `vi` YA viene resuelto por la vista: aplicarle otra vez la regla del
+    // año completo la aplicaría dos veces.
     valores: celdasDe(cortes, versiones, escenarios,
-      (vi, _m, ci) => k.calc(stats?.[ci]?.[viDe(vi, ci)] ?? null)),
+      (vi, _m, ci) => k.calc(stats?.[ci]?.[vi] ?? null), vista),
   })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
                        || f.valores.some(v => v !== null));
 
@@ -347,9 +431,9 @@ export function cuadroTresCortes(
     // ⚠️ Los encabezados de sección van SIN números, no en cero: un cero ahí
     // se leería como «esta sección no tuvo movimiento».
     valores: f.tipo === "sec"
-      ? celdasDe(cortes, versiones, escenarios, () => null)
+      ? celdasDe(cortes, versiones, escenarios, () => null, vista)
       : celdasDe(cortes, versiones, escenarios,
-                 (vi, meses, ci) => valorDe(f, viDe(vi, ci), meses)),
+                 (vi, meses) => valorDe(f, vi, meses), vista),
   }));
 
   return {
