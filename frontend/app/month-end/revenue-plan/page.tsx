@@ -52,12 +52,12 @@ import {
   type ChannelsConfig, type RackRatesResponse, type RevenueByRoomType,
   type Scenario,
 } from "@/lib/api";
-import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
+import { bajarCuadros, type Cuadro, type FilaCuadro } from "@/lib/exportCuadro";
 import { sembrarTres, useEscenarioDe } from "@/lib/escenarioPreferido";
 import { HOTEL_ID } from "@/lib/hotel";
 import {
   ES_PROMEDIO, filasDeIngresos, totalDeIngresos, valorDeIngresos,
-  type FuenteIngresos,
+  type FuenteIngresos, type VistaIngresos,
 } from "@/lib/revenuePlanCortes";
 import { celdasDe, cortesDe, parDe } from "@/lib/tresCortes";
 
@@ -326,10 +326,17 @@ export default function RevenuePlanPage() {
    *
    *  ⚠️ `valorDeIngresos` es quien sabe que la ocupación es un cociente y el
    *  inventario no se suma. Acá sólo se arman las celdas. */
-  const filasCorte = useMemo(() => {
-    if (corte !== "cortes") return [];
+  /** Las filas de UNA vista en los tres cortes.
+   *
+   *  ⚠️ Recibe la vista en vez de leer la de la pantalla porque el Excel las
+   *  baja LAS OCHO (owner, 2026-09-30: «puedes hacer que el excel incluya todos
+   *  los tabs desde inventario hasta total revenue»). Con la vista tomada del
+   *  estado, el archivo salía siendo una foto de en qué pestaña estaba parado
+   *  quien lo bajó. */
+  const filasDeLaVista = useCallback((cual: VistaIngresos) => {
     const usadas = visibles.map(id => fuentes[id]).filter(Boolean);
     if (!usadas.length) return [];
+    const vista = cual;
     const base = filasDeIngresos(vista, usadas);
     const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
       celdasDe(cortes, columnas, escenarios, de);
@@ -349,7 +356,47 @@ export default function RevenuePlanPage() {
       }),
     };
     return [...cuerpo, ...(pie.valores.some(v => v !== null) ? [pie] : [])];
-  }, [corte, vista, visibles, fuentes, cortes, columnas, escenarios, idDe]);
+  }, [visibles, fuentes, cortes, columnas, escenarios, idDe]);
+
+  /** El cuadro de UNA vista: sus columnas y sus filas ya calculadas.
+   *
+   *  ⚠️ El nombre de la pestaña es el de la vista. Ocho hojas con el mismo
+   *  nombre las desempata Excel con un número y hay que abrirlas una por una
+   *  para saber cuál es Ocupación. */
+  const cuadroDeLaVista = useCallback((
+    cual: VistaIngresos, rotuloVista: string, filas: FilaCuadro[],
+  ): Cuadro => {
+    const f = formato(cual);
+    const fmt = (f === "pct" ? "pct" : f === "usd" ? "usd2" : "num") as
+      "pct" | "usd2" | "num";
+    return {
+      titulo: `${rotuloVista} · mes, YTD y full year`,
+      subtitulo: `${MES_LARGO[(mes || 12) - 1]} — en el full year la primera `
+        + `columna es el Forecast Current y la varianza es Forecast contra `
+        + `Budget.`
+        + (ES_PROMEDIO(cual)
+           ? ` Esta vista son razones: el valor de un corte de varios meses es `
+             + `un promedio, no un acumulado.` : ""),
+      hoja: rotuloVista.slice(0, 31),
+      columnas: [
+        { label: cual === "canales" ? "Canal" : "Tipo de habitación",
+          ancho: 34, formato: "texto" },
+        ...cortes.flatMap((c, ci) => [
+          ...columnas.map((_v, vi) => ({
+            label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
+            ancho: 15, formato: fmt })),
+          ...(parDe(c, columnas, escenarios)
+            ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: fmt }] : []),
+        ]),
+      ],
+      filas,
+    };
+  }, [cortes, columnas, escenarios, idDe, etiqueta, mes]);
+
+  /** Las de la vista que está en pantalla. */
+  const filasCorte = useMemo(
+    () => (corte === "cortes" ? filasDeLaVista(vista) : []),
+    [corte, vista, filasDeLaVista]);
 
   const totalMes = (i: number) => filas.reduce((a, f) => a + f.meses[i], 0);
   /** ⚠️ El total de la columna sólo se dibuja donde SUMAR significa algo. Una
@@ -365,40 +412,27 @@ export default function RevenuePlanPage() {
    *  las ocho pegadas invitaría a compararlas columna contra columna, que es
    *  justo lo que no se puede hacer entre un porcentaje y una tarifa. */
   async function bajarExcel() {
-    const fmt = (formato(vista) === "pct" ? "pct"
-      : formato(vista) === "usd" ? "usd2" : "num") as "pct" | "usd2" | "num";
-
     // ⚠️ El MISMO cuadro que la pantalla: las mismas filas ya calculadas, no un
     // segundo armado que un día diría otra cosa.
     if (corte === "cortes") {
-      if (!filasCorte.length) { alert("No hay nada que bajar en esta vista."); return; }
-      const uno: Cuadro = {
-        titulo: `${VISTAS.find(x => x.key === vista)?.rotulo ?? vista}`
-                + ` · mes, YTD y full year`,
-        subtitulo: `${MES_LARGO[(mes || 12) - 1]} — en el full year la primera `
-          + `columna es el Forecast Current y la varianza es Forecast contra `
-          + `Budget.`
-          + (ES_PROMEDIO(vista)
-             ? ` Esta vista son razones: el valor de un corte de varios meses `
-               + `es un promedio, no un acumulado.` : ""),
-        hoja: (VISTAS.find(x => x.key === vista)?.rotulo ?? vista).slice(0, 31),
-        columnas: [
-          { label: vista === "canales" ? "Canal" : "Tipo de habitación",
-            ancho: 34, formato: "texto" },
-          ...cortes.flatMap((c, ci) => [
-            ...columnas.map((_v, vi) => ({
-              label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
-              ancho: 15, formato: fmt })),
-            ...(parDe(c, columnas, escenarios)
-              ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: fmt }] : []),
-          ]),
-        ],
-        filas: filasCorte,
-      };
-      try { await bajarCuadros(`Planning_${vista}_cortes`, [uno]); }
+      // ⚠️ LAS OCHO, una hoja cada una (owner, 2026-09-30). En pantalla se
+      // miran de a una; el archivo se archiva y se manda, y bajar sólo la
+      // pestaña abierta lo convierte en una foto de dónde estaba parado quien
+      // lo bajó.
+      const hojas: Cuadro[] = [];
+      for (const v of VISTAS) {
+        const filas = filasDeLaVista(v.key);
+        // Una vista sin filas no baja como hoja vacía: se leería como «no hay
+        // inventario», que es una afirmación.
+        if (!filas.length) continue;
+        hojas.push(cuadroDeLaVista(v.key, v.rotulo, filas));
+      }
+      if (!hojas.length) { alert("No hay nada que bajar con estas versiones."); return; }
+      try { await bajarCuadros(`Planning_cortes_${MES_LARGO[(mes || 12) - 1]}`, hojas); }
       catch (e) { alert(e instanceof Error ? e.message : "No se pudo generar el Excel"); }
       return;
     }
+
 
     const esc = escenarios.find(s => s.id === scenarioId);
     if (!esc) return;

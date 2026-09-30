@@ -177,3 +177,47 @@ def test_el_orden_de_las_filas_no_depende_de_cual_version_cargo_primero():
     Forecast reacomodaba las filas debajo del cursor."""
     src = LOGICA.read_text(encoding="utf-8")
     assert ".sort((a, b) => a[0].localeCompare(b[0]))" in src
+
+
+def test_el_EXCEL_baja_LAS_OCHO_vistas_en_UN_archivo():
+    """Owner, 2026-09-30: *«puedes hacer que el excel incluya todos los tabs
+    desde inventario hasta total revenue, mes, YTD, full year, con el mes que se
+    escoge»* y, aclarandolo: *«que salgan todos los tabs en un solo excel»*.
+
+    ⚠️ Bajar solo la pestaña abierta convierte al archivo en una foto de donde
+    estaba parado quien lo bajo — y con ocho vistas, en ocho archivos que hay
+    que pegar a mano.
+
+    Por eso las filas se calculan por VISTA y no leyendo la de la pantalla: con
+    la vista tomada del estado no hay forma de armar las otras siete.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "const filasDeLaVista = useCallback((cual: VistaIngresos) => {" in pag
+    assert "for (const v of VISTAS) {" in pag
+    assert "hojas.push(cuadroDeLaVista(v.key, v.rotulo, filas));" in pag
+    # UN archivo con las ocho hojas, no ocho descargas.
+    assert "bajarCuadros(`Planning_cortes_${MES_LARGO[(mes || 12) - 1]}`, hojas)" in pag
+
+
+def test_cada_pestana_dice_cual_vista_es():
+    """Ocho hojas con el mismo nombre las desempata Excel con un numero y hay
+    que abrirlas una por una para saber cual es Ocupacion."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "hoja: rotuloVista.slice(0, 31)" in pag
+    assert "titulo: `${rotuloVista} · mes, YTD y full year`" in pag
+
+
+def test_una_vista_sin_filas_no_baja_como_hoja_vacia():
+    """Se leeria como «no hay inventario», que es una afirmacion — y distinta de
+    «esta version no tiene ese dato cargado»."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "if (!filas.length) continue;" in pag
+
+
+def test_el_aviso_del_promedio_viaja_a_CADA_hoja():
+    """Rack, Canales, Ocupacion y Net rate son razones: su valor en un corte de
+    varios meses es un promedio. En una hoja suelta, sin el aviso, se lee como
+    un acumulado."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "ES_PROMEDIO(cual)" in pag
+    assert "no un acumulado" in pag
