@@ -83,7 +83,8 @@ const SEL: React.CSSProperties = {
 };
 
 export default function Checkbooks({ escenarios, scenarioIds, deptos,
-                                    vista = "12m", mes = 12 }: {
+                                    vista = "12m", mes = 12,
+                                    visibles, actualDelFullYear }: {
   escenarios: Scenario[];
   /** Las ranuras ocupadas de la pantalla. En la vista de cortes son las TRES
    *  —Actual, Budget, Forecast—, que es lo que la comparación necesita. */
@@ -95,6 +96,11 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
   vista?: "12m" | "cortes";
   /** El mes del cierre: define el corte «mes» y hasta dónde llega el YTD. */
   mes?: number;
+  /** Las versiones que SON columnas, en orden. El cuadro puede traer una más
+   *  —el Forecast Current— que se pide y no se dibuja aparte. */
+  visibles?: string[];
+  /** Quién ocupa la primera columna del full year. Ver `checkbookCortes`. */
+  actualDelFullYear?: string;
 }) {
   const [clase, setClase] = useState<string>("opex");
   const [dept, setDept] = useState<string>("");      // "" = todos
@@ -188,11 +194,22 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
   /** El cuadro de los tres cortes. ⚠️ Es EL MISMO que baja al Excel — la
    *  pantalla lo dibuja, no lo vuelve a armar. */
   const cortes = useMemo(() => cortesDelCheckbook(mes), [mes]);
+  /** Las versiones que ocupan columna. ⚠️ No es `versiones`: la respuesta trae
+   *  también el Forecast Current, que se pide para el full year y no se dibuja
+   *  como columna propia. */
+  const columnas = useMemo(() => (
+    visibles?.length
+      ? visibles.filter(id => versiones.some(v => v.scenario_id === id))
+                .map(id => ({ scenario_id: id }))
+      : versiones
+  ), [visibles, versiones]);
   const cuadro = useMemo(() => (
     vista === "cortes" && datos
-      ? cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos)
+      ? cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos,
+                              { visibles, actualDelFullYear })
       : null
-  ), [vista, datos, rotuloLibro, mes, escenarios, dept, deptos]);
+  ), [vista, datos, rotuloLibro, mes, escenarios, dept, deptos,
+      visibles, actualDelFullYear]);
 
   return (
     <div>
@@ -291,7 +308,7 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                 <tr>
                   <th style={{ ...TDL, position: "static", minWidth: 250 }} />
                   {cortes.map((c, ci) => (
-                    <th key={c.clave} colSpan={anchoDelCorte(c, versiones, escenarios)}
+                    <th key={c.clave} colSpan={anchoDelCorte(c, columnas, escenarios)}
                         style={{ ...TD, position: "static", textAlign: "center",
                                  fontWeight: 800, color: "var(--brand)",
                                  borderLeft: ci ? BL : undefined }}>
@@ -342,7 +359,7 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                         const esVar = cuadro.columnas[j + 1]?.label.endsWith("· Var");
                         const abre = cortes.some((c, ci) => ci > 0 && j === cortes
                           .slice(0, ci).reduce(
-                            (a, x) => a + anchoDelCorte(x, versiones, escenarios), 0));
+                            (a, x) => a + anchoDelCorte(x, columnas, escenarios), 0));
                         return (
                           <td key={j} className="mono" style={{
                             ...TD, fontWeight: f.es_total ? 800 : 400,

@@ -126,13 +126,31 @@ export default function CheckbooksPage() {
     return () => { vivo = false; };
   }, [scenarioId]);
 
+  /** El Forecast **Current**: el que ocupa la primera columna del full year.
+   *
+   *  Owner, 2026-09-30: *«en el full year debes quitar la primera columna que
+   *  dice actual final por el Forecast Current»*. El Actual del año son los
+   *  meses cargados, así que ahí repetía el YTD al centavo.
+   *
+   *  Lo marca el BACKEND con `is_current_forecast` —es el target de los
+   *  uploads—, no se adivina por el nombre. Si no hay ninguno marcado se usa el
+   *  elegido, y entonces el full year muestra esa versión dos veces en vez de
+   *  una columna vacía. */
+  const actualFull = useMemo(() => (
+    escenarios.find(e => e.is_current_forecast)?.id || tres.forecast || ""
+  ), [escenarios, tres]);
+
   /** Qué versiones pide el cuadro. En los doce meses, la elegida; en los tres
-   *  cortes, las tres — la comparación no existe sin ellas. */
+   *  cortes, las tres — más el Forecast Current, que se PIDE pero no es una
+   *  columna propia: sólo ocupa el lugar del Actual en el full year. */
+  const visibles = useMemo(() => (
+    [tres.actual, tres.budget, tres.forecast].filter(Boolean)
+  ), [tres]);
   const ids = useMemo(() => (
     vista === "cortes"
-      ? [tres.actual, tres.budget, tres.forecast].filter(Boolean)
+      ? [...new Set([...visibles, actualFull].filter(Boolean))]
       : (scenarioId ? [scenarioId] : [])
-  ), [vista, tres, scenarioId]);
+  ), [vista, visibles, actualFull, scenarioId]);
 
   /** Los cuatro libros a un Excel, una hoja cada uno.
    *
@@ -160,7 +178,8 @@ export default function CheckbooksPage() {
       for (const [clase, rotulo] of LIBROS) {
         try {
           const d = await getDetalleDeCelda(ids, clase, "");
-          const c = cuadroCheckbookCortes(rotulo, d, mes, escenarios, "", deptos);
+          const c = cuadroCheckbookCortes(rotulo, d, mes, escenarios, "", deptos,
+                                          { visibles, actualDelFullYear: actualFull });
           // Sólo el TOTAL y nada más: el libro está vacío para esas versiones.
           if (c.filas.length > 1) cuadros.push(c);
         } catch { /* un libro que falla no se lleva los otros tres */ }
@@ -278,7 +297,7 @@ export default function CheckbooksPage() {
               );
             })}
 
-            {ids.length < 3 && (
+            {visibles.length < 3 && (
               <span style={{ fontSize: 11.5, color: "var(--warning, #E6A817)",
                              maxWidth: 340, lineHeight: 1.5 }}>
                 ⚠ Falta alguna de las tres: sin Budget no hay varianza, y sin
@@ -298,7 +317,8 @@ export default function CheckbooksPage() {
       </div>
 
       <Checkbooks escenarios={escenarios} scenarioIds={ids} deptos={deptos}
-                  vista={vista} mes={mes || 12} />
+                  vista={vista} mes={mes || 12}
+                  visibles={visibles} actualDelFullYear={actualFull} />
     </div>
   );
 }

@@ -72,7 +72,9 @@ def test_en_el_full_year_la_varianza_es_FORECAST_contra_budget():
     dice que el año no termino. La regla vive en `parDe`, que es de donde sale
     tambien la del P&L."""
     src = LOGICA.read_text(encoding="utf-8")
-    assert "Forecast contra Budget" in src
+    # El rotulo viaja partido entre dos lineas de plantilla, asi que se busca
+    # la regla en el encabezado del modulo.
+    assert "no Actual contra Budget" in src
     comp = COMP.read_text(encoding="utf-8")
     assert "en el full year la varianza es Forecast contra Budget" in comp
 
@@ -97,10 +99,13 @@ def test_la_pantalla_y_el_EXCEL_dibujan_EL_MISMO_cuadro():
     """Dos armados del mismo reporte empiezan iguales y se separan en el primer
     arreglo que alguien hace de un lado."""
     comp = COMP.read_text(encoding="utf-8")
-    assert "cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos)" in comp
+    assert "cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos," in comp
     assert "cuadro.columnas.map" in comp and "cuadro.filas.map" in comp
     pag = PAGINA.read_text(encoding="utf-8")
     assert "cuadroCheckbookCortes(rotulo, d, mes, escenarios" in pag
+    # Y con LAS MISMAS opciones: si el archivo no llevara el Forecast Current,
+    # su full year mostraria el Actual donde la pantalla muestra el forecast.
+    assert "{ visibles, actualDelFullYear: actualFull }" in pag
 
 
 def test_el_mes_arranca_en_el_corte_del_forecast():
@@ -151,3 +156,46 @@ def test_la_eleccion_arranca_en_null_y_no_en_la_semilla():
     abririan en blanco."""
     pag = PAGINA.read_text(encoding="utf-8")
     assert "useState<Record<string, string> | null>(null)" in pag
+
+
+def test_en_el_full_year_la_primera_columna_es_el_FORECAST_CURRENT():
+    """Owner, 2026-09-30: *«en el full year debes quitar la primera columna que
+    dice actual final por el Forecast Current»*.
+
+    ⚠️ El Actual del año son los meses cargados y nada mas, asi que en el corte
+    del año completo repetia el YTD **al centavo** — en Salarios de Amarena,
+    57.464,79 en las dos columnas. Dos columnas identicas con rotulos distintos
+    no dicen que el año no termino: se leen como dos cifras que casualmente
+    coinciden.
+
+    Medido: con el Actual cargado hasta agosto (920) y un Forecast Current de
+    116/mes, el full year pasa a 1.392 y el mes y el YTD siguen mostrando el
+    Actual.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const idDe = (vi: number, ci: number)" in src
+    # Solo el corte 2 (full year) y solo la columna 0.
+    assert "ci === 2 && vi === 0 && opciones.actualDelFullYear" in src
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "escenarios.find(e => e.is_current_forecast)?.id" in pag
+
+
+def test_el_forecast_current_se_PIDE_pero_no_es_una_columna_propia():
+    """Si entrara como una version mas, los tres cortes tendrian cuatro columnas
+    y el mes mostraria un forecast que nadie pidio."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "[...new Set([...visibles, actualFull].filter(Boolean))]" in pag
+    comp = COMP.read_text(encoding="utf-8")
+    assert "visibles.filter(id => versiones.some(v => v.scenario_id === id))" in comp
+    assert "anchoDelCorte(c, columnas, escenarios)" in comp
+
+
+def test_el_current_lo_marca_el_BACKEND_no_el_nombre():
+    """`is_current_forecast` es el target de los uploads. Adivinarlo por el
+    nombre —«Current» en el texto— fallaria en silencio el dia que alguien
+    renombre una version."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert 'e.is_current_forecast' in pag
+    # Y si no hay ninguno marcado, se usa el elegido en vez de dejar la columna
+    # vacia.
+    assert "|| tres.forecast || \"\"" in pag
