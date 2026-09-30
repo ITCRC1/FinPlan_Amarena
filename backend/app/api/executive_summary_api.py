@@ -47,10 +47,10 @@ CLASES = {
 #: Qué renglones del P&L se miran para armar positivos y negativos, y cómo se
 #: llaman en el informe. El orden no importa: se ordenan por tamaño.
 RENGLONES_MIX = [
-    ("REV_ROOMS", "Rooms"), ("REV_FB", "F&B"), ("REV_SPA", "Spa"),
-    ("REV_TOURS", "Tours"), ("REV_TRANSPORT", "Transportation"),
-    ("REV_CLUB", "Madresal Club"), ("REV_LAUNDRY", "Laundry"),
-    ("REV_RETAIL", "Retail"), ("REV_OTHER", "Other revenue"),
+    ("REV_ROOMS", "Habitaciones"), ("REV_FB", "A y B"), ("REV_SPA", "Spa"),
+    ("REV_TOURS", "Tours"), ("REV_TRANSPORT", "Transporte"),
+    ("REV_CLUB", "Club Madresal"), ("REV_LAUNDRY", "Lavandería"),
+    ("REV_RETAIL", "Tienda"), ("REV_OTHER", "Otros ingresos"),
 ]
 
 
@@ -178,9 +178,9 @@ def _positivos_y_negativos(act, bud, fcs, totales, mix):
     # Ingreso total.
     rev, revb = linea(a, "TOTAL_REVENUES"), linea(b, "TOTAL_REVENUES")
     vp = var_pct(rev, revb)
-    cuenta("Revenue vs Budget",
-           f"Total Revenue reached {k(rev)} versus {k(revb)} Budget, a variance "
-           f"of {k(rev - revb)}"
+    cuenta("Ingreso total",
+           f"El ingreso llegó a {k(rev)} contra {k(revb)} presupuestados, una "
+           f"diferencia de {k(rev - revb)}"
            + (f" ({vp * 100:+,.1f}%)" if vp is not None else "") + ".",
            rev >= revb)
 
@@ -189,14 +189,16 @@ def _positivos_y_negativos(act, bud, fcs, totales, mix):
     occ_b = float((b.get("kpis") or {}).get("occupancy_pct") or 0)
     noc_a = float((a.get("kpis") or {}).get("rooms_occupied") or 0)
     noc_b = float((b.get("kpis") or {}).get("rooms_occupied") or 0)
-    cuenta("Demand and guest volume",
-           f"The hotel sold {noc_a:,.0f} rooms versus {noc_b:,.0f} Budget, with "
-           f"occupancy of {pct(occ_a)} against {pct(occ_b)}.", noc_a >= noc_b)
+    cuenta("Demanda y volumen de huéspedes",
+           f"Se vendieron {noc_a:,.0f} noches contra {noc_b:,.0f} presupuestadas, "
+           f"con una ocupación de {pct(occ_a)} contra {pct(occ_b)}.",
+           noc_a >= noc_b)
     adr_a = float((a.get("kpis") or {}).get("adr") or 0)
     adr_b = float((b.get("kpis") or {}).get("adr") or 0)
     vp = var_pct(adr_a, adr_b)
-    cuenta("Rate performance",
-           f"YTD ADR closed at {usd(adr_a)} versus {usd(adr_b)} Budget"
+    cuenta("Tarifa promedio",
+           f"La tarifa acumulada cerró en {usd(adr_a)} contra {usd(adr_b)} "
+           f"presupuestados"
            + (f" ({vp * 100:+,.1f}%)" if vp is not None else "") + ".",
            adr_a >= adr_b)
 
@@ -212,33 +214,36 @@ def _positivos_y_negativos(act, bud, fcs, totales, mix):
     for d, rotulo, va, vb in porte[:6]:
         if abs(d) < 500:
             continue
-        cuenta(f"{rotulo} revenue",
-               f"{rotulo} reached {va} versus {vb} Budget, "
-               f"{k(abs(d))} {'above' if d >= 0 else 'below'} plan.", d >= 0)
+        cuenta(f"Ingreso de {rotulo}",
+               f"{rotulo} llegó a {va} contra {vb} presupuestados, "
+               f"{k(abs(d))} {'por encima' if d >= 0 else 'por debajo'} del plan.",
+               d >= 0)
 
     # Los cuatro bloques de gasto.
-    for clave, rotulo in (("TOTAL_PAYROLL", "Payroll and Benefits"),
-                          ("TOTAL_OPEX_ONLY", "Operating Expenses"),
-                          ("TOTAL_COST", "Cost of Sales"),
-                          ("TOTAL_PROPERTY", "Property Expenses")):
+    for clave, rotulo in (("TOTAL_PAYROLL", "Planilla y beneficios"),
+                          ("TOTAL_OPEX_ONLY", "Gasto operativo"),
+                          ("TOTAL_COST", "Costo de ventas"),
+                          ("TOTAL_PROPERTY", "Gasto de propiedad")):
         ga, gb = totales(a, clave), totales(b, clave)
         vp = var_pct(ga, gb)
         # ⚠️ En gasto, MENOS es favorable. Con la regla del ingreso, un
         # sobrecosto entraría en la lista de positivos.
         cuenta(rotulo,
-               f"{rotulo} closed at {k(ga)} versus {k(gb)} Budget, "
-               f"{k(abs(ga - gb))} {'above' if ga >= gb else 'below'} plan"
+               f"{rotulo} cerró en {k(ga)} contra {k(gb)} presupuestados, "
+               f"{k(abs(ga - gb))} {'por encima' if ga >= gb else 'por debajo'} "
+               f"del plan"
                + (f" ({vp * 100:+,.1f}%)" if vp is not None else "") + ".",
                ga <= gb)
 
     # La conversión: EBITDA y Net Profit.
-    for code, rotulo in (("EBITDA_BEFORE", "EBITDA Before Capital"),
-                         ("NET_PROFIT", "Net Profit")):
+    for code, rotulo in (("EBITDA_BEFORE", "EBITDA antes de capital"),
+                         ("NET_PROFIT", "Utilidad neta")):
         x, y = linea(a, code), linea(b, code)
         vp = var_pct(x, y)
         cuenta(rotulo,
-               f"{rotulo} closed at {k(x)} versus {k(y)} Budget, "
-               f"{k(abs(x - y))} {'above' if x >= y else 'below'} plan"
+               f"{rotulo} cerró en {k(x)} contra {k(y)} presupuestados, "
+               f"{k(abs(x - y))} {'por encima' if x >= y else 'por debajo'} "
+               f"del plan"
                + (f" ({vp * 100:+,.1f}%)" if vp is not None else "") + ".",
                x >= y)
     return pos, neg

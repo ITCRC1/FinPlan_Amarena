@@ -23,6 +23,20 @@ secciones que no salen de la contabilidad —la actividad comercial del mes, el
 mix por país, las notas de mercado—. Acá van con un recuadro que pide el dato en
 vez de una frase inventada que se lea igual de bien.
 
+## ⚠️ En español
+
+Owner, 2026-09-30, señalando el botón: *«esto debe ser en español»*.
+
+El PDF que se dio como estándar estaba en inglés y de ahí venía el primer
+armado. Pero el formato es la estructura —portada, los tres cortes, el
+flow-through, los positivos y negativos—, no el idioma: el informe lo lee la
+junta acá.
+
+Los ROTULOS de los cuadros se quedan en inglés a propósito —«Total available
+Rooms», «EBITDA BEFORE CAPITAL»—. Son los mismos que usa el P&L de la pantalla y
+los que el owner tiene en su Excel: traducirlos obligaría a comprobar que
+«Utilidad bruta operativa» y «GROSS OPERATING PROFIT» son el mismo renglón.
+
 ## De dónde salen los números
 
 De `pl_api.get_pl_compare`, el MISMO agregador del Dashboard y del P&L a dueños.
@@ -50,10 +64,8 @@ GRIS = RGBColor(0x60, 0x66, 0x6E)
 NEGRO = RGBColor(0x1A, 0x1D, 0x21)
 ROJO = RGBColor(0xB3, 0x26, 0x1E)
 
-MESES = ["January", "February", "March", "April", "May", "June", "July",
-         "August", "September", "October", "November", "December"]
-MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-            "agosto", "setiembre", "octubre", "noviembre", "diciembre"]
+MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+         "Agosto", "Setiembre", "Octubre", "Noviembre", "Diciembre"]
 
 
 # ═══════════════════════ Números, dichos como en el PDF ═══════════════════════
@@ -105,8 +117,12 @@ def var_pct(act: float, base: float) -> float | None:
 
 
 def signo(v: float) -> str:
-    """«above» / «below», que es como lo lee el dueño."""
-    return "above" if v >= 0 else "below"
+    """«por encima» / «por debajo».
+
+    ⚠️ La palabra manda cuando el porcentaje no se puede escribir —base cero o
+    negativa—, así que tiene que decir la dirección sola, sin apoyarse en el
+    signo del número que la acompaña."""
+    return "por encima de" if v >= 0 else "por debajo de"
 
 
 # ═══════════════════════════ Piezas de Word ═══════════════════════════════════
@@ -301,19 +317,19 @@ def _cuadro_corte(doc, titulo: str, act: dict, bud: dict, fcs: dict | None,
         filas.append([rotulo, usd(a), usd(b), usd(a - b) + (
             f"  ({vp * 100:,.1f}%)" if vp is not None else ""),
             usd(linea(fcs, code)) if fcs else ""])
-    _tabla(doc, ["ACCOUNT DESCRIPTION", rot_a, rot_b, "Variance", rot_c],
+    _tabla(doc, ["ACCOUNT DESCRIPTION", rot_a, rot_b, "Variación", rot_c],
            filas, anchos=[5.2, 2.9, 2.9, 3.2, 2.9],
            resaltar={i for i, (_, _, f) in enumerate(CASCADA, start=6) if f})
 
 
 #: El flow-through: dónde se quedó cada dólar de más que entró.
 FLOW = [
-    ("Revenue", "TOTAL_REVENUES", "Topline vs Budget"),
-    ("Payroll (Overtime + FX + Commissions)", "TOTAL_PAYROLL",
-     "Operational scaling pressure + FX"),
-    ("Operating Expenses", "TOTAL_OPEX_ONLY", "Operating spend vs Budget"),
-    ("Cost of Sales", "TOTAL_COST", "Higher guest activity and service delivery"),
-    ("Property / Capital", "TOTAL_PROPERTY", "Fees + capex decisions"),
+    ("Ingreso", "TOTAL_REVENUES", "Lo que entró de más o de menos"),
+    ("Planilla (extras + tipo de cambio + comisiones)", "TOTAL_PAYROLL",
+     "Escala operativa y exposición al colón"),
+    ("Gasto operativo", "TOTAL_OPEX_ONLY", "Gasto corriente contra el presupuesto"),
+    ("Costo de ventas", "TOTAL_COST", "Más actividad de huéspedes y servicio"),
+    ("Propiedad y capital", "TOTAL_PROPERTY", "Honorarios y decisiones de capex"),
 ]
 
 
@@ -331,12 +347,13 @@ def _flow_through(doc, titulo: str, act: dict, bud: dict, totales) -> None:
         efecto = (a - b) if clave == "TOTAL_REVENUES" else -(a - b)
         filas.append([rotulo, usd(efecto) if efecto >= 0 else f"({usd(abs(efecto))})",
                       nota])
-    for rotulo, code, nota in (("Net Profit", "NET_PROFIT", "Flow-through neto"),
-                               ("EBITDA Before Capital", "EBITDA_BEFORE",
-                                "Efecto sobre EBITDA")):
+    for rotulo, code, nota in (("Utilidad neta", "NET_PROFIT",
+                                "Cuánto de la diferencia llegó al final"),
+                               ("EBITDA antes de capital", "EBITDA_BEFORE",
+                                "Efecto sobre el EBITDA")):
         d = linea(act, code) - linea(bud, code)
         filas.append([rotulo, usd(d) if d >= 0 else f"({usd(abs(d))})", nota])
-    _tabla(doc, ["Concept", "Variance ($)", "Notes"], filas,
+    _tabla(doc, ["Concepto", "Diferencia ($)", "Qué la explica"], filas,
            anchos=[6.5, 3.4, 7.2], resaltar={len(filas) - 2, len(filas) - 1})
 
 
@@ -364,7 +381,7 @@ def build_executive_summary(datos: dict) -> bytes:
         doc.add_paragraph()
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("MONTHLY EXECUTIVE SUMMARY")
+    r = p.add_run("RESUMEN EJECUTIVO MENSUAL")
     r.bold = True
     r.font.size = Pt(17)
     r.font.color.rgb = ORO
@@ -389,33 +406,33 @@ def build_executive_summary(datos: dict) -> bytes:
     doc.add_page_break()
 
     # ── Introducción ─────────────────────────────────────────────────────────
-    _h(doc, "INTRODUCTION", nivel=1, color=NEGRO)
-    _p(doc, "This report presents a comprehensive analysis of the hotel's "
-            "financial and operational performance across three key perspectives:")
-    _p(doc, [(f"{mes_ing} {anio} (Monthly Performance vs Budget)", True),
-             ", providing a detailed view of execution for the current month."])
-    _p(doc, [(f"Year-to-Date {mes_ing} {anio} (Cumulative Performance vs Budget)", True),
-             ", highlighting overall trends and performance."])
-    _p(doc, [(f"Full Year Forecast {anio} (Projected Performance vs Budget)", True),
-             ", offering a forward-looking assessment of expected results and key "
-             "risks for the remainder of the year."])
-    _p(doc, "The objective of this analysis is to evaluate not only the level of "
-            "revenue and profitability achieved, but also to understand the "
-            "underlying drivers of performance, including volume, rate, cost "
-            "structure, and operational dynamics for the full year.")
+    _h(doc, "INTRODUCCIÓN", nivel=1, color=NEGRO)
+    _p(doc, "Este informe analiza el desempeño financiero y operativo del hotel "
+            "desde tres perspectivas:")
+    _p(doc, [(f"{mes_ing} {anio} — desempeño del mes contra el presupuesto", True),
+             ", con el detalle de la ejecución del mes que se cierra."])
+    _p(doc, [(f"Acumulado a {mes_ing} {anio} — desempeño acumulado contra el "
+              f"presupuesto", True),
+             ", que muestra la tendencia del año hasta acá."])
+    _p(doc, [(f"Proyección del año completo {anio} contra el presupuesto", True),
+             ", con la lectura de cómo se espera cerrar el año y los riesgos que "
+             "quedan por delante."])
+    _p(doc, "El objetivo no es sólo mostrar cuánto ingreso y cuánta utilidad se "
+            "alcanzaron, sino entender de dónde vienen: volumen, tarifa, "
+            "estructura de costos y la dinámica operativa del año.")
     doc.add_page_break()
 
-    _h(doc, f"Executive Summary — Financial & Operational Results "
-            f"YTD {mes_ing} {anio}", nivel=1)
+    _h(doc, f"Resumen Ejecutivo — Resultados financieros y operativos "
+            f"al cierre de {mes_ing} {anio}", nivel=1)
 
     # ── 1.1 / 1.2 / 1.3 ──────────────────────────────────────────────────────
     cortes = [
-        ("1.1", f"{mes_ing} {anio} (Monthly Performance vs Budget)", "month",
-         f"{mes_ing} Total Revenue", mes_ing),
-        ("1.2", f"YTD {mes_ing} {anio} (Cumulative Performance vs Budget)", "ytd",
-         f"YTD {mes_ing} Total Revenue", f"YTD {mes_ing}"),
-        ("1.3", f"Full Year Forecast {anio} vs Budget", "full",
-         "Full-Year Revenue", "Full Year"),
+        ("1.1", f"{mes_ing} {anio} — el mes contra el presupuesto", "month",
+         f"El ingreso total de {mes_ing.lower()}", mes_ing),
+        ("1.2", f"Acumulado a {mes_ing} {anio} — contra el presupuesto", "ytd",
+         f"El ingreso total acumulado a {mes_ing.lower()}", f"Acumulado a {mes_ing}"),
+        ("1.3", f"Proyección del año completo {anio} contra el presupuesto", "full",
+         "El ingreso proyectado del año", "Año completo"),
     ]
     for num, titulo, corte, sujeto, rotulo_corte in cortes:
         a = act[corte]
@@ -441,19 +458,18 @@ def build_executive_summary(datos: dict) -> bytes:
         np_a, np_b = linea(principal, "NET_PROFIT"), linea(b, "NET_PROFIT")
 
         _p(doc, [
-            (f"{sujeto} reached {k(rev)}, {k(abs(rev - revb))} "
-             f"{signo(rev - revb)} Budget", True),
+            (f"{sujeto} llegó a {k(rev)}, {k(abs(rev - revb))} "
+             f"{signo(rev - revb)} lo presupuestado", True),
             (f" ({vp * 100:+,.1f}%)" if vp is not None else "", True),
-            f", supported by occupancy of {pct(occ_a)} vs {pct(occ_b)} Budget, "
-            f"with {noc_a:,.0f} occupied rooms versus {noc_b:,.0f} budgeted, "
-            f"while ADR closed at ",
-            (f"{usd(adr_a)} vs {usd(adr_b)}", True),
-            ". Total Operating and Property Expenses were ",
-            (f"{k(abs(gasto_a - gasto_b))} {signo(gasto_a - gasto_b)} Budget"
+            f", con una ocupación de {pct(occ_a)} contra {pct(occ_b)} del "
+            f"presupuesto y {noc_a:,.0f} noches vendidas contra "
+            f"{noc_b:,.0f}. La tarifa promedio cerró en ",
+            (f"{usd(adr_a)} contra {usd(adr_b)}", True),
+            ". El gasto operativo y de propiedad fue ",
+            (f"{k(abs(gasto_a - gasto_b))} {signo(gasto_a - gasto_b)} lo previsto"
              + (f" ({vg * 100:+,.1f}%)" if vg is not None else ""), True),
-            f". Consequently, EBITDA Before Capital closed at {k(eb_a)} versus "
-            f"{k(eb_b)} Budget, while Net Profit was {k(np_a)} versus "
-            f"{k(np_b)} Budget.",
+            f". El EBITDA antes de capital cerró en {k(eb_a)} contra {k(eb_b)} "
+            f"presupuestados, y la utilidad neta en {k(np_a)} contra {k(np_b)}.",
         ])
 
         # El contraste contra el Forecast, sólo donde significa algo: en el full
@@ -461,57 +477,61 @@ def build_executive_summary(datos: dict) -> bytes:
         if f is not None and corte != "full":
             rf = linea(f, "TOTAL_REVENUES")
             ef = linea(f, "EBITDA_BEFORE")
-            _h(doc, "Performance vs Forecast", nivel=3, color=NEGRO)
-            _p(doc, f"Compared with the Forecast, Total Revenue was "
-                    f"{k(abs(rev - rf))} {signo(rev - rf)} the revised outlook, "
-                    f"while EBITDA Before Capital closed {k(abs(eb_a - ef))} "
-                    f"{signo(eb_a - ef)} Forecast.")
+            _h(doc, "Contra el forecast", nivel=3, color=NEGRO)
+            _p(doc, f"Frente al forecast, el ingreso total quedó "
+                    f"{k(abs(rev - rf))} {signo(rev - rf)} la proyección "
+                    f"revisada, y el EBITDA antes de capital "
+                    f"{k(abs(eb_a - ef))} {signo(eb_a - ef)} esa misma "
+                    f"proyección.")
 
-        _cuadro_corte(doc, f"{rotulo_corte} {anio} — Actual vs Budget vs Forecast",
+        _cuadro_corte(doc, f"{rotulo_corte} {anio} — Actual · Presupuesto · Forecast",
                       principal, b, f, rot_principal, rot["budget"],
                       rot.get("forecast", ""))
-        _flow_through(doc, f"{rotulo_corte} {anio} – Flow Through Analysis "
-                           f"(vs Budget)", principal, b, datos["totales"])
+        _flow_through(doc, f"{rotulo_corte} {anio} — de dónde viene la diferencia "
+                           f"contra el presupuesto", principal, b, datos["totales"])
         doc.add_page_break()
 
     # ── Sección 2 — Drivers ──────────────────────────────────────────────────
-    _h(doc, "SECTION 2 — Performance Drivers", nivel=1)
+    _h(doc, "SECCIÓN 2 — De qué depende el resultado", nivel=1)
     ytd_a, ytd_b = act["ytd"], bud["ytd"]
-    _h(doc, "2.1 Volume (Demand)", nivel=2)
+    _h(doc, "2.1 Volumen (demanda)", nivel=2)
     d_noc = kpi(ytd_a, "rooms_occupied") - kpi(ytd_b, "rooms_occupied")
     d_pax = kpi(ytd_a, "guests") - kpi(ytd_b, "guests")
-    _p(doc, f"Year-to-date the hotel sold {kpi(ytd_a, 'rooms_occupied'):,.0f} rooms "
-            f"versus {kpi(ytd_b, 'rooms_occupied'):,.0f} budgeted "
-            f"({d_noc:+,.0f}), with {kpi(ytd_a, 'guests'):,.0f} guests versus "
-            f"{kpi(ytd_b, 'guests'):,.0f} ({d_pax:+,.0f}). Occupancy closed at "
-            f"{pct(kpi(ytd_a, 'occupancy_pct'))} against "
-            f"{pct(kpi(ytd_b, 'occupancy_pct'))} Budget.")
+    _p(doc, f"En el acumulado el hotel vendió {kpi(ytd_a, 'rooms_occupied'):,.0f} "
+            f"noches contra {kpi(ytd_b, 'rooms_occupied'):,.0f} presupuestadas "
+            f"({d_noc:+,.0f}), con {kpi(ytd_a, 'guests'):,.0f} huéspedes contra "
+            f"{kpi(ytd_b, 'guests'):,.0f} ({d_pax:+,.0f}). La ocupación cerró en "
+            f"{pct(kpi(ytd_a, 'occupancy_pct'))} contra "
+            f"{pct(kpi(ytd_b, 'occupancy_pct'))} del presupuesto.")
 
-    _h(doc, "2.2 Rate (Quality of Revenue)", nivel=2)
-    _p(doc, f"Cumulative ADR stands at {usd(kpi(ytd_a, 'adr'))} versus "
-            f"{usd(kpi(ytd_b, 'adr'))} Budget, and Total RevPAR at "
-            f"{usd(kpi(ytd_a, 'revpar'))} versus {usd(kpi(ytd_b, 'revpar'))}. "
-            f"RevPAR is measured on TOTAL revenue per available room, so it "
-            f"reflects the whole property and not only the room night.")
+    _h(doc, "2.2 Tarifa (calidad del ingreso)", nivel=2)
+    _p(doc, f"La tarifa promedio acumulada es de {usd(kpi(ytd_a, 'adr'))} contra "
+            f"{usd(kpi(ytd_b, 'adr'))} del presupuesto, y el RevPAR de "
+            f"{usd(kpi(ytd_a, 'revpar'))} contra {usd(kpi(ytd_b, 'revpar'))}. "
+            f"⚠️ El RevPAR se mide sobre el ingreso TOTAL por habitación "
+            f"disponible, así que refleja todo lo que factura la propiedad y no "
+            f"sólo la noche vendida.")
     if datos.get("adr_por_mes"):
-        _tabla(doc, ["Month", "ADR", "Occupancy", "Rooms occupied"],
+        _tabla(doc, ["Mes", "Tarifa promedio", "Ocupación", "Noches vendidas"],
                datos["adr_por_mes"], anchos=[4.0, 4.0, 4.0, 4.0])
 
     # ── 2.3 Revenue mix ──────────────────────────────────────────────────────
-    _h(doc, "2.3 Revenue Mix", nivel=2)
+    _h(doc, "2.3 Composición del ingreso", nivel=2)
     mix = datos.get("mix") or []
     if mix:
-        _p(doc, "Departmental contribution year-to-date, against Budget:")
-        _tabla(doc, ["Department", "YTD Actual", "YTD Budget", "Var $", "Var %"],
+        _p(doc, "Aporte de cada departamento en el acumulado, contra el "
+                "presupuesto:")
+        _tabla(doc, ["Departamento", "Acumulado real", "Presupuesto",
+                     "Variación $", "Variación %"],
                mix, anchos=[5.6, 3.2, 3.2, 3.0, 2.2])
     else:
-        _pendiente(doc, "Revenue Mix",
+        _pendiente(doc, "Composición del ingreso",
                    "el detalle por departamento no vino en esta corrida.")
 
     doc.add_page_break()
 
     # ── Sección 3 — lo que la contabilidad no sabe ───────────────────────────
-    _h(doc, "SECTION 3 — Commercial Strategy Snapshot", nivel=1)
+    _h(doc, "SECCIÓN 3 — La gestión comercial del mes", nivel=1)
     _pendiente(doc, "Actividad comercial del mes",
                "esta sección no sale de la contabilidad: se redacta con el "
                "equipo comercial (actividades, agencias, medios, segmentos de "
@@ -522,16 +542,16 @@ def build_executive_summary(datos: dict) -> bytes:
                "habitaciones, el dato está ahí y se puede pegar acá.")
 
     # ── Sección 4 — positivos y negativos, de los propios números ────────────
-    _h(doc, f"SECTION 4 — Overall Positives and Negatives YTD {mes_ing} {anio}",
+    _h(doc, f"SECCIÓN 4 — Lo bueno y lo malo del acumulado a {mes_ing} {anio}",
        nivel=1)
-    _h(doc, "4.1 Overall Positive", nivel=2)
+    _h(doc, "4.1 Lo favorable", nivel=2)
     if datos.get("positivos"):
         for titulo, texto in datos["positivos"]:
             _p(doc, [(titulo + ". ", True), texto])
     else:
         _p(doc, "No se identificaron variaciones favorables materiales en el "
                 "acumulado.")
-    _h(doc, "4.2 Overall Negative", nivel=2)
+    _h(doc, "4.2 Lo desfavorable", nivel=2)
     if datos.get("negativos"):
         for titulo, texto in datos["negativos"]:
             _p(doc, [(titulo + ". ", True), texto])
@@ -540,7 +560,7 @@ def build_executive_summary(datos: dict) -> bytes:
                 "acumulado.")
 
     # ── Sección 4.3 — tipo de cambio ─────────────────────────────────────────
-    _h(doc, "4.3 Exchange Rate Trend — Potential Risk", nivel=2)
+    _h(doc, "4.3 Tipo de cambio — riesgo abierto", nivel=2)
     if datos.get("fx"):
         _p(doc, datos["fx"])
     else:

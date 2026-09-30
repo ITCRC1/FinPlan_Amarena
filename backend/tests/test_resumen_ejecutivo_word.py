@@ -83,8 +83,10 @@ def _datos():
         "totales": totales,
         "mix": [["Rooms", "$2,021,430.00", "$1,890,670.00", "$130,760.00", "+6.9%"]],
         "adr_por_mes": [["08", "$514.31", "27.31%", "254"]],
-        "positivos": [("Revenue vs Budget", "Total Revenue reached $3.974M.")],
-        "negativos": [("Cost of Sales", "Cost of Sales closed above plan.")],
+        "positivos": [("Ingreso total",
+                       "El ingreso llegó a $3.974M contra $3.605M presupuestados.")],
+        "negativos": [("Costo de ventas",
+                       "El costo de ventas cerró por encima del plan.")],
     }
 
 
@@ -106,20 +108,43 @@ def test_el_informe_se_genera_y_es_un_docx():
 
 def test_trae_las_secciones_del_formato_del_owner():
     """El PDF que el owner dio como estandar: portada, introduccion, los tres
-    cortes numerados, los drivers y los positivos/negativos."""
+    cortes numerados, los drivers y los positivos/negativos.
+
+    ⚠️ **En espanol.** Owner, 2026-09-30, señalando el boton: *«esto debe ser en
+    español»*. El PDF modelo estaba en ingles y de ahi venia el primer armado,
+    pero el formato es la ESTRUCTURA —portada, los tres cortes, el
+    flow-through, lo bueno y lo malo—, no el idioma: el informe lo lee la junta
+    aca.
+    """
     t = _texto(build_executive_summary(_datos()))
-    assert "MONTHLY EXECUTIVE SUMMARY" in t
-    assert "AUGUST 2026" in t
+    assert "RESUMEN EJECUTIVO MENSUAL" in t
+    assert "AGOSTO 2026" in t
     assert "Amarena Canvas Hotel" in t
-    assert "INTRODUCTION" in t
-    for titulo in ("1.1 August 2026 (Monthly Performance vs Budget)",
-                   "1.2 YTD August 2026 (Cumulative Performance vs Budget)",
-                   "1.3 Full Year Forecast 2026 vs Budget",
-                   "SECTION 2 — Performance Drivers",
-                   "2.1 Volume (Demand)", "2.2 Rate (Quality of Revenue)",
-                   "2.3 Revenue Mix",
-                   "4.1 Overall Positive", "4.2 Overall Negative"):
+    assert "INTRODUCCIÓN" in t
+    for titulo in ("1.1 Agosto 2026 — el mes contra el presupuesto",
+                   "1.2 Acumulado a Agosto 2026 — contra el presupuesto",
+                   "1.3 Proyección del año completo 2026 contra el presupuesto",
+                   "SECCIÓN 2 — De qué depende el resultado",
+                   "2.1 Volumen (demanda)", "2.2 Tarifa (calidad del ingreso)",
+                   "2.3 Composición del ingreso",
+                   "4.1 Lo favorable", "4.2 Lo desfavorable"):
         assert titulo in t, f"falta «{titulo}»"
+    # Y no quedo prosa en ingles suelta.
+    for ingles in ("Total Revenue reached", "above Budget", "versus Budget",
+                   "Monthly Performance", "Overall Positive"):
+        assert ingles not in t, f"quedo en ingles: «{ingles}»"
+
+
+def test_los_ROTULOS_de_los_cuadros_se_quedan_en_ingles():
+    """⚠️ A proposito, y es lo unico que no se traduce. «Total available Rooms»,
+    «EBITDA BEFORE CAPITAL» y «GROSS OPERATING PROFIT» son los MISMOS rotulos
+    que usa el P&L de la pantalla y los que el owner tiene en su Excel.
+    Traducirlos obligaria a comprobar que «Utilidad bruta operativa» y «GROSS
+    OPERATING PROFIT» son el mismo renglon."""
+    t = _texto(build_executive_summary(_datos()))
+    for rotulo in ("Total available Rooms", "Average Daily Room Only",
+                   "TOTAL REVENUES", "EBITDA BEFORE CAPITAL", "NET PROFIT"):
+        assert rotulo in t, f"se tradujo el rotulo «{rotulo}»"
 
 
 def test_la_prosa_dice_LOS_NUMEROS_del_cuadro():
@@ -242,5 +267,5 @@ def test_el_informe_real_no_contradice_su_propio_texto():
                 if ln["line_code"] in ("EBITDA_BEFORE", "NET_PROFIT", "GOP"):
                     ln["amount_usd"] = -abs(ln["amount_usd"])
     t = _texto(build_executive_summary(d))
-    assert "MONTHLY EXECUTIVE SUMMARY" in t   # se genera igual
+    assert "RESUMEN EJECUTIVO MENSUAL" in t   # se genera igual
     assert "n/d%" not in t
