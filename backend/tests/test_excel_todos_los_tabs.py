@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Un solo Excel con TODOS los sub-tabs.
+"""Un solo Excel con los sub-tabs, en UN archivo.
 
 Owner, 2026-09-03: *«se podrá bajar en Excel todos los tabs; que bajen todos es
 todos, en un solo archivo»*.
+
+## ⚠️ El owner cambió de idea, y conviene saber cuándo
+
+Owner, 2026-09-30: *«ocupo una opción para escoger qué tabs y en qué orden van
+en el paquete de excel que se baja»* y *«tengo muchas tabs que no necesito
+porque se repiten»*.
+
+«Todos es todos» era de cuando el Excel era el respaldo para trabajar y el Word
+lo que veía el dueño. Con quince sub-tabs y varias aperturas de la misma plata,
+el respaldo pasó a ser un archivo que había que podar a mano cada mes.
+
+Lo que se conserva del pedido viejo: **sigue siendo UN archivo**, el armado sale
+del MISMO registro que el Word, y el default —sin tocar nada— baja todo lo que
+la pantalla muestra. Lo que cambia es que ahora se puede elegir y ordenar, y que
+lo escondido en «Vistas» ya no viaja.
 """
 import re
 from pathlib import Path
@@ -23,18 +38,23 @@ def _cuerpo() -> str:
 def test_sale_del_MISMO_registro_que_el_Word():
     """⚠️ Un segundo armado sería un segundo lugar donde olvidarse un sub-tab —
     que es exactamente el defecto que el Word acaba de tener."""
-    assert "CAPITULOS[v.key]" in _cuerpo()
+    assert "CAPITULOS[clave as Vista]" in _cuerpo()
 
 
-def test_NO_filtra_por_los_escondidos():
-    """«Todos es todos». El Word es lo que ve el dueño y por eso respeta el
-    panel de Vistas; esto es el respaldo para trabajar, y ahí esconder una hoja
-    no ayuda a nadie."""
+def test_SI_filtra_por_los_escondidos():
+    """⚠️ Esto dice lo CONTRARIO de lo que decía hasta el 2026-09-30, y es a
+    propósito: ver la nota del encabezado.
+
+    Antes el Word filtraba por `subOcultos` y el Excel no. El mismo cierre salía
+    con un juego de hojas en un formato y otro en el otro, y esconder un sub-tab
+    no sacaba nada del Excel — había que borrar las repetidas a mano.
+
+    Ahora los dos arman la lista con `capitulosDelArchivo`, que respeta lo
+    escondido y el orden elegido.
+    """
     cuerpo = _cuerpo()
-    assert "for (const v of VISTAS)" in cuerpo
-    assert "subOcultos" not in cuerpo, (
-        "el Excel completo empezó a respetar el panel de Vistas: deja de ser "
-        "«todos»")
+    assert "capitulosDelArchivo()" in cuerpo
+    assert "for (const v of VISTAS)" not in cuerpo
 
 
 def test_INCLUYE_los_cuadros_sin_datos():
@@ -80,9 +100,12 @@ def test_es_EL_boton_de_Excel_y_no_uno_aparte():
 
 
 def test_el_ORDEN_es_el_de_la_pantalla():
-    """«En el mismo orden»: se recorre `VISTAS`, la misma lista que dibuja la
+    """«En el mismo orden»: el default es el de `VISTAS`, la misma lista que dibuja la
     fila de sub-tabs."""
-    assert "for (const v of VISTAS)" in _cuerpo()
+    # ⚠️ Desde el 2026-09-30 el orden puede elegirse, pero el DEFAULT sigue
+    # siendo el de la pantalla — ver `capitulosDelPaquete`, que pone primero lo
+    # ordenado a mano y después el resto en el orden de `VISTAS`.
+    assert "capitulosDelArchivo()" in _cuerpo()
 
 
 def test_el_PL_Statement_aporta_sus_DOS_vistas_tambien_al_Excel():

@@ -53,6 +53,8 @@ import VistasVisibles from "./VistasVisibles";
 import ResumenDoceMeses, { armar as armarResumen, filasResumen }
   from "./ResumenDoceMeses";
 import { getTabsApagados } from "@/lib/tabsVisibles";
+import { capitulosDelPaquete, leerPaquete } from "@/lib/paqueteCuadros";
+import PaqueteCuadros from "./PaqueteCuadros";
 
 /** Respaldo si el catálogo de idioma no trae la lista larga de meses. */
 const MESES_FALLBACK = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -401,6 +403,10 @@ export default function MonthEndPLPage() {
    *  la auditoría idéntica a como estaba: la comparación existía y había que
    *  descubrirla en un selector nuevo entre otros cuatro. */
   const [audContra, setAudContra] = useState<string | null>(null);
+  /** El panel para armar el paquete que se baja. */
+  const [armando, setArmando] = useState(false);
+  /** Cambia cuando el panel guarda, para volver a leer la elección. */
+  const [paqueteRev, setPaqueteRev] = useState(0);
   const [datos, setDatos] = useState<PLCompareVersion[]>([]);
   const [gastos, setGastos] = useState<GastoEscenario[]>([]);
   const [avisoGasto, setAvisoGasto] = useState<string | null>(null);
@@ -1870,6 +1876,23 @@ export default function MonthEndPLPage() {
    * Y el ORDEN es el de `VISTAS`, la misma lista que la fila de botones: el
    * documento se lee en el mismo orden en que se miró la pantalla.
    */
+  /** Las vistas que van al archivo, en el orden elegido.
+   *
+   *  ⚠️ **Una sola definición para el Excel y para el Word.** Antes el Word
+   *  filtraba por `subOcultos` y el Excel bajaba TODAS: el mismo cierre salía
+   *  con un juego de hojas en un formato y otro en el otro, y había que borrar
+   *  a mano las repetidas (owner, 2026-09-30: «tengo muchas tabs que no
+   *  necesito porque se repiten»).
+   *
+   *  El orden lo elige el usuario en el panel; sin elección, el de la pantalla.
+   */
+  const capitulosDelArchivo = useCallback(() => capitulosDelPaquete(
+    VISTAS.map(v => v.key), subOcultos,
+    typeof window === "undefined" ? { fuera: [], orden: [] } : leerPaquete(HOTEL_ID),
+    k => !!CAPITULOS[k as Vista],
+    // `paqueteRev` sólo está para que esto se recalcule al guardar el panel.
+  ), [subOcultos, paqueteRev]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   /** ¿Este cuadro tiene algún número? */
   function tieneDatos(c: Cuadro): boolean {
     return c.filas.some(f => f.valores.some(
@@ -2011,8 +2034,8 @@ export default function MonthEndPLPage() {
     const franja = await franjaKpis();
     const cuadros: Cuadro[] = [];
     const fallaron: string[] = [];
-    for (const v of VISTAS) {
-      const armar = CAPITULOS[v.key];
+    for (const clave of capitulosDelArchivo()) {
+      const armar = CAPITULOS[clave as Vista];
       if (!armar) continue;
       try {
         for (const c of await armar()) {
@@ -2023,11 +2046,12 @@ export default function MonthEndPLPage() {
           cuadros.push({ ...c, ...(franja || {}), hoja: c.hoja || c.titulo });
         }
       } catch {
-        fallaron.push(t(`tab_${v.key}`));
+        fallaron.push(t(`tab_${clave}`));
       }
     }
     if (!cuadros.length) {
-      alert("No se pudo armar ningún cuadro.");
+      alert("No se pudo armar ningún cuadro. Revisá en «Armar paquete» que "
+            + "haya al menos una hoja elegida.");
       return;
     }
     try {
@@ -2095,13 +2119,15 @@ export default function MonthEndPLPage() {
       return;
     }
 
-    const activos = VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k));
+    // ⚠️ La MISMA lista que el Excel, y en el mismo orden. Dos recorridos del
+    // mismo cierre dan dos juegos de hojas distintos, y nadie sabe cuál manda.
+    const activos = capitulosDelArchivo();
     const notas = await notasDelMes();
     const franja = await franjaKpis();
     const cuadros: Cuadro[] = [];
     const afuera: string[] = [];
     for (const clave of activos) {
-      const armar = CAPITULOS[clave];
+      const armar = CAPITULOS[clave as Vista];
       if (!armar) continue;
       let hechos: Cuadro[] = [];
       try {
@@ -2259,6 +2285,13 @@ export default function MonthEndPLPage() {
             es lo mismo que dibuja la fila de sub-tabs. */}
         <button onClick={bajarWord} title="Reporte de cierre en Word, con espacio para comentar cada cuadro"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600 }}>⬇ Word</button>
+        <button onClick={() => setArmando(a => !a)}
+          title="Elegir qué hojas bajan en el Excel y en el Word, y en qué orden"
+          style={{ ...SEL, cursor: "pointer", fontWeight: 600,
+                   ...(armando ? { background: "var(--brand)", color: "#fff",
+                                   border: "none" } : {}) }}>
+          ⚙ Armar paquete
+        </button>
         <button onClick={bajarResumen}
           title="El Resumen Ejecutivo del mes en Word: el mes, el acumulado y el año, con la prosa que explica cada variación"
           style={{ ...SEL, cursor: "pointer", fontWeight: 600,
@@ -2360,6 +2393,20 @@ export default function MonthEndPLPage() {
           {compacto ? "☑ Compacto" : "☐ Compacto"}
         </button>
       </div>
+
+      {/* El panel para armar el paquete. Va DEBAJO de la fila de sub-tabs y no
+          flotando: se abre, se toca, y se ve enseguida el efecto en el número
+          de orden de cada hoja. */}
+      {armando && (
+        <PaqueteCuadros
+          vistas={VISTAS.map(v => v.key)}
+          ocultos={subOcultos}
+          tiene={k => !!CAPITULOS[k as Vista]}
+          rotulo={k => t(`tab_${k}`)}
+          hotel={HOTEL_ID}
+          onCerrar={() => setArmando(false)}
+          onCambio={() => setPaqueteRev(n => n + 1)} />
+      )}
 
       {vacias.length > 0 && (
         <div style={{

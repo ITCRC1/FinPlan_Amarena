@@ -217,7 +217,7 @@ def test_los_capitulos_salen_de_los_tabs_ACTIVOS():
     decisión es una segunda oportunidad de que difieran.
     """
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    assert "VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k))" in pagina
+    assert "capitulosDelArchivo()" in pagina
 
 
 def test_un_escenario_que_falla_no_se_lleva_el_documento():

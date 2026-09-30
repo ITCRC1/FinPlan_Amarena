@@ -75,7 +75,7 @@ def test_el_orden_del_documento_es_el_de_la_PANTALLA():
     src = _fuente()
     cuerpo = src[src.index("async function bajarWord()"):]
     assert "for (const clave of activos)" in cuerpo
-    assert "VISTAS.map(v => v.key).filter(k => !subOcultos.includes(k))" in cuerpo
+    assert "capitulosDelArchivo()" in cuerpo
 
 
 def test_solo_las_vistas_ACTIVAS():
@@ -86,7 +86,10 @@ def test_solo_las_vistas_ACTIVAS():
     decisión es una segunda oportunidad de que difieran."""
     src = _fuente()
     cuerpo = src[src.index("async function bajarWord()"):]
-    assert "subOcultos.includes(k)" in cuerpo
+    # ⚠️ Desde el 2026-09-30 el filtro vive en `capitulosDelArchivo`, que es la
+    # MISMA lista que usa el Excel — antes cada uno recorria lo suyo y el mismo
+    # cierre salia con juegos de hojas distintos.
+    assert "capitulosDelArchivo()" in cuerpo
     assert "tab_enablement" not in cuerpo
 
 
