@@ -93,6 +93,23 @@ export const KPIS: {
     calc: e => e?.club_cuota_promedio ?? null },
 ];
 
+/** Los tres ámbitos del cuadro, con el nombre que lleva su pestaña.
+ *
+ *  Owner, 2026-09-30: *«este tab tiene varias versiones —consolidado, Hotel y
+ *  Club—; me gustaría que cuando se baje al excel automáticamente despliegue
+ *  las 3 versiones en tab 1, tab 2 y tab 3 con su respectivo nombre»*.
+ *
+ *  ⚠️ **La lista vive acá y no en la pantalla.** El selector de la pantalla y
+ *  el Excel tienen que ofrecer los mismos tres: si un día se agrega un ámbito
+ *  en el `<select>` y nadie se acuerda del archivo, el Excel sigue bajando tres
+ *  hojas y nada avisa que falta una — ni el archivo ni la pantalla se ven mal.
+ */
+export const AMBITOS = [
+  { clave: "consolidado", rotulo: "Consolidado" },
+  { clave: "hotel", rotulo: "Hotel" },
+  { clave: "club", rotulo: "Club" },
+] as const;
+
 /** El ancho de las columnas, compartido por la franja de estadísticas y por el
  *  cuadro que va debajo.
  *
@@ -215,6 +232,11 @@ export function celdasDe(
  * ⚠️ UNA definición. El Word arma el mismo archivo que el botón: dos copias se
  * separan en el primer arreglo y nadie sabría cuál de los dos manda.
  */
+/** El nombre del ámbito. Si llega uno que no está en la lista se devuelve tal
+ *  cual: mejor una pestaña con un nombre raro que una sin nombre. */
+export const rotuloAmbito = (clave: string) =>
+  AMBITOS.find(a => a.clave === clave)?.rotulo ?? clave;
+
 export function cuadroTresCortes(
   datos: PLDetail, mes: number, escenarios: Scenario[], ambito: string,
   compacto = true,
@@ -263,11 +285,16 @@ export function cuadroTresCortes(
   }));
 
   return {
-    titulo: `Full P&L ${MESES[mes - 1]} ${datos.year} · mes, YTD y full year`,
+    // ⚠️ El ámbito va en el TÍTULO y en el nombre de la pestaña. Tres hojas
+    // llamadas «Full P&L Ago» las desempata Excel con un número —«Full P&L Ago
+    // 2», «…3»— y entonces hay que abrirlas una por una para saber cuál es el
+    // Club.
+    titulo: `Full P&L ${MESES[mes - 1]} ${datos.year} · ${rotuloAmbito(ambito)}`
+            + ` · mes, YTD y full year`,
     subtitulo: `${datos.escenario} · ${ambito} — la varianza del full year es `
       + `Forecast contra Budget: el Actual del año todavía no existe. `
       + PIE_ESTADISTICO,
-    hoja: `Full P&L ${MES3[mes - 1]}`,
+    hoja: `P&L ${MES3[mes - 1]} ${rotuloAmbito(ambito)}`,
     columnas, filas: [...kpi, { label: "", valores: [] }, ...cuerpo],
   };
 }

@@ -52,9 +52,16 @@ def test_los_tres_cortes_salen_del_MISMO_arreglo_de_doce():
     assert 'clave: "mes", titulo: MESES[mes - 1], meses: [mes - 1]' in src
     assert "Array.from({ length: mes }, (_, i) => i)" in src
     assert "Array.from({ length: 12 }, (_, i) => i)" in src
-    # Una sola llamada.
+    # Una sola llamada PARA DIBUJAR: los tres cortes salen del mismo arreglo.
+    #
+    # ⚠️ Desde el 2026-09-30 hay una segunda, y es de otra cosa: al bajar el
+    # archivo se piden tambien los otros dos AMBITOS —Hotel y Club—, que son
+    # otro corte del P&L y no otro corte del tiempo. Lo que este guard defiende
+    # es que el mes, el YTD y el año NO sean tres consultas.
     comp = COMP.read_text(encoding="utf-8")
-    assert comp.count("getPLDetail(") == 1
+    assert "getPLDetail(ambito, ids[0], ids.slice(1))" in comp
+    assert comp.count("getPLDetail(") == 2
+    assert "for (const a of AMBITOS)" in comp
 
 
 def test_no_se_escribe_la_plantilla_otra_vez():
@@ -165,8 +172,10 @@ def test_el_Word_pide_el_mismo_encabezado_que_la_pantalla():
     Si el Word lo derivara por su cuenta, el archivo y la pantalla podrian
     decir cosas distintas justo en la fila que mas se mira."""
     pag = PAGINA.read_text(encoding="utf-8")
-    assert "estadisticasDeLosCortes(cortesDe(mes), d.versiones ?? [])" in pag
-    assert 'cuadroTresCortes(d, mes, escenarios, "consolidado", compacto, stats)' in pag
+    # ⚠️ Y se pide UNA vez para los tres ambitos: el encabezado es de la
+    # propiedad, no del ambito.
+    assert "stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes)," in pag
+    assert "cuadroTresCortes(d, mes, escenarios, a.clave, compacto," in pag
 
 
 def test_en_el_full_year_la_varianza_es_FORECAST_contra_budget():

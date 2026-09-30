@@ -31,9 +31,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getPLDetail, type EstadisticasCierre, type PLDetail,
          type Scenario } from "@/lib/api";
-import { bajarCuadros } from "@/lib/exportCuadro";
+import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import {
-  ANCHO_DATO, ANCHO_ROTULO,
+  AMBITOS, ANCHO_DATO, ANCHO_ROTULO,
   celdasDe, cortesDe, cuadroTresCortes, esDelClub, estadisticasDeLosCortes, KPIS,
   parDe as parDeLib, PIE_ESTADISTICO, suma, usd, valorDe, type Corte,
 } from "@/lib/tresCortes";
@@ -113,13 +113,36 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
     return s ? `${s.type} ${s.version}` : sid.slice(0, 8);
   }, [escenarios]);
 
-  /** ⚠️ El MISMO cuadro que arma el capítulo del Word. Dos copias se separan
-   *  en el primer arreglo y nadie sabría cuál manda. */
-  function bajar() {
+  /** El archivo: los TRES ámbitos, una hoja cada uno.
+   *
+   *  Owner, 2026-09-30: *«me gustaría que cuando se baje al excel
+   *  automáticamente despliegue las 3 versiones en tab 1, tab 2 y tab 3 con su
+   *  respectivo nombre»*.
+   *
+   *  ⚠️ En pantalla se miran de a uno con el selector; el archivo se archiva y
+   *  se manda, y ahí bajar sólo el que estaba abierto convierte al documento en
+   *  una foto de cómo tenía la pantalla quien lo bajó.
+   *
+   *  ⚠️ El MISMO cuadro que arma el capítulo del Word y el paquete de arriba
+   *  (`cuadroTresCortes`). Dos copias se separan en el primer arreglo y nadie
+   *  sabría cuál manda.
+   */
+  async function bajar() {
     if (!datos) return;
-    bajarCuadros(`FullPL_${MES3[mes - 1]}_${datos.year}`,
-                 [cuadroTresCortes(datos, mes, escenarios, ambito, compacto, stats)])
-      .catch(e => setError(e instanceof Error ? e.message : "No se pudo bajar"));
+    setError(null);
+    try {
+      const cuadros: Cuadro[] = [];
+      for (const a of AMBITOS) {
+        // El que ya está en pantalla no se vuelve a pedir.
+        const d = a.clave === ambito
+          ? datos : await getPLDetail(a.clave, ids[0], ids.slice(1));
+        cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
+                                      stats));
+      }
+      await bajarCuadros(`FullPL_${MES3[mes - 1]}_${datos.year}`, cuadros);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo bajar");
+    }
   }
 
   if (!ids.length) return <p style={P}>Elegí al menos una versión arriba.</p>;
@@ -153,10 +176,13 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
     <div>
       <div style={{ display: "flex", gap: 10, alignItems: "center",
                     flexWrap: "wrap", marginBottom: 10 }}>
+        {/* ⚠️ La MISMA lista que baja al Excel (`AMBITOS`). Con dos listas, el
+            día que se agregue un ámbito el archivo seguiría trayendo tres hojas
+            y nada avisaría que falta una. */}
         <select value={ambito} onChange={e => setAmbito(e.target.value)} style={SEL}>
-          <option value="consolidado">Consolidado</option>
-          <option value="hotel">Hotel</option>
-          <option value="club">Club</option>
+          {AMBITOS.map(a => (
+            <option key={a.clave} value={a.clave}>{a.rotulo}</option>
+          ))}
         </select>
         <button onClick={bajar} style={{ ...SEL, cursor: "pointer", fontWeight: 600,
                   border: "none", background: "var(--accent-excel)", color: "#fff" }}>

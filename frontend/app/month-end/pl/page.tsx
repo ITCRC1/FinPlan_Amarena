@@ -40,7 +40,9 @@ import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import TresCortes from "./TresCortes";
-import { cortesDe, cuadroTresCortes, estadisticasDeLosCortes } from "@/lib/tresCortes";
+import {
+  AMBITOS, cortesDe, cuadroTresCortes, estadisticasDeLosCortes,
+} from "@/lib/tresCortes";
 import { compararDetalle, indiceDe, sumaContra } from "@/lib/auditoriaCompara";
 import Auditoria from "./Auditoria";
 // El Profit by Department del owner, tal como ya está construido bajo Cierre de
@@ -1658,12 +1660,28 @@ export default function MonthEndPLPage() {
     trescortes: async () => {
       const ids = ranuras.filter(Boolean);
       if (!ids.length) return [];
-      const d = await getPLDetail("consolidado", ids[0], ids.slice(1));
-      // ⚠️ El encabezado estadístico también se pide acá. No se deriva del
-      // detalle: sale del mismo endpoint que lo pone en la pantalla, y si el
-      // Word lo calculara por su cuenta serían dos verdades.
-      const stats = await estadisticasDeLosCortes(cortesDe(mes), d.versiones ?? []);
-      return [cuadroTresCortes(d, mes, escenarios, "consolidado", compacto, stats)];
+      // ⚠️ Los TRES ámbitos, una hoja cada uno (owner, 2026-09-30). En pantalla
+      // se miran de a uno con el selector; en un archivo que se archiva y se
+      // manda, los tres tienen que venir — y el ámbito va en el nombre de la
+      // pestaña, o Excel las desempata con un número y hay que abrirlas una por
+      // una para saber cuál es el Club.
+      const cuadros: Cuadro[] = [];
+      let stats: Awaited<ReturnType<typeof estadisticasDeLosCortes>> | undefined;
+      for (const a of AMBITOS) {
+        const d = await getPLDetail(a.clave, ids[0], ids.slice(1));
+        // El encabezado estadístico es de la PROPIEDAD, no del ámbito: se pide
+        // una vez y se reusa. Pedirlo tres veces daría lo mismo tres veces y
+        // triplicaría las llamadas.
+        //
+        // ⚠️ No se deriva del detalle: sale del mismo endpoint que lo pone en
+        // la pantalla, y si el archivo lo calculara por su cuenta serían dos
+        // verdades.
+        stats = stats ?? await estadisticasDeLosCortes(cortesDe(mes),
+                                                      d.versiones ?? []);
+        cuadros.push(cuadroTresCortes(d, mes, escenarios, a.clave, compacto,
+                                      stats));
+      }
+      return cuadros;
     },
     formato: async () => {
       const id = ranuras[varA];
