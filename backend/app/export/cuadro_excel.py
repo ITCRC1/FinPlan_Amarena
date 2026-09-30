@@ -599,8 +599,12 @@ def _con_resultados(blob: bytes, valores: dict[tuple[str, str], float]) -> bytes
                         return cuerpo.replace("</f>", f"</f><v>{valor}</v>", 1)
 
                     texto = re.sub(
-                        r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?<f>.*?</f>'
-                        r'(?:<v>[^<]*</v>)?</c>',
+                        # ⚠️ Todo el patrón se detiene en el primer `</c>`:
+                        # sin ese freno, un `.*?` puede saltar a la fórmula de
+                        # la celda siguiente y pegar el resultado en la que no
+                        # es.
+                        r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?'
+                        r'<f>(?:(?!</c>).)*?</f>(?:<v>[^<]*</v>)?</c>',
                         pegar, texto, flags=re.S)
                     datos = texto.encode("utf-8")
                 zout.writestr(item, datos)
