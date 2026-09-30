@@ -570,6 +570,269 @@ def _no_partir_si_es_corto(doc, tabla) -> None:
                 p.paragraph_format.keep_with_next = True
 
 
+#: Los cinco desgloses que lleva cada corte, con la clave de `gasto-por-clase`.
+#:
+#: Owner, 2026-09-30: *«1.1.1 Detalle de Ingresos por departamento, 1.1.2
+#: Detalle de Salary…»*, y lo mismo para el acumulado y para el año completo.
+DETALLES = [
+    ("Ingresos", "revenue"),
+    ("Salary", "payroll"),
+    ("Costo de ventas", "cost"),
+    ("Opex", "opex"),
+    ("Propiedad y capital", "property"),
+]
+
+
+def _cuadro_imagen(doc, encabezados, filas, anchos, resaltar=(),
+                   ancho_cm: float | None = None):
+    """El cuadro, DIBUJADO y pegado como imagen.
+
+    Owner, 2026-09-30: *«quizás no quisiera agregar cuadros, quedan muy mal
+    alineados. quiero que esos cuadros se conviertan en imágenes bien
+    definidas»*.
+
+    Una tabla de Word reparte el ancho sobrante con sus propias reglas: basta un
+    rótulo largo para que una columna se ensanche, el resto se corra y dos
+    cuadros seguidos dejen de coincidir. Dibujado, cada columna mide lo que se
+    le dice y los quince desgloses salen idénticos entre sí.
+
+    ⚠️ **Si no se puede dibujar, se arma la tabla de siempre.** Sin la fuente
+    —el contenedor no trae ninguna— Pillow cae a su tipografía de mapa de bits.
+    Un informe con un cuadro menos lindo se entrega; uno con un cuadro
+    ilegible, no, y eso no se nota hasta que está impreso.
+    """
+    from app.export.tabla_imagen import dibujar_cuadro, hay_fuente
+
+    if not hay_fuente():
+        return _tabla(doc, encabezados, filas, anchos=anchos,
+                      resaltar=set(resaltar))
+    # ⚠️ `anchos` va en CENTÍMETROS, igual que en `_tabla`: es la misma regla
+    # —han de caber en los 16,79 útiles— y una prueba la comprueba en los dos
+    # caminos. El dibujo se coloca a su ancho real, sin reescalar.
+    ancho_cm = ancho_cm or sum(anchos)
+    png = dibujar_cuadro(encabezados, filas, anchos,
+                         resaltar=set(resaltar), pt=CUERPO_TABLA)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(12)
+    p.paragraph_format.line_spacing = 1.0
+    p.add_run().add_picture(io.BytesIO(png), width=Cm(ancho_cm))
+    return p
+
+
+def _renglones_del_detalle(datos: dict, clase: str, sid_a: str, sid_b: str,
+                           meses: tuple[int, int]) -> list[tuple[str, float, float]]:
+    """Los renglones de un desglose: rótulo, principal y presupuesto.
+
+    ⚠️ Los doce meses de cada departamento vienen del MISMO agregador que da el
+    flow-through, así que el desglose suma exactamente el total que el informe
+    dijo dos párrafos antes. Una segunda consulta podría no hacerlo.
+    """
+    det = datos.get("detalle") or {}
+    nombres = {**(datos.get("departamentos") or {}),
+               **(datos.get("nombres_cuenta") or {})}
+    a = (det.get(sid_a) or {}).get(clase) or {}
+    b = (det.get(sid_b) or {}).get(clase) or {}
+    desde, hasta = meses
+
+    def total(serie) -> float:
+        return sum(float(serie[i - 1]) for i in range(desde, hasta + 1)
+                   if serie and i <= len(serie))
+
+    out = []
+    for code in sorted(set(a) | set(b)):
+        va, vb = total(a.get(code) or []), total(b.get(code) or [])
+        if abs(va) < 0.005 and abs(vb) < 0.005:
+            continue      # una cuenta sin movimiento en ninguna de las dos
+        out.append((f"{code} · {nombres.get(code, '')}".strip(" ·"), va, vb))
+    # Lo más grande primero: lo que explica el número va arriba.
+    out.sort(key=lambda r: -abs(r[1] if r[1] else r[2]))
+    return out
+
+
+def _seccion_detalle(doc, datos: dict, num: str, rotulo: str, clase: str,
+                     sid_a: str, sid_b: str, meses: tuple[int, int],
+                     rot_a: str, rot_b: str, periodo: str) -> None:
+    """Un desglose por departamento, dibujado."""
+    _h(doc, f"{num} Detalle de {rotulo} por departamento", nivel=3, color=NEGRO)
+    filas = _renglones_del_detalle(datos, clase, sid_a, sid_b, meses)
+    if not filas:
+        _p(doc, f"Sin movimiento de {rotulo.lower()} en el período.")
+        return
+    cuerpo = [[r, usd(va), usd(vb), usd(va - vb)] for r, va, vb in filas]
+    ta, tb = sum(r[1] for r in filas), sum(r[2] for r in filas)
+    cuerpo.append(["TOTAL", usd(ta), usd(tb), usd(ta - tb)])
+    _cuadro_imagen(
+        doc,
+        [("Departamento", ""), (rot_a, periodo), (rot_b, periodo),
+         ("Variación", "")],
+        cuerpo, anchos=[6.2, 3.5, 3.5, 3.5], resaltar={len(cuerpo) - 1})
+
+
+def _acumular_room_stats(datos: dict, bloque: str, clave: str,
+                         hasta: int) -> list[dict]:
+    """El acumulado del año hasta `hasta`, por categoría o por canal.
+
+    ⚠️ **Las tasas no se acumulan sumando.** Acá se suman los INGREDIENTES
+    —noches, pax, ingreso, disponibles— y la ocupación y el ADR se recalculan
+    sobre los totales del período. Promediar seis ADR mensuales le da el mismo
+    peso a un mes de 20 noches que a uno de 150, y el número que sale no existe
+    en ningún lado.
+
+    ⚠️ Un mes sin cargar NO entra: un cero se lee como «no vendió», y con una
+    propiedad que abrió a mitad de año eso convierte un acumulado incompleto en
+    un mal semestre.
+    """
+    acc: dict[str, dict] = {}
+    for m in (datos.get("room_stats") or {}).get("meses") or []:
+        if not m.get("cargado") or int(m.get("month") or 0) > hasta:
+            continue
+        for f in m.get(bloque) or []:
+            rot = str(f.get(clave) or "").strip() or "Sin asignar"
+            d = acc.setdefault(rot, {"rotulo": rot, "noches": 0.0, "pax": 0.0,
+                                     "revenue": 0.0, "disp": 0.0})
+            d["noches"] += float(f.get("nights_occupied") or 0)
+            d["pax"] += float(f.get("pax") or 0)
+            d["revenue"] += float(f.get("revenue") or 0)
+            d["disp"] += float(f.get("nights_available") or 0)
+    return sorted(acc.values(), key=lambda d: -d["revenue"])
+
+
+def _cuadro_room_stats(doc, datos: dict, bloque: str, clave: str,
+                       rotulo: str) -> None:
+    mes = int(datos.get("mes") or 12)
+    filas = _acumular_room_stats(datos, bloque, clave, mes)
+    if not filas:
+        _pendiente(doc, rotulo,
+                   "la estadística del PMS no está cargada para este escenario.")
+        return
+    cuerpo = []
+    for d in filas:
+        # El ADR se recalcula sobre los totales, nunca se promedia.
+        adr = d["revenue"] / d["noches"] if d["noches"] else 0.0
+        ocu = d["noches"] / d["disp"] if d["disp"] else None
+        cuerpo.append([d["rotulo"], f"{d['noches']:,.0f}", f"{d['pax']:,.0f}",
+                       usd(d["revenue"]), usd(adr),
+                       pct(ocu) if ocu is not None else "—"])
+    tn = sum(d["noches"] for d in filas)
+    tr = sum(d["revenue"] for d in filas)
+    td = sum(d["disp"] for d in filas)
+    cuerpo.append(["TOTAL", f"{tn:,.0f}",
+                   f"{sum(d['pax'] for d in filas):,.0f}", usd(tr),
+                   usd(tr / tn if tn else 0.0),
+                   pct(tn / td) if td else "—"])
+    _cuadro_imagen(
+        doc,
+        [(rotulo, ""), ("Noches", "acumulado"), ("Pax", "acumulado"),
+         ("Ingreso", "acumulado"), ("ADR", ""), ("Ocupación", "")],
+        cuerpo, anchos=[5.4, 2.2, 1.9, 3.1, 2.1, 2.0],
+        resaltar={len(cuerpo) - 1})
+
+
+#: Cómo se llama cada concepto de membresía en el informe.
+#:
+#: ⚠️ En la base viajan como llave —`pendiente_firma`, `plan_pago`—. Una llave
+#: en un informe a dueños se lee como un error de programa. Un concepto que no
+#: esté acá sale con su llave en capitalizado y los guiones bajos como espacios:
+#: mejor un rótulo imperfecto que una fila que desaparece.
+CONCEPTOS_CLUB = {
+    "activas": "Activas",
+    "condicionados": "Condicionados",
+    "pendiente_firma": "Pendientes de firma",
+    "plan_pago": "En plan de pago",
+    "excepcion": "Excepciones",
+}
+
+
+def _rotulo_concepto(clave: str) -> str:
+    return CONCEPTOS_CLUB.get(clave, clave.replace("_", " ").capitalize())
+
+
+def _cuadro_membresias(doc, datos: dict) -> None:
+    """Los socios del Club, como los cargó el mes.
+
+    ⚠️ Es el MES, no el acumulado: la pregunta de una membresía es cuántos hay
+    hoy. Sumar doce meses de socios daría una cifra doce veces más grande que
+    el Club (owner, 2026-09-02, sobre el mismo renglón en el cierre)."""
+    mes = int(datos.get("mes") or 12)
+    meses = (datos.get("membresias") or {}).get("meses") or []
+    actual = next((m for m in meses
+                   if int(m.get("month") or 0) == mes and m.get("cargado")), None)
+    if not actual:
+        _pendiente(doc, "Membresías",
+                   "no hay membresías cargadas para el mes del informe.")
+        return
+    cuerpo = [[_rotulo_concepto(str(c.get("concepto") or "")),
+               f"{float(c.get('cantidad') or 0):,.0f}"]
+              for c in (actual.get("conceptos") or [])]
+    if not cuerpo:
+        _pendiente(doc, "Membresías", "el mes no trae conceptos cargados.")
+        return
+    cuerpo.append(["TOTAL",
+                   f"{sum(float(c.get('cantidad') or 0) for c in actual['conceptos']):,.0f}"])
+    _cuadro_imagen(doc, [("Concepto", ""), ("Socios", "al cierre del mes")],
+                   cuerpo, anchos=[7.0, 4.0], resaltar={len(cuerpo) - 1})
+
+
+def _perspectivas(doc, datos: dict, act: dict, bud: dict, fcs: dict | None,
+                  mes_ing: str, anio: int) -> None:
+    """Lo que queda del año, con lo que el Forecast dice hoy.
+
+    ⚠️ Sale del FORECAST y no del Actual: los meses que faltan no existen
+    todavía. Y se dice lo que falta —del mes siguiente a diciembre—, no el año
+    entero: el año entero ya está en 1.3, y repetirlo acá no contesta la
+    pregunta de esta sección, que es qué viene.
+    """
+    _h(doc, "SECCIÓN 3 — Perspectivas para los meses siguientes", nivel=1)
+    if not fcs:
+        _pendiente(doc, "Perspectivas",
+                   "no se eligió una versión de Forecast para esta corrida.")
+        return
+    mes = int(datos.get("mes") or 12)
+    if mes >= 12:
+        _p(doc, "El informe cierra diciembre: no quedan meses por proyectar.")
+        return
+
+    # Lo que falta = el año completo menos lo transcurrido.
+    def resto(code: str) -> float:
+        return linea(fcs["full"], code) - linea(fcs["ytd"], code)
+
+    rev, eb = resto("TOTAL_REVENUES"), resto("EBITDA_BEFORE")
+    rev_b = linea(bud["full"], "TOTAL_REVENUES") - linea(bud["ytd"], "TOTAL_REVENUES")
+    eb_b = linea(bud["full"], "EBITDA_BEFORE") - linea(bud["ytd"], "EBITDA_BEFORE")
+    faltan = 12 - mes
+    vp = var_pct(rev, rev_b)
+    _p(doc, [
+        (f"Quedan {faltan} mes{'es' if faltan > 1 else ''} por delante. ", True),
+        "Según el forecast vigente, de aquí a diciembre entrarían ",
+        (f"{k(rev)} de ingreso", True),
+        f" contra {k(rev_b)} presupuestados para ese mismo tramo",
+        (f" ({vp * 100:+,.1f}%)" if vp is not None else ""),
+        f", y el EBITDA antes de capital del tramo cerraría en {k(eb)} contra "
+        f"{k(eb_b)}.",
+    ])
+    # ⚠️ Cuando el tramo que falta es IDÉNTICO al presupuesto, hay que decirlo.
+    #
+    # Pasa —y pasa en agosto 2026— porque el Forecast se armó como «los meses
+    # cargados más el Budget para el resto»: nadie volvió a proyectar lo que
+    # viene. Sin esta línea, la sección dice «+0,0%» y se lee como que el año
+    # va a aterrizar clavado en el plan, que es la conclusión contraria a la
+    # verdadera: todavía no se proyectó.
+    if abs(rev - rev_b) < 0.01 and abs(eb - eb_b) < 0.01:
+        _p(doc, [("⚠️ El tramo que falta es, hoy, el presupuesto. ", True),
+                 "El forecast vigente arrastra el plan para los meses que "
+                 "todavía no se cargaron: no es que se espere cerrar clavado "
+                 "en el presupuesto, es que esos meses no se han vuelto a "
+                 "proyectar. Mientras siga así, la lectura del año completo "
+                 "es el presupuesto más lo que ya pasó."])
+
+    _p(doc, "⚠️ Es la proyección vigente, no una promesa: son los meses que "
+            "todavía no se cargaron. Lo que la mueve es lo mismo que movió el "
+            "acumulado — ocupación, tarifa y la escala del gasto operativo—, y "
+            "cada cierre la vuelve a medir.")
+
+
 def _pendiente(doc, titulo: str, que_falta: str) -> None:
     """Un recuadro que PIDE el dato, donde el sistema no lo tiene.
 
@@ -871,6 +1134,21 @@ def build_executive_summary(datos: dict) -> bytes:
                       rot_principal, rot["budget"], rot.get("forecast", ""))
         _flow_through(doc, f"{rotulo_corte} {anio} — de dónde viene la diferencia "
                            f"contra el presupuesto", principal, b, datos["totales"])
+
+        # ── El desglose por departamento ─────────────────────────────────
+        #
+        # ⚠️ Va DENTRO del corte y no en una sección aparte: el detalle de
+        # agosto al lado del acumulado de agosto se lee como si fueran el
+        # mismo período.
+        ids = datos.get("ids") or {}
+        sid_a = (ids.get("forecast") if principal is f else ids.get("actual")) \
+            or ids.get("actual") or ""
+        rango = (datos.get("rangos") or {}).get(corte) or (1, 12)
+        for j, (rotulo_det, clase) in enumerate(DETALLES, start=1):
+            _seccion_detalle(doc, datos, f"{num}.{j}", rotulo_det, clase,
+                             sid_a, ids.get("budget") or "", rango,
+                             "Forecast" if principal is f else "Actual",
+                             "Budget", rotulo_corte)
         doc.add_page_break()
 
     # ── Sección 2 — Drivers ──────────────────────────────────────────────────
@@ -910,6 +1188,26 @@ def build_executive_summary(datos: dict) -> bytes:
     else:
         _pendiente(doc, "Composición del ingreso",
                    "el detalle por departamento no vino en esta corrida.")
+
+    # ── 2.4 Revenue por tipo de habitación ───────────────────────────────────
+    _h(doc, "2.4 Revenue por tipo de habitación", nivel=2)
+    _cuadro_room_stats(doc, datos, "categorias", "room_type_name",
+                       "Tipo de habitación")
+
+    # ── 2.5 Análisis de canales ──────────────────────────────────────────────
+    _h(doc, "2.5 Análisis de canales", nivel=2)
+    # ⚠️ Se agrupa por `canal` —el canal comercial— y no por `canal_code`, que
+    # es el market code del PMS: hay decenas y cada uno con dos reservas. El
+    # código sin canal asignado cae en «Sin asignar», que es información: dice
+    # cuánto ingreso no se puede atribuir todavía.
+    _cuadro_room_stats(doc, datos, "canales", "canal", "Canal")
+
+    # ── 2.6 Membresías ───────────────────────────────────────────────────────
+    _h(doc, "2.6 Membresías actuales", nivel=2)
+    _cuadro_membresias(doc, datos)
+
+    # ── 3.0 Perspectivas ─────────────────────────────────────────────────────
+    _perspectivas(doc, datos, act, bud, fcs, mes_ing, anio)
 
     # ── ⚠️ Hasta acá ────────────────────────────────────────────────────────
     #

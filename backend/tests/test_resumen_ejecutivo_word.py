@@ -187,20 +187,23 @@ def test_en_gasto_MENOS_es_favorable():
     assert 'efecto = (a - b) if clave == "TOTAL_REVENUES" else -(a - b)' in docx
 
 
-def test_SOLO_van_las_secciones_1_y_2():
+def test_la_SECCION_4_sigue_afuera():
     """Owner, 2026-09-30: *«solo vamos a dejar seccion 1 y 2 por ahora; quita
     todo lo demas»*.
 
-    ⚠️ El «por ahora» es literal: `SECCIONES` sigue existiendo y
-    `_positivos_y_negativos` se sigue llamando. Borrar el armado obligaria a
-    reescribirlo, y dejarlo sin llamar lo convertiria en codigo muerto.
+    ⚠️ El «por ahora» era literal, y se cumplio: mas tarde el mismo dia pidio
+    *«3.0 Perspectivas para los meses siguientes»*, asi que la 3 volvio. La 4
+    —lo favorable, lo desfavorable y la exposicion cambiaria— sigue afuera.
+
+    `SECCIONES` sigue existiendo y `_positivos_y_negativos` se sigue llamando:
+    borrar el armado obligaria a reescribirlo, y dejarlo sin llamar lo
+    convertiria en codigo muerto.
     """
     t = _texto(build_executive_summary(_datos()))
-    for fuera in ("SECCIÓN 3", "SECCIÓN 4", "4.1 Lo favorable",
-                  "4.2 Lo desfavorable", "4.3 Tipo de cambio",
-                  "Actividad comercial del mes", "Nota metodológica"):
+    for fuera in ("SECCIÓN 4", "4.1 Lo favorable", "4.2 Lo desfavorable",
+                  "4.3 Tipo de cambio", "Actividad comercial del mes",
+                  "Nota metodológica"):
         assert fuera not in t, f"quedo «{fuera}»"
-    # Lo que si se queda.
     assert "1.1 Agosto 2026" in t and "SECCIÓN 2" in t
     src = DOCX_MOD.read_text(encoding="utf-8")
     assert 'SECCIONES = ("1", "2")' in src
@@ -495,3 +498,123 @@ def test_la_PORTADA_dice_contra_que_se_compara():
     t = _texto(build_executive_summary(_datos()))
     assert "contra" in t.split("Generado por FinPlan")[1][:200]
     assert "el año completo," in t.split("Generado por FinPlan")[1][:200]
+
+
+# ═════════ Las secciones de detalle, 2026-09-30 ══════════════════════════════
+#
+# Owner: *«quiero agregar mas secciones. pero quizas no quisiera crear o agregar
+# cuadros quedan muy mal alineados. quiero que esos cuadros se conviertan en
+# imagenes bien definidas»*.
+
+def _con_detalle():
+    d = _datos()
+    doce = lambda x: [x] * 12          # noqa: E731
+    d["ids"] = {"actual": "A", "budget": "B", "forecast": "F"}
+    d["rangos"] = {"month": (8, 8), "ytd": (1, 8), "full": (1, 12)}
+    d["departamentos"] = {"0110": "Rooms", "0120": "F&B"}
+    d["nombres_cuenta"] = {"8005": "Management Fees"}
+    d["detalle"] = {
+        "A": {"revenue": {"0110": doce(100.0), "0120": doce(40.0)},
+              "payroll": {"0110": doce(30.0)}, "cost": {}, "opex": {},
+              "property": {"8005": doce(10.0)}},
+        "B": {"revenue": {"0110": doce(80.0)}, "payroll": {"0110": doce(25.0)},
+              "cost": {}, "opex": {}, "property": {"8005": doce(9.0)}},
+        "F": {"revenue": {"0110": doce(110.0)}, "payroll": {}, "cost": {},
+              "opex": {}, "property": {}},
+    }
+    return d
+
+
+def test_el_informe_trae_los_CINCO_desgloses_de_cada_corte():
+    """1.x.1 a 1.x.5, para el mes, el acumulado y el ano completo."""
+    t = _texto(build_executive_summary(_con_detalle()))
+    for num in ("1.1", "1.2", "1.3"):
+        for j, rotulo in enumerate(
+                ("Ingresos", "Salary", "Costo de ventas", "Opex",
+                 "Propiedad y capital"), start=1):
+            assert f"{num}.{j} Detalle de {rotulo} por departamento" in t, \
+                f"falta {num}.{j}"
+
+
+def test_el_desglose_SUMA_lo_que_el_informe_ya_dijo():
+    """⚠️ Sale del MISMO agregador que el flow-through. Una segunda consulta
+    podria no sumar el total que el informe dijo dos parrafos antes, y en un
+    documento en prosa eso no se nota."""
+    from app.export.executive_summary import _renglones_del_detalle
+    d = _con_detalle()
+    filas = _renglones_del_detalle(d, "revenue", "A", "B", (1, 8))
+    assert sum(f[1] for f in filas) == 8 * 140.0     # 100 + 40, ocho meses
+    assert sum(f[2] for f in filas) == 8 * 80.0
+
+
+def test_una_cuenta_sin_movimiento_NO_ocupa_una_fila():
+    """Un cero en las dos versiones no dice nada, y son decenas."""
+    from app.export.executive_summary import _renglones_del_detalle
+    d = _con_detalle()
+    d["detalle"]["A"]["revenue"]["0199"] = [0.0] * 12
+    d["detalle"]["B"]["revenue"]["0199"] = [0.0] * 12
+    filas = _renglones_del_detalle(d, "revenue", "A", "B", (1, 8))
+    assert not any(f[0].startswith("0199") for f in filas)
+
+
+def test_en_el_ANO_COMPLETO_el_desglose_es_del_FORECAST():
+    """La misma regla del cuadro de arriba: el Actual del ano son los meses
+    cargados."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert 'ids.get("forecast") if principal is f else ids.get("actual")' in src
+
+
+def test_los_cuadros_de_detalle_se_DIBUJAN():
+    """Una tabla de Word reparte el ancho sobrante con sus propias reglas: basta
+    un rotulo largo para que una columna se ensanche y dos cuadros seguidos
+    dejen de coincidir."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "from app.export.tabla_imagen import dibujar_cuadro, hay_fuente" in src
+    assert "p.add_run().add_picture(io.BytesIO(png), width=Cm(ancho_cm))" in src
+
+
+def test_sin_la_FUENTE_se_arma_la_tabla_de_siempre():
+    """⚠️ El contenedor no trae ninguna fuente. Sin el archivo, Pillow cae a su
+    tipografia de mapa de bits y el cuadro sale ilegible — y eso no se nota
+    hasta que esta impreso. Un informe con un cuadro menos lindo se entrega."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "if not hay_fuente():" in src
+    assert "return _tabla(doc, encabezados, filas, anchos=anchos," in src
+
+
+def test_la_FUENTE_viaja_en_el_repo():
+    assets = pathlib.Path(__file__).resolve().parents[1] / "app/export/assets"
+    for f in ("Tinos-Regular.ttf", "Tinos-Bold.ttf", "FUENTES.md"):
+        assert (assets / f).exists(), f"falta {f}"
+    from app.export.tabla_imagen import hay_fuente
+    assert hay_fuente(), "la fuente esta pero Pillow no la carga"
+
+
+def test_el_cuadro_dibujado_es_un_PNG_de_verdad():
+    from app.export.tabla_imagen import dibujar_cuadro
+    png = dibujar_cuadro([("Dept", ""), ("Actual", "Agosto")],
+                         [["Rooms", "$100.00"], ["TOTAL", "$100.00"]],
+                         [6.0, 4.0], resaltar={1})
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    from PIL import Image
+    import io as _io
+    im = Image.open(_io.BytesIO(png))
+    # 10 cm a 120 px/cm: el ancho tiene que dar ~1200 px, o no se imprime bien.
+    assert im.width == 1200, im.width
+
+
+def test_la_SECCION_3_dice_lo_que_FALTA_y_no_el_ano_entero():
+    """El ano entero ya esta en 1.3. La pregunta de esta seccion es que viene."""
+    t = _texto(build_executive_summary(_con_detalle()))
+    assert "SECCIÓN 3 — Perspectivas para los meses siguientes" in t
+    assert "Quedan" in t and "por delante" in t
+
+
+def test_cuando_el_forecast_ARRASTRA_el_presupuesto_el_informe_lo_dice():
+    """⚠️ Pasa de verdad —agosto 2026—: el Forecast se armo como «los meses
+    cargados mas el Budget para el resto». Sin decirlo, la seccion escribe
+    «+0,0%» y se lee como que el ano va a aterrizar clavado en el plan, que es
+    la conclusion contraria a la verdadera: todavia no se proyecto."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "if abs(rev - rev_b) < 0.01 and abs(eb - eb_b) < 0.01:" in src
+    assert "El tramo que falta es, hoy, el presupuesto." in src

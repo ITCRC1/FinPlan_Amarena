@@ -88,8 +88,14 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
         raise ErrorApi(404, "escenario.no_encontrado")
 
     # ── El gasto por clase, para el flow-through ─────────────────────────────
-    gpc = await gasto_por_clase(scenarios=",".join(ids), detalle=False)
+    # ⚠️ `detalle=True`: las secciones de detalle por departamento (1.x.1 a
+    # 1.x.5) salen de ACÁ y no de una segunda consulta. Es el mismo agregador
+    # que ya da el flow-through, así que el desglose suma exactamente el total
+    # que el informe ya dijo dos párrafos antes.
+    gpc = await gasto_por_clase(scenarios=",".join(ids), detalle=True)
     meses_de = {v["scenario_id"]: v["meses"] for v in gpc["escenarios"]}
+    detalle_de = {v["scenario_id"]: (v.get("detalle") or {})
+                  for v in gpc["escenarios"]}
 
     #: `col` trae su propio corte; se lo ata al escenario y al rango por el
     #: rótulo que `get_pl_compare` ya puso en cada columna.
@@ -140,6 +146,34 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
     except Exception:
         adr_mes = []   # sin la serie el informe sale igual; sin informe, no
 
+    # ── La estadística de la propiedad, para la Sección 2 ────────────────────
+    #
+    # Owner, 2026-09-30, pidiendo las secciones nuevas: *«2.4 Revenue por tipo
+    # de Habitación. 2.5 Análisis de Canales. 2.6 Membresías Actuales»*.
+    #
+    # ⚠️ Los tres salen de los MISMOS endpoints que las pantallas: el año de
+    # room stats trae el desglose por categoría y por canal, y las membresías su
+    # propio mes. Rederivarlos acá sería una segunda verdad.
+    #
+    # ⚠️ Y los tres van en `try`: una propiedad puede no tener el PDF del PMS
+    # cargado, o no tener Club. Sin la sección el informe sale igual; sin
+    # informe, no.
+    from app.api.membresias_api import get_membresias
+    from app.api.room_stats_pdf_api import anio_room_stats
+    from app.db import get_session
+
+    room_stats: dict = {}
+    membresias: dict = {}
+    async with get_session() as db:
+        try:
+            room_stats = await anio_room_stats(body.actual_id, db=db)
+        except Exception:
+            room_stats = {}
+        try:
+            membresias = await get_membresias(body.actual_id, db=db)
+        except Exception:
+            membresias = {}
+
     # ── Positivos y negativos, ORDENADOS por tamaño ──────────────────────────
     positivos, negativos = _positivos_y_negativos(act, bud, fcs, totales, mix)
 
@@ -153,6 +187,20 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
                     **({"forecast": etiqueta(fcs)} if fcs else {})},
         "totales": totales,
         "mix": mix,
+        # ── El desglose por departamento, para las secciones 1.x.1 a 1.x.5 ──
+        #
+        # Owner, 2026-09-30: *«quiero agregar más secciones»*, con el detalle de
+        # ingresos, salarios, costo, opex y propiedad para cada uno de los tres
+        # cortes.
+        "detalle": detalle_de,
+        "departamentos": gpc.get("departamentos") or {},
+        "nombres_cuenta": {k: v for e in gpc["escenarios"]
+                           for k, v in (e.get("nombres_cuenta") or {}).items()},
+        "rangos": rangos,
+        "room_stats": room_stats,
+        "membresias": membresias,
+        "ids": {"actual": body.actual_id, "budget": body.budget_id,
+                "forecast": body.forecast_id},
         "adr_por_mes": adr_mes,
         "positivos": positivos,
         "negativos": negativos,

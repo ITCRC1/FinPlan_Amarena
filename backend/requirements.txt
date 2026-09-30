@@ -35,3 +35,10 @@ python-docx==1.2.0
 # después todas las noches— y así no hay forma de saber qué número es de qué
 # agencia. pdfplumber respeta la fila.
 pdfplumber==0.11.10
+# Dibuja los cuadros de detalle del Resumen Ejecutivo como imagen.
+#
+# ⚠️ Ya venía de arrastre con pdfplumber, que la necesita. Se declara APARTE
+# porque ahora se importa a propósito: si un día pdfplumber deja de depender de
+# ella —o la afloja—, el informe se queda sin sus quince cuadros y el que suba
+# esa versión no tendría por qué saberlo.
+pillow==12.3.0
