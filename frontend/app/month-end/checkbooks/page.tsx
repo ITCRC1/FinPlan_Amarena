@@ -18,7 +18,7 @@
  * una copia: una segunda versión de la misma tabla es cómo terminan mostrando
  * números distintos.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Checkbooks from "@/app/month-end/pl/Checkbooks";
 import { getDetalleDeCelda, getGastoPorClase, getScenarios,
@@ -68,7 +68,35 @@ export default function CheckbooksPage() {
    *  que el primer BUDGET de la lista es el Working 2035 y la comparación
    *  abriría contra un presupuesto real, vacío y de otro año, sin que nada
    *  fallara. */
-  const tres = useMemo(() => sembrarTres(escenarios), [escenarios]);
+  const semilla = useMemo(() => sembrarTres(escenarios), [escenarios]);
+
+  /** Cuál Actual, cuál Budget y cuál Forecast se comparan.
+   *
+   *  Owner, 2026-09-30: *«tienes que darme la opción para escoger la versión de
+   *  forecast que quiero comparar»*. Un año tiene varios forecasts —uno por
+   *  cierre— y `sembrarTres` elige uno solo; comparar contra el que el sistema
+   *  eligió no sirve cuando la pregunta es contra cuál.
+   *
+   *  ⚠️ `null` = todavía no se eligió, y entonces manda la semilla. Sembrar el
+   *  estado directamente lo congelaría con la lista vacía del primer render, y
+   *  los tres selectores abrirían en blanco. */
+  const [elegidas, setElegidas] = useState<Record<string, string> | null>(null);
+  const tres = useMemo(() => ({
+    actual: elegidas?.actual ?? semilla.actual,
+    budget: elegidas?.budget ?? semilla.budget,
+    forecast: elegidas?.forecast ?? semilla.forecast,
+  }), [elegidas, semilla]);
+  const elegir = (papel: string, id: string) =>
+    setElegidas(x => ({ ...(x ?? tres), [papel]: id }));
+
+  /** Las versiones de cada papel, para su selector.
+   *
+   *  ⚠️ Se filtra por TIPO. Ofrecer las treinta y pico del hotel en el selector
+   *  del Forecast dejaría elegir un Budget como forecast, y la varianza del
+   *  full year —que es Forecast contra Budget— restaría un presupuesto de otro
+   *  presupuesto sin que nada fallara. */
+  const porTipo = useCallback((tipo: string) =>
+    escenarios.filter(e => e.type === tipo), [escenarios]);
 
   /** El mes del cierre. Arranca en el corte del Forecast —hasta dónde hay
    *  actuales cargados—, que es el mes del que se está hablando. Sin eso habría
@@ -220,12 +248,43 @@ export default function CheckbooksPage() {
                 <option key={m} value={i + 1}>{m}</option>
               ))}
             </select>
-            <span style={{ fontSize: 11.5, color: "var(--text-secondary)",
-                           maxWidth: 420, lineHeight: 1.5 }}>
-              Actual · Budget · Forecast — {ids.length < 3
-                ? "falta alguna de las tres versiones del año"
-                : "las tres versiones del año"}
-            </span>
+
+            {/* ── Cuál de cada una ──────────────────────────────────────────
+                Owner, 2026-09-30: «tienes que darme la opción para escoger la
+                versión de forecast que quiero comparar».
+
+                Van los tres papeles y no sólo el Forecast: un año también
+                puede tener más de un Budget —Working y Final— y el mismo
+                argumento vale. Cada selector ofrece SÓLO su tipo. */}
+            {([["actual", "Actual"], ["budget", "Budget"],
+               ["forecast", "Forecast"]] as const).map(([papel, rot]) => {
+              const opciones = porTipo(papel.toUpperCase());
+              return (
+                <span key={papel} style={{ display: "inline-flex", alignItems: "center",
+                                           gap: 4 }}>
+                  <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    {rot}
+                  </span>
+                  <select value={tres[papel] ?? ""}
+                          onChange={e => elegir(papel, e.target.value)}
+                          style={{ ...SEL, fontSize: 12, padding: "5px 8px" }}
+                          title={`Cuál ${rot} entra en la comparación`}>
+                    {!opciones.length && <option value="">— no hay —</option>}
+                    {opciones.map(o => (
+                      <option key={o.id} value={o.id}>{o.version} · {o.year}</option>
+                    ))}
+                  </select>
+                </span>
+              );
+            })}
+
+            {ids.length < 3 && (
+              <span style={{ fontSize: 11.5, color: "var(--warning, #E6A817)",
+                             maxWidth: 340, lineHeight: 1.5 }}>
+                ⚠ Falta alguna de las tres: sin Budget no hay varianza, y sin
+                Forecast el full year no la tiene.
+              </span>
+            )}
           </>
         )}
         <button onClick={bajarExcel}

@@ -90,7 +90,7 @@ def test_la_comparacion_pide_LAS_TRES_versiones():
     assert "sembrarTres(escenarios)" in pag
     assert "[tres.actual, tres.budget, tres.forecast].filter(Boolean)" in pag
     # Y se avisa cuando falta alguna, en vez de dibujar una columna en blanco.
-    assert "falta alguna de las tres versiones del año" in pag
+    assert "Falta alguna de las tres: sin Budget no hay varianza" in pag
 
 
 def test_la_pantalla_y_el_EXCEL_dibujan_EL_MISMO_cuadro():
@@ -116,3 +116,38 @@ def test_la_vista_de_doce_meses_sigue_intacta():
     comp = COMP.read_text(encoding="utf-8")
     assert "{vista === \"12m\" && versiones.map(v => {" in comp
     assert "actuals_through ?? 0" in comp, "se perdio la marca de mes real"
+
+
+def test_las_TRES_versiones_se_pueden_elegir():
+    """Owner, 2026-09-30: *«tienes que darme la opcion para escoger la version
+    de forecast que quiero comparar»* y, preguntado por las otras dos, *«si
+    editable todos»*.
+
+    Un año tiene varios forecasts —uno por cierre— y `sembrarTres` elige uno
+    solo. Comparar contra el que el sistema eligio no sirve cuando la pregunta
+    es contra cual.
+    """
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert '[["actual", "Actual"], ["budget", "Budget"],' in pag
+    assert '["forecast", "Forecast"]] as const).map' in pag
+    assert "const elegir = (papel: string, id: string)" in pag
+    # La semilla sigue mandando hasta que alguien elige.
+    assert "elegidas?.forecast ?? semilla.forecast" in pag
+
+
+def test_cada_selector_ofrece_SOLO_su_tipo():
+    """⚠️ Ofrecer las treinta y pico del hotel en el selector del Forecast
+    dejaria elegir un Budget como forecast — y la varianza del full year, que es
+    Forecast contra Budget, restaria un presupuesto de otro presupuesto sin que
+    nada fallara."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "escenarios.filter(e => e.type === tipo)" in pag
+    assert "porTipo(papel.toUpperCase())" in pag
+
+
+def test_la_eleccion_arranca_en_null_y_no_en_la_semilla():
+    """⚠️ Sembrar el estado directamente lo congelaria con la lista VACIA del
+    primer render —los escenarios llegan despues— y los tres selectores
+    abririan en blanco."""
+    pag = PAGINA.read_text(encoding="utf-8")
+    assert "useState<Record<string, string> | null>(null)" in pag
