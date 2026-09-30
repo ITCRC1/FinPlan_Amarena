@@ -52,6 +52,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDetalleDeCelda, type DetalleCelda, type Scenario } from "@/lib/api";
 import { anchoDelCorte, cortesDelCheckbook,
          cuadroCheckbookCortes } from "@/lib/checkbookCortes";
+import { vistaDe } from "@/lib/tresCortes";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -148,7 +149,9 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
     if (dept && !opciones.some(([c]) => c === dept)) setDept("");
   }, [opciones, dept]);
 
-  const versiones = datos?.versiones ?? [];
+  // ⚠️ `?? []` crea un arreglo nuevo en cada render y de él cuelgan la vista y
+  // el cuadro: sin el memo se recalculan siempre.
+  const versiones = useMemo(() => datos?.versiones ?? [], [datos]);
 
   /** Las filas del libro, ya filtradas y AGRUPADAS POR DEPARTAMENTO.
    *
@@ -194,15 +197,15 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
   /** El cuadro de los tres cortes. ⚠️ Es EL MISMO que baja al Excel — la
    *  pantalla lo dibuja, no lo vuelve a armar. */
   const cortes = useMemo(() => cortesDelCheckbook(mes), [mes]);
-  /** Las versiones que ocupan columna. ⚠️ No es `versiones`: la respuesta trae
-   *  también el Forecast Current, que se pide para el full year y no se dibuja
-   *  como columna propia. */
-  const columnas = useMemo(() => (
-    visibles?.length
-      ? visibles.filter(id => versiones.some(v => v.scenario_id === id))
-                .map(id => ({ scenario_id: id }))
-      : versiones
-  ), [visibles, versiones]);
+  /** Qué columnas se dibujan y quién ocupa cada una.
+   *
+   *  ⚠️ La MISMA que arma el cuadro. Antes la pantalla recortaba las versiones
+   *  a las visibles por su cuenta para medir los anchos, y con el Forecast
+   *  fuera de las ranuras medía un ancho y el cuadro traía otro: los
+   *  encabezados de corte quedaban corridos respecto de los números. */
+  const vistaCb = useMemo(
+    () => vistaDe(versiones, visibles, actualDelFullYear, escenarios),
+    [versiones, visibles, actualDelFullYear, escenarios]);
   const cuadro = useMemo(() => (
     vista === "cortes" && datos
       ? cuadroCheckbookCortes(rotuloLibro, datos, mes, escenarios, dept, deptos,
@@ -308,7 +311,7 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                 <tr>
                   <th style={{ ...TDL, position: "static", minWidth: 250 }} />
                   {cortes.map((c, ci) => (
-                    <th key={c.clave} colSpan={anchoDelCorte(c, columnas, escenarios)}
+                    <th key={c.clave} colSpan={anchoDelCorte(c, versiones, escenarios, vistaCb)}
                         style={{ ...TD, position: "static", textAlign: "center",
                                  fontWeight: 800, color: "var(--brand)",
                                  borderLeft: ci ? BL : undefined }}>
@@ -359,7 +362,8 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                         const esVar = cuadro.columnas[j + 1]?.label.endsWith("· Var");
                         const abre = cortes.some((c, ci) => ci > 0 && j === cortes
                           .slice(0, ci).reduce(
-                            (a, x) => a + anchoDelCorte(x, columnas, escenarios), 0));
+                            (a, x) => a + anchoDelCorte(x, versiones, escenarios,
+                                                       vistaCb), 0));
                         return (
                           <td key={j} className="mono" style={{
                             ...TD, fontWeight: f.es_total ? 800 : 400,

@@ -6,7 +6,7 @@ import {
   ES_PROMEDIO, filasDeIngresos, totalDeIngresos, valorDeIngresos,
   type FuenteIngresos, type VistaIngresos,
 } from "@/lib/revenuePlanCortes";
-import { celdasDe, cortesDe, parDe } from "@/lib/tresCortes";
+import { celdasDe, cortesDe, parDe, vistaDe } from "@/lib/tresCortes";
 
 /**
  * Las ocho hojas del armado de ingresos, listas para cualquier archivo.
@@ -84,6 +84,23 @@ export interface ArmadoDeIngresos {
   rotuloMes: string;
 }
 
+/** Las versiones que viajan y cómo se dibujan.
+ *
+ * ⚠️ El Forecast Current entra en la lista aunque no sea columna. Con las
+ * visibles nada más, `parDe` no encuentra ningún FORECAST cuando el owner lo
+ * sacó de las ranuras y el año completo se queda SIN columna de varianza,
+ * mostrando el forecast en la primera columna y sin nada contra qué leerlo.
+ * Es la misma vista del P&L y de los checkbooks.
+ */
+function vistaDelArmado(a: ArmadoDeIngresos) {
+  const todas = [...new Set([...a.visibles, a.actualDelFullYear]
+    .filter(Boolean))].map(id => ({ scenario_id: id }));
+  return {
+    todas,
+    vista: vistaDe(todas, a.visibles, a.actualDelFullYear, a.escenarios),
+  };
+}
+
 /** Las filas de UNA vista, en los tres cortes. */
 export function filasDelArmado(
   cual: VistaIngresos, a: ArmadoDeIngresos,
@@ -91,28 +108,26 @@ export function filasDelArmado(
   const usadas = a.visibles.map(id => a.fuentes[id]).filter(Boolean);
   if (!usadas.length) return [];
   const cortes = cortesDe(a.mes);
-  const columnas = a.visibles.map(id => ({ scenario_id: id }));
-  // ⚠️ Sólo la primera columna del full year cambia de versión. Ver
-  // `checkbookCortes`: el Actual del año son los meses cargados y repite el YTD.
-  const idDe = (vi: number, ci: number) =>
-    (ci === 2 && vi === 0 && a.actualDelFullYear)
-      ? a.actualDelFullYear : (columnas[vi]?.scenario_id ?? "");
+  const { todas, vista } = vistaDelArmado(a);
+  /** ⚠️ `vi` es un índice de VERSIÓN, no una posición de columna: `celdasDe` ya
+   *  aplicó la regla del año completo. */
+  const sidDe = (vi: number) => todas[vi]?.scenario_id ?? "";
   const base = filasDeIngresos(cual, usadas);
   const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
-    celdasDe(cortes, columnas, a.escenarios, de);
+    celdasDe(cortes, todas, a.escenarios, de, vista);
   const mesesDe = (ms: number[]) => ms.map(i => i + 1);
 
   const cuerpo: FilaCuadro[] = base.map(f => ({
     label: f.label, es_total: false,
-    valores: celdas((vi, ms, ci) => {
-      const fu = a.fuentes[idDe(vi, ci)];
+    valores: celdas((vi, ms) => {
+      const fu = a.fuentes[sidDe(vi)];
       return fu ? valorDeIngresos(cual, fu, f.clave, mesesDe(ms)) : null;
     }),
   }));
   const pie: FilaCuadro = {
     label: "TOTAL", es_total: true,
-    valores: celdas((vi, ms, ci) => {
-      const fu = a.fuentes[idDe(vi, ci)];
+    valores: celdas((vi, ms) => {
+      const fu = a.fuentes[sidDe(vi)];
       return fu ? totalDeIngresos(cual, fu, base, mesesDe(ms)) : null;
     }),
   };
@@ -128,10 +143,9 @@ export function cuadroDelArmado(
   const fmt = (f === "pct" ? "pct" : f === "usd" ? "usd2" : "num") as
     "pct" | "usd2" | "num";
   const cortes = cortesDe(a.mes);
-  const columnas = a.visibles.map(id => ({ scenario_id: id }));
-  const idDe = (vi: number, ci: number) =>
-    (ci === 2 && vi === 0 && a.actualDelFullYear)
-      ? a.actualDelFullYear : (columnas[vi]?.scenario_id ?? "");
+  const { todas, vista } = vistaDelArmado(a);
+  const idDe = (col: number, ci: number) =>
+    todas[vista.vi(col, ci)]?.scenario_id ?? "";
   const etiqueta = (sid: string) => {
     const e = a.escenarios.find(x => x.id === sid);
     return e ? `${e.type} ${e.version}` : "";
@@ -152,10 +166,10 @@ export function cuadroDelArmado(
       { label: cual === "canales" ? "Canal" : "Tipo de habitación",
         ancho: 34, formato: "texto" },
       ...cortes.flatMap((c, ci) => [
-        ...columnas.map((_v, vi) => ({
-          label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
+        ...vista.columnas.map((_c, col) => ({
+          label: `${c.titulo} · ${etiqueta(idDe(col, ci))}`,
           ancho: 15, formato: fmt })),
-        ...(parDe(c, columnas, a.escenarios)
+        ...(parDe(c, todas, a.escenarios, vista)
           ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: fmt }] : []),
       ]),
     ],

@@ -1782,8 +1782,9 @@ export default function MonthEndPLPage() {
       const visibles = [dame("ACTUAL"), dame("BUDGET"), dame("FORECAST")]
         .filter(Boolean);
       if (!visibles.length) return [];
-      const actualFull =
-        escenarios.find(x => x.is_current_forecast)?.id || dame("FORECAST") || "";
+      // ⚠️ El MISMO de los tres P&L (`actualFullPL`): con dos reglas, el día
+      // que una cambie el checkbook y el P&L dirían años completos distintos.
+      const actualFull = actualFullPL;
       // El Current se PIDE aunque no sea columna propia: sólo ocupa el lugar
       // del Actual en el año completo.
       const ids = [...new Set([...visibles, actualFull].filter(Boolean))];
@@ -1824,8 +1825,9 @@ export default function MonthEndPLPage() {
       const visibles = [dame("ACTUAL"), dame("BUDGET"), dame("FORECAST")]
         .filter(Boolean);
       if (!visibles.length) return [];
-      const actualFull =
-        escenarios.find(x => x.is_current_forecast)?.id || dame("FORECAST") || "";
+      // ⚠️ El MISMO de los tres P&L (`actualFullPL`): con dos reglas, el día
+      // que una cambie el checkbook y el P&L dirían años completos distintos.
+      const actualFull = actualFullPL;
       const fuentes = await cargarFuentesIngresos(
         [...visibles, actualFull].filter(Boolean));
       return cuadrosDelArmado({

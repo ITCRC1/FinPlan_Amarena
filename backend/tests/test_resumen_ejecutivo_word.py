@@ -454,3 +454,44 @@ def test_la_tabla_de_tarifas_dice_el_MES_con_su_nombre():
     api = API.read_text(encoding="utf-8")
     assert 'MESES[m["month"] - 1], usd(float(kp.get("adr") or 0)),' in api
     assert "MESES," in api.split("from app.export.executive_summary import")[1][:200]
+
+
+# ═════════ Sin comparación contra el Forecast, 2026-09-30 ════════════════════
+#
+# Owner: *«quitar la opción de comparación versus forecast»*, la misma regla que
+# acababa de pedir para la pantalla.
+
+def test_el_mes_y_el_ACUMULADO_no_traen_columna_de_forecast():
+    """Se compara contra el PRESUPUESTO y nada más."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "f if principal is f else None," in src
+    t = _texto(build_executive_summary(_datos()))
+    assert "Actual · Presupuesto\n" in t or "Actual · Presupuesto" in t
+    assert "Actual · Presupuesto · Forecast" not in t
+
+
+def test_el_ANO_COMPLETO_sigue_siendo_el_FORECAST():
+    """⚠️ No es una comparación: es la columna principal. El Actual del año son
+    los meses cargados, y restarle doce de presupuesto da un derrumbe que sólo
+    dice que el año no terminó.
+
+    Quitar el forecast de las comparaciones y quitarlo del año completo son dos
+    cosas distintas; la segunda dejaría el informe sin proyección.
+    """
+    t = _texto(build_executive_summary(_datos()))
+    assert "Forecast · Presupuesto" in t
+    assert "la columna principal es el Forecast" in t
+
+
+def test_se_fue_el_parrafo_CONTRA_EL_FORECAST():
+    t = _texto(build_executive_summary(_datos()))
+    assert "Contra el forecast" not in t
+    assert "Frente al forecast" not in t
+
+
+def test_la_PORTADA_dice_contra_que_se_compara():
+    """Callar el forecast dejaría sin explicar por qué el año completo no es el
+    Actual."""
+    t = _texto(build_executive_summary(_datos()))
+    assert "contra" in t.split("Generado por FinPlan")[1][:200]
+    assert "el año completo," in t.split("Generado por FinPlan")[1][:200]

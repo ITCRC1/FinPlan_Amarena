@@ -59,7 +59,7 @@ import {
   ES_PROMEDIO, filasDeIngresos, totalDeIngresos, valorDeIngresos,
   type FuenteIngresos, type VistaIngresos,
 } from "@/lib/revenuePlanCortes";
-import { celdasDe, cortesDe, parDe } from "@/lib/tresCortes";
+import { celdasDe, cortesDe, parDe, vistaDe } from "@/lib/tresCortes";
 import { cuadrosDelArmado } from "@/lib/revenuePlanPaquete";
 
 const MES_LARGO = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -309,15 +309,23 @@ export default function RevenuePlanPage() {
   /* ══════════════ El cuadro de los tres cortes ══════════════════════════ */
 
   const cortes = useMemo(() => cortesDe(mes || 12), [mes]);
-  /** Las versiones que ocupan columna, en orden. */
-  const columnas = useMemo(
-    () => visibles.map(id => ({ scenario_id: id })), [visibles]);
-  /** Quién ocupa la primera columna en el full year: el Forecast Current, igual
-   *  que en los checkbooks. El Actual del año repite el YTD. */
-  const idDe = useCallback((vi: number, ci: number) =>
-    (ci === 2 && vi === 0 && actualFull)
-      ? actualFull : (columnas[vi]?.scenario_id ?? ""),
-    [columnas, actualFull]);
+  /** Todas las versiones que viajan: las que ocupan columna más el Forecast
+   *  Current, que se pide aunque no sea columna.
+   *
+   *  ⚠️ Con las visibles nada más, `parDe` no encuentra ningún FORECAST cuando
+   *  el forecast no está elegido, y el año completo se queda SIN columna de
+   *  varianza justo cuando su primera columna SÍ es el forecast. Es la misma
+   *  vista del P&L y de los checkbooks. */
+  const todas = useMemo(
+    () => [...new Set([...visibles, actualFull].filter(Boolean))]
+      .map(id => ({ scenario_id: id })), [visibles, actualFull]);
+  const vistaCols = useMemo(
+    () => vistaDe(todas, visibles, actualFull, escenarios),
+    [todas, visibles, actualFull, escenarios]);
+  /** Quién ocupa la columna `col` en el corte `ci`. */
+  const idDe = useCallback((col: number, ci: number) =>
+    todas[vistaCols.vi(col, ci)]?.scenario_id ?? "",
+    [todas, vistaCols]);
   const etiqueta = useCallback((sid: string) => {
     const e = escenarios.find(x => x.id === sid);
     return e ? `${e.type} ${e.version}` : "";
@@ -340,24 +348,25 @@ export default function RevenuePlanPage() {
     const vista = cual;
     const base = filasDeIngresos(vista, usadas);
     const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
-      celdasDe(cortes, columnas, escenarios, de);
+      celdasDe(cortes, todas, escenarios, de, vistaCols);
     const mesesDe = (ms: number[]) => ms.map(i => i + 1);
     const cuerpo = base.map(f => ({
       label: f.label, es_total: false,
-      valores: celdas((vi, ms, ci) => {
-        const fu = fuentes[idDe(vi, ci)];
+      // ⚠️ `vi` es un índice de VERSIÓN: `celdasDe` ya aplicó la regla del año.
+      valores: celdas((vi, ms) => {
+        const fu = fuentes[todas[vi]?.scenario_id ?? ""];
         return fu ? valorDeIngresos(vista, fu, f.clave, mesesDe(ms)) : null;
       }),
     }));
     const pie = {
       label: "TOTAL", es_total: true,
-      valores: celdas((vi, ms, ci) => {
-        const fu = fuentes[idDe(vi, ci)];
+      valores: celdas((vi, ms) => {
+        const fu = fuentes[todas[vi]?.scenario_id ?? ""];
         return fu ? totalDeIngresos(vista, fu, base, mesesDe(ms)) : null;
       }),
     };
     return [...cuerpo, ...(pie.valores.some(v => v !== null) ? [pie] : [])];
-  }, [visibles, fuentes, cortes, columnas, escenarios, idDe]);
+  }, [visibles, fuentes, cortes, todas, vistaCols, escenarios]);
 
   /** Las de la vista que está en pantalla. */
   const filasCorte = useMemo(
@@ -599,7 +608,8 @@ export default function RevenuePlanPage() {
                     <th style={{ ...TDL, position: "static", minWidth: 230 }} />
                     {cortes.map((c, ci) => (
                       <th key={c.clave}
-                          colSpan={columnas.length + (parDe(c, columnas, escenarios) ? 1 : 0)}
+                          colSpan={vistaCols.columnas.length
+                                   + (parDe(c, todas, escenarios, vistaCols) ? 1 : 0)}
                           style={{ ...TD, position: "static", textAlign: "center",
                                    fontWeight: 800, color: "var(--brand)",
                                    borderLeft: ci ? BL : undefined }}>
@@ -614,16 +624,16 @@ export default function RevenuePlanPage() {
                       {vista === "canales" ? "Canal" : "Tipo de habitación"}
                     </th>
                     {cortes.flatMap((c, ci) => [
-                      ...columnas.map((_v, vi) => (
-                        <th key={`${c.clave}-${vi}`}
+                      ...vistaCols.columnas.map((_c, col) => (
+                        <th key={`${c.clave}-${col}`}
                             style={{ ...TD, position: "static", fontWeight: 700,
                                      minWidth: 100, color: "var(--text-secondary)",
-                                     borderLeft: ci && !vi ? BL : undefined,
+                                     borderLeft: ci && !col ? BL : undefined,
                                      borderBottom: "2px solid var(--text-primary)" }}>
-                          {etiqueta(idDe(vi, ci))}
+                          {etiqueta(idDe(col, ci))}
                         </th>
                       )),
-                      ...(parDe(c, columnas, escenarios) ? [
+                      ...(parDe(c, todas, escenarios, vistaCols) ? [
                         <th key={`${c.clave}-var`}
                             style={{ ...TD, position: "static", fontWeight: 700,
                                      fontStyle: "italic", minWidth: 96,
@@ -645,8 +655,9 @@ export default function RevenuePlanPage() {
                       </td>
                       {f.valores.map((v, j) => {
                         const abre = cortes.some((c, ci) => ci > 0 && j === cortes
-                          .slice(0, ci).reduce((a, x) => a + columnas.length
-                            + (parDe(x, columnas, escenarios) ? 1 : 0), 0));
+                          .slice(0, ci).reduce(
+                            (a, x) => a + vistaCols.columnas.length
+                              + (parDe(x, todas, escenarios, vistaCols) ? 1 : 0), 0));
                         return (
                           <td key={j} className="mono" style={{
                             ...TD, fontWeight: f.es_total ? 800 : 400,

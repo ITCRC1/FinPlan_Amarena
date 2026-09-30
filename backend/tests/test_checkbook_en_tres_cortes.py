@@ -60,7 +60,9 @@ def test_los_cortes_salen_de_la_MISMA_plantilla_que_el_P_and_L():
     otra sobre los mismos datos, y sin que nada falle."""
     src = LOGICA.read_text(encoding="utf-8")
     assert 'from "@/lib/tresCortes"' in src
-    assert "celdasDe(cortes, versiones, escenarios, de)" in src
+    # ⚠️ Desde el 2026-09-30 se le pasa tambien la VISTA: es lo que dice cuales
+    # versiones tienen columna y quien ocupa la primera del ano completo.
+    assert "celdasDe(cortes, todas, escenarios, de, vista)" in src
     # Y NO se reimplementan aca.
     for propio in ("function cortesDe", "function parDe", "function celdasDe"):
         assert propio not in src, f"{propio} se reescribio en el checkbook"
@@ -173,9 +175,10 @@ def test_en_el_full_year_la_primera_columna_es_el_FORECAST_CURRENT():
     Actual.
     """
     src = LOGICA.read_text(encoding="utf-8")
-    assert "const idDe = (vi: number, ci: number)" in src
+    assert "const idDe = (col: number, ci: number) => sidDe(vista.vi(col, ci));" in src
     # Solo el corte 2 (full year) y solo la columna 0.
-    assert "ci === 2 && vi === 0 && opciones.actualDelFullYear" in src
+    # La regla ya no se escribe aca: sale de `vistaDe`, en el lib.
+    assert "vistaDe(todas, opciones.visibles, opciones.actualDelFullYear," in src
     pag = PAGINA.read_text(encoding="utf-8")
     assert "escenarios.find(e => e.is_current_forecast)?.id" in pag
 
@@ -186,8 +189,10 @@ def test_el_forecast_current_se_PIDE_pero_no_es_una_columna_propia():
     pag = PAGINA.read_text(encoding="utf-8")
     assert "[...new Set([...visibles, actualFull].filter(Boolean))]" in pag
     comp = COMP.read_text(encoding="utf-8")
-    assert "visibles.filter(id => versiones.some(v => v.scenario_id === id))" in comp
-    assert "anchoDelCorte(c, columnas, escenarios)" in comp
+    # La pantalla ya no recorta las versiones por su cuenta: usa la MISMA vista
+    # que el cuadro, o mide un ancho distinto del que el cuadro trae.
+    assert "vistaDe(versiones, visibles, actualDelFullYear, escenarios)" in comp
+    assert "anchoDelCorte(c, versiones, escenarios, vistaCb)" in comp
 
 
 def test_el_current_lo_marca_el_BACKEND_no_el_nombre():
@@ -221,3 +226,32 @@ def test_la_VARIANZA_del_checkbook_baja_como_FORMULA():
     src = LOGICA.read_text(encoding="utf-8")
     assert "resta: [colDe(par[0], ci, base)!," in src
     assert "const colDe = (vi: number, ci: number, base: number)" in src
+
+
+# ═════════ El forecast fuera de las ranuras, 2026-09-30 ══════════════════════
+
+def test_el_ancho_del_corte_se_mide_con_LA_MISMA_vista_que_el_cuadro():
+    """⚠️ Con las visibles nada mas, `parDe` no encuentra ningun FORECAST cuando
+    el owner lo saca de las ranuras: el ano completo salia SIN columna de
+    varianza, mostrando el forecast en la primera columna y sin nada contra que
+    leerlo. Y la pantalla medi­a un ancho mientras el cuadro traia otro, asi que
+    los encabezados de corte quedaban corridos respecto de los numeros.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const vista = vistaDe(todas, opciones.visibles," in src
+    assert "parDe(c, todas, escenarios, vista)" in src
+    # Y `anchoDelCorte` recibe TODAS las versiones mas la vista.
+    assert "vista?: Vista," in src
+    assert "(vista?.columnas.length ?? versiones.length)" in src
+    pantalla = (FRONT / "app/month-end/pl/Checkbooks.tsx").read_text(encoding="utf-8")
+    assert "anchoDelCorte(c, versiones, escenarios, vistaCb)" in pantalla
+    assert "vistaDe(versiones, visibles, actualDelFullYear, escenarios)" in pantalla
+
+
+def test_la_regla_del_ano_se_aplica_UNA_vez():
+    """`celdasDe` ya resuelve la version con la vista. Si `serie()` volviera a
+    aplicar la regla, se aplicaria dos veces y el ano completo leeria la serie
+    equivocada."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const serie = (f: { series: Record<string, number[]> }, vi: number) =>" in src
+    assert "f.series[sidDe(vi)] ?? []" in src

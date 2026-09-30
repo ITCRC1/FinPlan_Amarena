@@ -47,7 +47,12 @@ def test_heredan_las_reglas_del_full_year():
     Forecast Current — no el Actual, que ahi repite el YTD. Vienen con el cuadro
     justamente por no haberlo reescrito."""
     s = _src()
-    assert "x.is_current_forecast" in s
+    # ⚠️ Desde el 2026-09-30 el Forecast Current NO se resuelve aca: sale de
+    # `actualFullPL`, el mismo memo que usan los tres P&L. Eran tres copias de
+    # la misma regla en el mismo archivo, y el dia que una cambie el checkbook y
+    # el P&L dirian años completos distintos sin que nada avise.
+    assert "const actualFull = actualFullPL;" in s
+    assert "escenarios.find(e => e.is_current_forecast)?.id" in s
     assert "{ visibles, actualDelFullYear: actualFull }" in s
 
 
@@ -168,7 +173,8 @@ def test_el_armado_hereda_las_reglas_del_full_year():
     Forecast contra Budget. Vienen con el cuadro por no haberlo reescrito."""
     front = pathlib.Path(__file__).resolve().parents[2] / "frontend"
     src = (front / "lib/revenuePlanPaquete.ts").read_text(encoding="utf-8")
-    assert "ci === 2 && vi === 0 && a.actualDelFullYear" in src
+    # La regla ya no se escribe aca: sale de `vistaDe`, en el lib.
+    assert "vistaDe(todas, a.visibles, a.actualDelFullYear, a.escenarios)" in src
     assert 'from "@/lib/tresCortes"' in src
     # Y la agregacion de cada vista sigue siendo la de su lib: aca no se suma
     # una razon por accidente.

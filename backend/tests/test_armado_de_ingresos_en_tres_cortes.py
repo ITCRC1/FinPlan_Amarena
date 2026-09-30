@@ -110,13 +110,18 @@ def test_los_cortes_y_la_varianza_salen_de_la_MISMA_plantilla():
     mismo par."""
     pag = PAGINA.read_text(encoding="utf-8")
     assert 'from "@/lib/tresCortes"' in pag
-    assert "celdasDe(cortes, columnas, escenarios, de)" in pag
+    # ⚠️ Desde el 2026-09-30 se le pasa tambien la VISTA, que es lo que dice
+    # cuales versiones tienen columna y quien ocupa la primera del ano completo.
+    assert "celdasDe(cortes, todas, escenarios, de, vistaCols)" in pag
 
 
 def test_en_el_full_year_la_primera_columna_es_el_FORECAST_CURRENT():
     """Lo mismo que en los checkbooks: el Actual del año repite el YTD."""
     pag = PAGINA.read_text(encoding="utf-8")
-    assert "ci === 2 && vi === 0 && actualFull" in pag
+    # La regla ya no se escribe aca: sale de `vistaDe`, en el lib, que es de
+    # donde la toman tambien el P&L y los checkbooks.
+    assert "vistaDe(todas, visibles, actualFull, escenarios)" in pag
+    assert "todas[vistaCols.vi(col, ci)]?.scenario_id" in pag
     assert "escenarios.find(e => e.is_current_forecast)?.id" in pag
 
 
@@ -225,3 +230,16 @@ def test_el_aviso_del_promedio_viaja_a_CADA_hoja():
     src = (FRONT / "lib/revenuePlanPaquete.ts").read_text(encoding="utf-8")
     assert "ES_PROMEDIO(cual)" in src
     assert "no un acumulado" in src
+
+
+def test_el_armado_usa_LA_MISMA_vista_que_el_P_and_L_y_los_checkbooks():
+    """Owner, 2026-09-30: el mismo comportamiento en los archivos que se bajan.
+
+    ⚠️ Con las visibles nada mas, `parDe` no encuentra ningun FORECAST cuando el
+    owner lo saca de las ranuras: el ano completo salia SIN columna de varianza,
+    mostrando el forecast en la primera columna y sin nada contra que leerlo.
+    """
+    lib = (FRONT / "lib/revenuePlanPaquete.ts").read_text(encoding="utf-8")
+    assert "function vistaDelArmado(a: ArmadoDeIngresos)" in lib
+    assert "parDe(c, todas, a.escenarios, vista)" in lib
+    assert "celdasDe(cortes, todas, a.escenarios, de, vista)" in lib

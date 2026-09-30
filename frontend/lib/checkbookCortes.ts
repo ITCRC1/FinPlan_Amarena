@@ -1,6 +1,7 @@
 import type { DetalleCelda, Scenario } from "@/lib/api";
 import type { Cuadro, ColumnaCuadro, FilaCuadro } from "@/lib/exportCuadro";
-import { celdasDe, cortesDe, parDe, suma, type Corte } from "@/lib/tresCortes";
+import { celdasDe, cortesDe, parDe, suma, vistaDe,
+         type Corte, type Vista } from "@/lib/tresCortes";
 
 /**
  * El checkbook en los TRES cortes: mes, YTD y full year, con su varianza.
@@ -47,11 +48,18 @@ import { celdasDe, cortesDe, parDe, suma, type Corte } from "@/lib/tresCortes";
  *  encabezado con exactamente los mismos que el cuadro. */
 export const cortesDelCheckbook = (mes: number): Corte[] => cortesDe(mes);
 
-/** Cuántas columnas ocupa un corte: una por versión, más la varianza si hay par
- *  que restar. */
+/** Cuántas columnas ocupa un corte: una por columna de la vista, más la
+ *  varianza si hay par que restar.
+ *
+ *  ⚠️ Recibe TODAS las versiones y la vista, no sólo las visibles. Con las
+ *  visibles nada más, `parDe` no encuentra ningún FORECAST cuando el owner lo
+ *  sacó de las ranuras, y el ancho del año completo sale uno menos que el del
+ *  cuadro: los encabezados quedan corridos respecto de los números. */
 export const anchoDelCorte = (
   c: Corte, versiones: { scenario_id: string }[], escenarios: Scenario[],
-) => versiones.length + (parDe(c, versiones, escenarios) ? 1 : 0);
+  vista?: Vista,
+) => (vista?.columnas.length ?? versiones.length)
+     + (parDe(c, versiones, escenarios, vista) ? 1 : 0);
 
 export function cuadroCheckbookCortes(
   rotulo: string, datos: DetalleCelda, mes: number, escenarios: Scenario[],
@@ -65,12 +73,15 @@ export function cuadroCheckbookCortes(
     actualDelFullYear?: string;
   } = {},
 ): Cuadro {
+  // ⚠️ `todas` son las versiones que VINIERON —el Forecast Current se pide
+  // aunque el owner lo haya sacado de las ranuras— y la vista dice cuáles
+  // tienen columna y quién ocupa la primera del año completo. Antes se
+  // recortaba a las visibles antes de calcular nada, y entonces `parDe` no
+  // encontraba ningún FORECAST: el año completo se quedaba SIN columna de
+  // varianza justo en el caso que se quiso habilitar.
   const todas = datos.versiones ?? [];
-  const versiones = opciones.visibles?.length
-    ? opciones.visibles
-        .map(id => todas.find(v => v.scenario_id === id))
-        .filter((v): v is NonNullable<typeof v> => !!v)
-    : todas;
+  const vista = vistaDe(todas, opciones.visibles, opciones.actualDelFullYear,
+                        escenarios);
   const cortes = cortesDe(mes);
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const etiqueta = (sid: string) => {
@@ -78,24 +89,23 @@ export function cuadroCheckbookCortes(
     return s ? `${s.type} ${s.version}` : sid.slice(0, 8);
   };
 
-  /** Qué versión ocupa la columna `vi` en el corte `ci`.
-   *
-   *  ⚠️ Es igual a `versiones[vi]` en TODOS los casos menos uno: la primera
-   *  columna del full year, donde el Actual repite el YTD y va el Forecast
-   *  Current en su lugar. */
-  const idDe = (vi: number, ci: number) =>
-    (ci === 2 && vi === 0 && opciones.actualDelFullYear)
-      ? opciones.actualDelFullYear
-      : (versiones[vi]?.scenario_id ?? "");
+  /** El id de una versión ya resuelta por la vista. */
+  const sidDe = (vi: number) => todas[vi]?.scenario_id ?? "";
 
-  const serie = (f: { series: Record<string, number[]> }, vi: number, ci = 0) =>
-    f.series[idDe(vi, ci)] ?? [];
+  /** Qué versión ocupa la columna `col` en el corte `ci`. */
+  const idDe = (col: number, ci: number) => sidDe(vista.vi(col, ci));
+
+  /** ⚠️ `vi` es un índice de VERSIÓN, no una posición de columna: `celdasDe` ya
+   *  aplicó la regla del año completo. Aplicarla otra vez la aplicaría dos
+   *  veces. */
+  const serie = (f: { series: Record<string, number[]> }, vi: number) =>
+    f.series[sidDe(vi)] ?? [];
 
   // ⚠️ La misma limpieza que la vista de doce meses: una cuenta en cero en
   // TODAS las versiones y todo el año no dice nada, y son decenas.
   const vivas = (datos.filas ?? [])
     .filter(f => !dept || f.dept_code === dept)
-    .filter(f => versiones.some((_, vi) => Math.abs(suma(serie(f, vi), doce)) >= 0.005));
+    .filter(f => todas.some((_v, vi) => Math.abs(suma(serie(f, vi), doce)) >= 0.005));
 
   /** Por departamento, que es como se lee un checkbook: la 7065 aparece en
    *  cuatro y las cuatro se llaman «Cleaning Supplies». */
@@ -116,8 +126,7 @@ export function cuadroCheckbookCortes(
    *  el Forecast Current, y una fórmula que reste otras dos columnas diría algo
    *  que el cuadro no dice. */
   const colDe = (vi: number, ci: number, base: number) => {
-    const sid = versiones[vi]?.scenario_id ?? "";
-    const j = versiones.findIndex((_v, k) => idDe(k, ci) === sid);
+    const j = vista.columnas.findIndex((_c, col) => vista.vi(col, ci) === vi);
     return j < 0 ? null : base + j;
   };
 
@@ -125,11 +134,12 @@ export function cuadroCheckbookCortes(
     { label: "Cuenta", ancho: 40, formato: "texto" },
     ...cortes.flatMap((c, ci) => {
       const base = 1 + cortes.slice(0, ci).reduce(
-        (a, x) => a + versiones.length + (parDe(x, versiones, escenarios) ? 1 : 0), 0);
-      const par = parDe(c, versiones, escenarios);
+        (a, x) => a + vista.columnas.length
+                  + (parDe(x, todas, escenarios, vista) ? 1 : 0), 0);
+      const par = parDe(c, todas, escenarios, vista);
       return [
-        ...versiones.map((_v, vi) => ({
-          label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
+        ...vista.columnas.map((_c, col) => ({
+          label: `${c.titulo} · ${etiqueta(idDe(col, ci))}`,
           ancho: 15, formato: "usd2" as const })),
         // ⚠️ La variación baja como FÓRMULA (owner, 2026-09-30). El par lo da
         // `parDe`, que en el año completo devuelve Forecast contra Budget.
@@ -145,7 +155,7 @@ export function cuadroCheckbookCortes(
   ];
 
   const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
-    celdasDe(cortes, versiones, escenarios, de);
+    celdasDe(cortes, todas, escenarios, de, vista);
 
   const filas: FilaCuadro[] = [];
   /** Los ordinales de los subtotales, para que el TOTAL sea su suma. */
@@ -155,8 +165,8 @@ export function cuadroCheckbookCortes(
       label: g.nombre ? `${code} · ${g.nombre}` : code,
       // La banda del departamento es el rótulo del bloque, no su cierre.
       es_seccion: true, nivel: 0,
-      valores: celdas((vi, meses, ci) =>
-        g.filas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
+      valores: celdas((vi, meses) =>
+        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
     });
     // Lo más grande primero: lo que explica el número va arriba.
     const orden = [...g.filas].sort((a, b) =>
@@ -164,7 +174,7 @@ export function cuadroCheckbookCortes(
     for (const f of orden) {
       filas.push({
         label: `${f.cuenta}  ${f.nombre}`, es_total: false, nivel: 1,
-        valores: celdas((vi, meses, ci) => suma(serie(f, vi, ci), meses)),
+        valores: celdas((vi, meses) => suma(serie(f, vi), meses)),
       });
     }
     // ⚠️ Acá el subtotal SÍ es la suma de lo que se ve —las mismas `g.filas`
@@ -177,16 +187,16 @@ export function cuadroCheckbookCortes(
     filas.push({
       label: `Subtotal ${code}`, es_total: true, nivel: 1,
       suma_de: detalle,
-      valores: celdas((vi, meses, ci) =>
-        g.filas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
+      valores: celdas((vi, meses) =>
+        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
     });
     filas.push({ label: "", valores: [] });
   }
   filas.push({
     label: "TOTAL", es_total: true, nivel: 0,
     suma_de: subtotales,
-    valores: celdas((vi, meses, ci) =>
-      vivas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
+    valores: celdas((vi, meses) =>
+      vivas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
   });
 
   return {

@@ -739,9 +739,13 @@ def build_executive_summary(datos: dict) -> bytes:
     r.font.color.rgb = NEGRO
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # ⚠️ Dice contra qué se compara —el presupuesto— y de dónde sale el año
+    # completo. El Forecast dejó de ser una comparación, pero sigue siendo la
+    # columna del año: callarlo dejaría sin explicar por qué el año completo no
+    # es el Actual.
     r = p.add_run(f"Generado por FinPlan el {date.today():%d/%m/%Y} · "
-                  f"{rot['actual']} vs {rot['budget']}"
-                  + (f" vs {rot['forecast']}" if fcs else ""))
+                  f"{rot['actual']} contra {rot['budget']}"
+                  + (f" · el año completo, {rot['forecast']}" if fcs else ""))
     r.font.size = Pt(8.5)
     r.font.color.rgb = GRIS
     doc.add_paragraph()
@@ -817,18 +821,6 @@ def build_executive_summary(datos: dict) -> bytes:
             f"presupuestados, y la utilidad neta en {k(np_a)} contra {k(np_b)}.",
         ])
 
-        # El contraste contra el Forecast, sólo donde significa algo: en el full
-        # year el Forecast YA es la columna principal.
-        if f is not None and corte != "full":
-            rf = linea(f, "TOTAL_REVENUES")
-            ef = linea(f, "EBITDA_BEFORE")
-            _h(doc, "Contra el forecast", nivel=3, color=NEGRO)
-            _p(doc, f"Frente al forecast, el ingreso total quedó "
-                    f"{k(abs(rev - rf))} {signo(rev - rf)} la proyección "
-                    f"revisada, y el EBITDA antes de capital "
-                    f"{k(abs(eb_a - ef))} {signo(eb_a - ef)} esa misma "
-                    f"proyección.")
-
         # ⚠️ La regla del año completo va DENTRO de su corte y no en una nota
         # al final: es donde se lee la columna, y sin ella un Actual de ocho
         # meses contra doce de presupuesto parece un derrumbe.
@@ -839,11 +831,20 @@ def build_executive_summary(datos: dict) -> bytes:
                     "meses de presupuesto mostraría una caída que sólo significa "
                     "que el año no ha terminado.")
 
+        # ⚠️ El Forecast NO es una columna de comparación (owner, 2026-09-30:
+        # *«quitar la opción de comparación versus forecast»*). Se compara
+        # contra el PRESUPUESTO y nada más.
+        #
+        # Pero el año completo SIGUE SIENDO el Forecast: ahí es la columna
+        # principal, no una comparación. El Actual del año son los meses
+        # cargados, y restarle doce de presupuesto da un derrumbe que sólo dice
+        # que el año no terminó. Es la misma regla de la pantalla: el Forecast
+        # se usa para el año, no para comparar el mes.
         _cuadro_corte(doc, f"{rotulo_corte} {anio} — "
                            + ("Forecast · Presupuesto" if principal is f
-                              else "Actual · Presupuesto · Forecast"),
-                      principal, b, f, rot_principal, rot["budget"],
-                      rot.get("forecast", ""))
+                              else "Actual · Presupuesto"),
+                      principal, b, f if principal is f else None,
+                      rot_principal, rot["budget"], rot.get("forecast", ""))
         _flow_through(doc, f"{rotulo_corte} {anio} — de dónde viene la diferencia "
                            f"contra el presupuesto", principal, b, datos["totales"])
         doc.add_page_break()
