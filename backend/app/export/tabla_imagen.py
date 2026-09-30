@@ -106,9 +106,24 @@ def dibujar_cuadro(
     im = Image.new("RGB", (ancho, alto), BLANCO)
     d = ImageDraw.Draw(im)
 
+    def recortar(texto: str, fuente, ancho: int) -> str:
+        """El texto que CABE, con puntos suspensivos si sobra.
+
+        ⚠️ Un dibujo no envuelve ni corta solo: sin esto, un rótulo largo sigue
+        escribiéndose por encima de la celda de al lado. Se vio en el informe de
+        agosto —«8025 · Fines and Other Non-Deductible Expenses» montado sobre
+        su propio monto— y no hay forma de notarlo hasta mirar la imagen.
+        """
+        if d.textlength(texto, font=fuente) <= ancho:
+            return texto
+        while texto and d.textlength(texto + "…", font=fuente) > ancho:
+            texto = texto[:-1]
+        return (texto.rstrip() + "…") if texto else ""
+
     def escribir(x0: int, x1: int, y: int, texto: str, fuente, color, derecha: bool):
         if not texto:
             return
+        texto = recortar(texto, fuente, x1 - x0 - aire_x * 2)
         w = d.textlength(texto, font=fuente)
         d.text((x1 - aire_x - w if derecha else x0 + aire_x, y), texto,
                font=fuente, fill=color)

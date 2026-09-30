@@ -73,7 +73,13 @@ SECCIONES = ("1", "2")
 #: hasta que está impreso.
 FUENTE = "Times New Roman"
 CUERPO = 12          #: el texto
-CUERPO_TABLA = 9     #: los cuadros; con doce columnas, 12 pt no entra
+#: Los cuadros. Owner, 2026-09-30, mirando el informe con las secciones nuevas:
+#: *«esto se ve muy cargado… quisiera más simple, más pequeño»*.
+#:
+#: ⚠️ Baja de 9 a 8. El cuerpo se queda en 12 —eso lo pidió el owner y es lo que
+#: se lee—; lo que recarga la página son diecisiete cuadros con la letra casi
+#: del tamaño del párrafo que los presenta.
+CUERPO_TABLA = 8
 INTERLINEA = 1.5
 #: El aire ANTES de un título. El pedido fue «entre títulos un espacio
 #: adicional»: es lo que separa un bloque del anterior sin meter párrafos vacíos,
@@ -315,6 +321,55 @@ def _sombra(celda, hexcolor: str) -> None:
     _ordenar_tcPr(celda)
 
 
+#: Lo que NO se baja de mayúscula al suavizar un rótulo.
+#:
+#: ⚠️ `EBITDA` en «Ebitda» deja de ser una sigla y se lee como una palabra mal
+#: escrita. Van también las que traen los nombres de cuenta del mayor.
+SIGLAS = {
+    "EBITDA", "GOP", "ADR", "REVPAR", "YTD", "P&L", "F&B", "A&B", "IT", "OTA",
+    "OTAS", "USD", "CRC", "CCSS", "INS", "PMS", "SPA", "CAPEX", "IVA", "PAR",
+    "POR", "AYB", "A", "Y", "B",
+}
+
+#: Las palabras que se quedan en minúscula dentro de un rótulo.
+MENUDAS = {"and", "or", "of", "the", "on", "to", "for", "in", "de", "del", "la",
+           "las", "el", "los", "y", "e", "o", "por", "con", "sin", "a"}
+
+
+def suave(texto: str) -> str:
+    """«TOTAL OVERHEAD EXPENSES» → «Total Overhead Expenses».
+
+    Owner, 2026-09-30: *«que todos los cuadros queden en minúscula»*. Un cuadro
+    entero en mayúscula grita, y con diecisiete cuadros el informe entero grita.
+
+    ⚠️ **Sólo toca lo que viene GRITADO.** Un rótulo que ya está en mixto
+    —«Club Madresal», «Garden View Deluxe-Tented Villa»— se queda como está: es
+    el nombre propio que alguien escribió, y «arreglarlo» le cambiaría la
+    capitalización a un dato.
+    """
+    letras = [c for c in texto if c.isalpha()]
+    if not letras or sum(c.isupper() for c in letras) < len(letras) * 0.8:
+        return texto
+
+    def palabra(w: str, primera: bool) -> str:
+        limpia = w.strip(".,()·/-")
+        if limpia.upper() in SIGLAS:
+            return w
+        bajo = w.lower()
+        if not primera and bajo in MENUDAS:
+            return bajo
+        # `Non-Deductible`, `Gain/Losses`: cada parte lleva su mayúscula.
+        for sep in ("-", "/"):
+            if sep in bajo:
+                return sep.join(p.capitalize() if p else p
+                                for p in bajo.split(sep))
+        return bajo.capitalize()
+
+    ws = texto.split(" ")
+    return " ".join(palabra(w, i == 0 or not w.strip(".,()·/-"))
+                    for i, w in enumerate(ws))
+
+
 def _es_negativo(texto: str) -> bool:
     t = texto.strip()
     return t.startswith("(") or t.startswith("-") or t.startswith("-$")
@@ -425,6 +480,24 @@ def _aire_en_celdas(tabla, arriba=60, lado=110) -> None:
     _ordenar_tblPr(tabla)
 
 
+def _suavizar(encabezados, filas):
+    """Los rótulos, sin gritar. Owner, 2026-09-30: *«que todos los cuadros
+    queden en minúscula»*.
+
+    ⚠️ Se aplica ACÁ, donde el texto entra al cuadro, y no en cada armador. Son
+    diecisiete cuadros de cinco sitios distintos: con la regla repartida, el día
+    que se agregue el dieciocho va a gritar y nadie se va a acordar de por qué.
+
+    ⚠️ Toca los ENCABEZADOS y la primera columna. Las demás son montos ya
+    formateados; `suave` los devolvería iguales igual, pero pasarlos sería
+    afirmar que se puede recapitalizar un número.
+    """
+    encabezados = [(suave(h[0]), h[1]) if isinstance(h, tuple) else suave(h)
+                   for h in encabezados]
+    filas = [[suave(str(f[0]))] + list(f[1:]) if f else f for f in filas]
+    return encabezados, filas
+
+
 def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
     """Un cuadro. `filas` = lista de listas de texto ya formateado.
 
@@ -438,6 +511,7 @@ def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
     encabezado y la línea del total. Las verticales no hacen falta: la columna
     la marca la alineación.
     """
+    encabezados, filas = _suavizar(encabezados, filas)
     t = doc.add_table(rows=1, cols=len(encabezados))
     # ⚠️ El estilo se queda en «Table Grid» porque la plantilla de `python-docx`
     # no trae «Table Normal» con ese nombre. Sus rayas se apagan enseguida en
@@ -606,6 +680,7 @@ def _cuadro_imagen(doc, encabezados, filas, anchos, resaltar=(),
     if not hay_fuente():
         return _tabla(doc, encabezados, filas, anchos=anchos,
                       resaltar=set(resaltar))
+    encabezados, filas = _suavizar(encabezados, filas)
     # ⚠️ `anchos` va en CENTÍMETROS, igual que en `_tabla`: es la misma regla
     # —han de caber en los 16,79 útiles— y una prueba la comprueba en los dos
     # caminos. El dibujo se coloca a su ancho real, sin reescalar.
@@ -667,7 +742,10 @@ def _seccion_detalle(doc, datos: dict, num: str, rotulo: str, clase: str,
         doc,
         [("Departamento", ""), (rot_a, periodo), (rot_b, periodo),
          ("Variación", "")],
-        cuerpo, anchos=[6.2, 3.5, 3.5, 3.5], resaltar={len(cuerpo) - 1})
+        # ⚠️ La primera columna, ANCHA: los nombres de cuenta del mayor son
+        # largos —«8025 · Fines and Other Non-Deductible Expenses»— y en un
+        # dibujo lo que no cabe se recorta, no se envuelve.
+        cuerpo, anchos=[7.0, 3.2, 3.2, 3.2], resaltar={len(cuerpo) - 1})
 
 
 def _acumular_room_stats(datos: dict, bloque: str, clave: str,

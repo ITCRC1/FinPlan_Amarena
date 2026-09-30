@@ -136,14 +136,21 @@ def test_trae_las_secciones_del_formato_del_owner():
 
 def test_los_ROTULOS_de_los_cuadros_se_quedan_en_ingles():
     """⚠️ A proposito, y es lo unico que no se traduce. «Total available Rooms»,
-    «EBITDA BEFORE CAPITAL» y «GROSS OPERATING PROFIT» son los MISMOS rotulos
-    que usa el P&L de la pantalla y los que el owner tiene en su Excel.
-    Traducirlos obligaria a comprobar que «Utilidad bruta operativa» y «GROSS
-    OPERATING PROFIT» son el mismo renglon."""
+    «EBITDA Before Capital» y «Total Gross Operating Profit» son los MISMOS
+    rotulos que usa el P&L de la pantalla y los que el owner tiene en su Excel.
+    Traducirlos obligaria a comprobar que «Utilidad bruta operativa» y «Gross
+    Operating Profit» son el mismo renglon.
+
+    ⚠️ Desde el 2026-09-30 van en Titulo y no en MAYUSCULA —owner: *«que todos
+    los cuadros queden en minuscula»*—. Es la CAJA, no la palabra: el renglon
+    sigue llamandose igual.
+    """
     t = _texto(build_executive_summary(_datos()))
     for rotulo in ("Total available Rooms", "Average Daily Room Only",
-                   "TOTAL REVENUES", "EBITDA BEFORE CAPITAL", "NET PROFIT"):
+                   "Total Revenues", "EBITDA Before Capital", "Net Profit"):
         assert rotulo in t, f"se tradujo el rotulo «{rotulo}»"
+    # Y la sigla NO se baja: «Ebitda» se lee como una palabra mal escrita.
+    assert "Ebitda" not in t
 
 
 def test_la_prosa_dice_LOS_NUMEROS_del_cuadro():
@@ -618,3 +625,80 @@ def test_cuando_el_forecast_ARRASTRA_el_presupuesto_el_informe_lo_dice():
     src = DOCX_MOD.read_text(encoding="utf-8")
     assert "if abs(rev - rev_b) < 0.01 and abs(eb - eb_b) < 0.01:" in src
     assert "El tramo que falta es, hoy, el presupuesto." in src
+
+
+# ═════════ Menos peso en la pagina, 2026-09-30 ═══════════════════════════════
+#
+# Owner, mirando el informe con las secciones nuevas: *«esto se ve muy cargado…
+# quisiera mas simple, quizas todo este bien, solo mas pequeno. que todos los
+# cuadros queden en minuscula y mas pequenas»*.
+
+def test_los_cuadros_van_MAS_CHICOS_que_el_cuerpo():
+    """⚠️ El cuerpo se queda en 12 —eso lo pidio el owner y es lo que se lee—.
+    Lo que recarga la pagina son diecisiete cuadros con la letra casi del tamano
+    del parrafo que los presenta."""
+    from app.export.executive_summary import CUERPO, CUERPO_TABLA
+    assert CUERPO == 12
+    assert CUERPO_TABLA == 8
+
+
+def test_un_rotulo_GRITADO_se_baja_a_titulo():
+    from app.export.executive_summary import suave
+    assert suave("TOTAL OVERHEAD EXPENSES") == "Total Overhead Expenses"
+    assert suave("FINES AND OTHER NON-DEDUCTIBLE EXPENSES") == \
+        "Fines and Other Non-Deductible Expenses"
+    assert suave("EXCHANGE GAIN/LOSSES") == "Exchange Gain/Losses"
+    assert suave("INTEREST ON LOANS") == "Interest on Loans"
+
+
+def test_una_SIGLA_no_se_baja():
+    """«Ebitda» se lee como una palabra mal escrita, no como una sigla."""
+    from app.export.executive_summary import suave
+    assert suave("EBITDA BEFORE CAPITAL") == "EBITDA Before Capital"
+    assert suave("ADR") == "ADR"
+    assert suave("OTA") == "OTA"
+
+
+def test_un_rotulo_que_YA_esta_en_mixto_no_se_toca():
+    """⚠️ Es el nombre propio que alguien escribio: «arreglarlo» le cambiaria la
+    capitalizacion a un dato."""
+    from app.export.executive_summary import suave
+    for t in ("Club Madresal", "Garden View Deluxe-Tented Villa",
+              "Total available Rooms", "Owners Fees"):
+        assert suave(t) == t
+
+
+def test_la_regla_de_la_caja_esta_en_UN_solo_lugar():
+    """Son diecisiete cuadros de cinco sitios distintos: con la regla repartida,
+    el dia que se agregue el dieciocho va a gritar y nadie se va a acordar de
+    por que."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "def _suavizar(encabezados, filas):" in src
+    assert src.count("encabezados, filas = _suavizar(encabezados, filas)") == 2
+
+
+def test_un_rotulo_que_NO_cabe_se_RECORTA_y_no_se_monta():
+    """⚠️ Un dibujo no envuelve ni corta solo: sin esto, un rotulo largo sigue
+    escribiendose por encima de la celda de al lado.
+
+    Se vio en el informe de agosto —«8025 · Fines and Other Non-Deductible
+    Expenses» montado sobre su propio monto— y no hay forma de notarlo hasta
+    mirar la imagen.
+    """
+    from app.export.tabla_imagen import dibujar_cuadro
+    import io as _io
+    from PIL import Image
+    largo = "8025 · Fines and Other Non-Deductible Expenses y algo mas todavia"
+    png = dibujar_cuadro([("Cuenta", ""), ("Actual", "Ago")],
+                         [[largo, "$11,659.17"]], [4.0, 4.0])
+    im = Image.open(_io.BytesIO(png)).convert("RGB")
+    # La franja donde empieza la columna del monto tiene que estar limpia: si el
+    # rotulo se monto, ahi hay tinta del rotulo.
+    x = round(4.0 * 120)          # el borde entre las dos columnas
+    fila = round(im.height * 0.72)
+    ventana = [im.getpixel((x - i, fila)) for i in range(1, 12)]
+    assert all(sum(p) > 700 for p in ventana), \
+        "el rotulo llego hasta el borde de la columna: se monta con el monto"
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/export/tabla_imagen.py").read_text(encoding="utf-8")
+    assert "def recortar(texto: str, fuente, ancho: int) -> str:" in src
