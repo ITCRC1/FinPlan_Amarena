@@ -220,6 +220,47 @@ export function parDe(
   return [contra, budget];
 }
 
+//: Cómo se llama cada tipo de versión en la cabecera, en una palabra.
+const TIPO_CORTO: Record<string, string> = {
+  ACTUAL: "Actual", BUDGET: "Budget", FORECAST: "Forecast",
+};
+
+/** El rótulo de la columna de variación. Una sola palabra, en los tres cortes
+ *  y en los tres armados. */
+export const ROTULO_VAR = "Variance";
+
+/**
+ * El rótulo CORTO de una versión: su tipo, en una palabra.
+ *
+ * Owner, 2026-09-30, con una captura de cómo quiere la cabecera: «Actual»,
+ * «Budget», «Variance», «Forecast» arriba y el período abajo. Antes iba el
+ * nombre completo —«ACTUAL Final»— pegado al período dentro de la misma celda.
+ *
+ * ⚠️ **Si dos columnas son del mismo tipo, se les agrega el nombre.** Pasa de
+ * verdad: un forecast en una ranura y el Forecast Current ocupando el año
+ * completo. Dos columnas que dicen «Forecast» no se distinguen, y el rótulo
+ * corto dejaría de identificar la versión, que es lo único que tiene que hacer.
+ */
+export function rotulosDeVersion(
+  versiones: { scenario_id: string }[], escenarios: Scenario[],
+): (sid: string) => string {
+  const de = (sid: string) => escenarios.find(e => e.id === sid);
+  const vistos = new Set<string>();
+  const repetido = new Set<string>();
+  for (const v of versiones) {
+    const t = de(v.scenario_id)?.type ?? "";
+    if (!t) continue;
+    if (vistos.has(t)) repetido.add(t); else vistos.add(t);
+  }
+  return (sid: string) => {
+    const e = de(sid);
+    if (!e) return sid.slice(0, 8);
+    const base = TIPO_CORTO[e.type]
+      ?? (e.type ? e.type[0] + e.type.slice(1).toLowerCase() : "");
+    return repetido.has(e.type) ? `${base} ${e.version}` : base;
+  };
+}
+
 /**
  * Cómo se dibujan las columnas de un cuadro de tres cortes.
  *
@@ -347,10 +388,6 @@ export function cuadroTresCortes(
 ): Cuadro {
   const cortes = cortesDe(mes);
   const versiones = datos.versiones ?? [];
-  const etiqueta = (sid: string) => {
-    const s = escenarios.find(x => x.id === sid);
-    return s ? `${s.type} ${s.version}` : sid.slice(0, 8);
-  };
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>
     !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
@@ -361,6 +398,8 @@ export function cuadroTresCortes(
    *  Club— se caían del Excel y del Word sin decir por qué. TypeScript no lo
    *  marca: la zona muerta temporal es de ejecución, no de tipos. */
   const vista = vistaDe(versiones, visibles, actualDelFullYear, escenarios);
+  /** El rótulo corto de cada versión: «Actual», «Budget», «Forecast». */
+  const corto = rotulosDeVersion(versiones, escenarios);
 
   /** Cuántas columnas ocupa cada corte: sus columnas más la variación, si la
    *  hay. Hace falta para saber en qué columna del Excel cae cada una. */
@@ -382,8 +421,13 @@ export function cuadroTresCortes(
       const base = 1 + cortes.slice(0, ci).reduce((a, x) => a + anchoCorte(x), 0);
       const par = parDe(c, versiones, escenarios, vista);
       return [
+        // ⚠️ DOS líneas: la versión arriba, el período abajo. Y la raya gruesa
+        // en la primera columna de cada bloque, que es lo que separa el mes del
+        // acumulado y del año (owner, 2026-09-30).
         ...vista.columnas.map((_c, col) => ({
-          label: `${c.titulo} · ${etiqueta(versiones[vista.vi(col, ci)].scenario_id)}`,
+          label: corto(versiones[vista.vi(col, ci)].scenario_id),
+          sub: c.titulo,
+          ...(col === 0 ? { abre_grupo: true } : {}),
           ancho: 16, formato: "usd2" as const })),
         // ⚠️ La variación va como FÓRMULA, no como número (owner, 2026-09-30).
         //
@@ -399,7 +443,7 @@ export function cuadroTresCortes(
         // una celda sin fórmula se puede revisar; una fórmula que resta lo que
         // no es, no.
         ...(par
-          ? [{ label: `${c.titulo} · Variance`, ancho: 16,
+          ? [{ label: ROTULO_VAR, ancho: 16,
                formato: "usd2" as const,
                ...(colDe(par[0], ci, base) !== null
                    && colDe(par[1], ci, base) !== null

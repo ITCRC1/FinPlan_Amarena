@@ -354,7 +354,11 @@ def test_el_ROTULO_de_la_primera_columna_del_ano_sale_de_la_vista():
     comp = COMP.read_text(encoding="utf-8")
     assert "etiqueta(versiones[vista.vi(col, ci)]?.scenario_id ?? \"\")" in comp
     src = LOGICA.read_text(encoding="utf-8")
-    assert "etiqueta(versiones[vista.vi(col, ci)].scenario_id)" in src
+    # ⚠️ Desde el 2026-09-30 el rotulo es CORTO —«Actual», «Budget»,
+    # «Forecast»— y el periodo va en la segunda linea, pero sale de la misma
+    # vista: la primera columna del ano dice «Forecast» porque la vista dice
+    # que ahi esta el forecast.
+    assert "corto(versiones[vista.vi(col, ci)].scenario_id)" in src
 
 
 def test_si_el_Forecast_Current_no_cabe_se_usa_CUALQUIER_forecast():
@@ -381,3 +385,38 @@ def test_volver_a_instalarlo_es_elegirlo_en_la_ranura():
     assert "visibles?: string[]" in src
     comp = COMP.read_text(encoding="utf-8")
     assert "const visibles = useMemo(() => ranuras.filter(Boolean)" in comp
+
+
+def test_la_cabecera_del_cuadro_va_en_DOS_lineas():
+    """Owner, 2026-09-30, con una captura: *«esta vista se ve muy cargada y esta
+    en la misma celda… podras ver que se usan 2 celdas»*.
+
+    Arriba la version en una palabra, abajo el periodo. Y la raya gruesa en la
+    primera columna de cada bloque, que es lo que separa el mes del acumulado y
+    del ano.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "sub: c.titulo," in src
+    assert '...(col === 0 ? { abre_grupo: true } : {}),' in src
+    assert "label: ROTULO_VAR," in src
+
+
+def test_dos_versiones_del_MISMO_TIPO_no_se_llaman_igual():
+    """⚠️ Pasa de verdad: un forecast en una ranura y el Forecast Current
+    ocupando el ano completo. Dos columnas que dicen «Forecast» no se
+    distinguen, y el rotulo corto dejaria de identificar la version, que es lo
+    unico que tiene que hacer."""
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "export function rotulosDeVersion(" in src
+    assert "repetido.has(e.type) ? `${base} ${e.version}` : base" in src
+
+
+def test_el_rotulo_corto_es_UNO_para_todos_los_armados():
+    """El P&L, los checkbooks y el armado bajan al mismo archivo: tres tablas
+    que llaman distinto a la misma version se leen como versiones distintas."""
+    for ruta in ("lib/tresCortes.ts", "lib/checkbookCortes.ts",
+                 "lib/revenuePlanPaquete.ts"):
+        s = (FRONT / ruta).read_text(encoding="utf-8")
+        assert "ROTULO_VAR" in s, f"{ruta} escribe su propio rotulo de varianza"
+        if "tresCortes" not in ruta:
+            assert "rotulosDeVersion" in s, f"{ruta} arma su propio rotulo corto"

@@ -310,3 +310,87 @@ def test_la_SECCION_no_es_un_total():
     assert ws.cell(5, 1).border.top.style == "medium"
     assert ws.cell(5, 1).border.top.color.rgb[-6:] == C["raya"]
     assert _relleno(ws.cell(5, 1)) == C["banda_seccion"]
+
+
+# ═════════ La cabecera en dos lineas, 2026-09-30 ═════════════════════════════
+#
+# Owner, con una captura de como la quiere: *«esta vista se ve muy cargada y
+# esta en la misma celda… podras ver que se usan 2 celdas cada una tiene su
+# varianza. y ademas se identifica con una linea gruesa lo que es Agosto, YTD
+# Agosto y Full Year»*.
+
+def _dos_lineas():
+    cu = _con_var()
+    for c, sub, abre in zip(cu["columnas"][1:],
+                            ["Agosto", "Agosto", ""], [True, False, False]):
+        c["sub"] = sub
+        if abre:
+            c["abre_grupo"] = True
+    cu["columnas"][1]["label"] = "Actual"
+    cu["columnas"][2]["label"] = "Budget"
+    cu["columnas"][3]["label"] = "Variance"
+    return cu
+
+
+def test_la_cabecera_va_en_DOS_filas():
+    """Arriba la version, abajo el periodo. Antes iba todo junto dentro de una
+    celda —«Agosto · ACTUAL Final»— partido en dos renglones que por separado no
+    significan nada."""
+    wb, ws = _hoja([_dos_lineas()])
+    assert [ws.cell(4, i).value for i in range(1, 5)] == [
+        "CUENTA", "Actual", "Budget", "Variance"]
+    assert [ws.cell(5, i).value for i in range(2, 5)] == ["Agosto", "Agosto", None]
+    # Y la tabla arranca una fila mas abajo.
+    assert ws.cell(6, 1).value == "Rooms"
+
+
+def test_sin_periodos_la_cabecera_NO_gana_una_fila_en_blanco():
+    """⚠️ Un cuadro sin cortes —el mapeo de cuentas, los anexos— no tiene por
+    que crecer una fila. Y hay macros de quien ya usa estos archivos que buscan
+    la cabecera donde siempre estuvo."""
+    wb, ws = _hoja()
+    assert ws.cell(4, 1).value == "ACCOUNT DESCRIPTION"
+    assert ws.cell(5, 1).value == "Rooms"
+
+
+def test_la_raya_GRUESA_separa_los_bloques():
+    """Sin ella, nueve columnas de montos son nueve columnas de montos: no se ve
+    donde termina el mes y empieza el acumulado.
+
+    ⚠️ Baja por TODAS las filas. Una raya que se corta debajo del encabezado no
+    separa nada.
+    """
+    wb, ws = _hoja([_dos_lineas()])
+    for fila in (4, 5, 6, 7):
+        assert ws.cell(fila, 2).border.left.style == "medium", \
+            f"la fila {fila} perdio la raya del bloque"
+    # Y las columnas de adentro del bloque se quedan finas.
+    assert ws.cell(6, 3).border.left.style == "thin"
+
+
+def test_la_cabecera_es_CLARA_con_letra_oscura():
+    """Owner: *«no se si ese azul funciona, podrias quizas bajarle el tono un
+    poco para que se vea mas nitido»*.
+
+    ⚠️ A 10 pt el blanco sobre color pierde definicion — es justo lo que se lee
+    como «no se ve nitido». La referencia que mando es cabecera clara con el
+    rotulo en azul y el periodo en negro.
+    """
+    wb, ws = _hoja([_dos_lineas()])
+    assert _relleno(ws.cell(4, 2)) == C["cab_tabla"]
+    assert ws.cell(4, 2).font.color.rgb[-6:] == C["cab_texto"]
+    assert ws.cell(5, 2).font.color.rgb[-6:] == C["cab_sub"]
+    # Claro de verdad: el relleno tiene que ser mas claro que la banda de total.
+    assert C["cab_tabla"] > C["banda_total"]
+
+
+def test_NINGUNA_hoja_baja_con_la_cuadricula_de_Excel():
+    """Owner: *«quitar el grid de la vista de excel en todas las tabs»*.
+
+    El cuadro ya trae sus propias rayas; encima la cuadricula del programa, que
+    sigue hasta el borde de la pantalla, hace que la tabla no tenga fin.
+    """
+    wb, _ = _hoja([_dos_lineas(), {**_cuadro(), "hoja": "Otra", "titulo": "Otro"}])
+    for nombre in wb.sheetnames:
+        assert wb[nombre].sheet_view.showGridLines is False, \
+            f"la hoja «{nombre}» baja con la cuadricula"

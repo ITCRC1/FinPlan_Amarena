@@ -37,7 +37,7 @@ tabs (allocations tiene 12 cuadros, cash flow directo 6) bajan todo de una.
 from __future__ import annotations
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 
@@ -117,6 +117,12 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
     # La cabecera de verdad está DOS FILAS más abajo y en las MISMAS columnas.
     # Con la franja alineada a esas columnas, cada estadística cae encima de su
     # corte y de su versión sin que haya que rotularla otra vez.
+    # ⚠️ La raya que abre cada bloque baja también por la franja: si se cortara
+    # antes de las estadísticas, el mes y el acumulado quedarían separados en la
+    # tabla y pegados arriba.
+    cols = cuadro.get("columnas") or []
+    grupo = lambda i: cols[i - 1] if 0 < i <= len(cols) else {}   # noqa: E731
+
     fila = desde
     c = ws.cell(fila, 1, "ESTADÍSTICAS")
     c.font = font(bold=True, size=9, color=C["cab_titulo"])
@@ -125,7 +131,7 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
     for i in range(2, len(columnas) + 2):
         c = ws.cell(fila, i)
         c.fill = fill(C["banda_seccion"])
-        c.border = border(sides="all_top")
+        c.border = _con_grupo(border(sides="all_top"), grupo(i))
     fila += 1
 
     for f in filas:
@@ -134,6 +140,8 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
         c.font = font(size=9)
         c.alignment = align("left")
         c.border = border()
+        for i in range(2, len(columnas) + 2):
+            ws.cell(fila, i).border = _con_grupo(border(), grupo(i))
         # El formato lo decide el rótulo: la ocupación es un porcentaje y la
         # tarifa son dólares. Mandarlo por fila desde la pantalla sería una
         # tercera copia de la misma decisión.
@@ -148,7 +156,7 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
             celda.number_format = FORMATOS.get(fmt, FORMATOS["usd"])
             celda.alignment = align("right")
             celda.font = font(size=9)
-            celda.border = border()
+            celda.border = _con_grupo(border(), grupo(i))
         fila += 1
     return fila + 1          # una en blanco antes del cuadro
 
@@ -199,6 +207,35 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
     return "=" + "+".join(f"{letra}{primera + k}" for k in suma)
 
 
+#: El grosor de la raya que separa un bloque de columnas del siguiente.
+#:
+#: Owner, 2026-09-30: *«se identifica con una línea gruesa lo que es Agosto,
+#: YTD Agosto y Full Year»*. Sin ella, nueve columnas de montos son nueve
+#: columnas de montos: no se ve dónde termina el mes y empieza el acumulado.
+_GRUESA = Side(style="medium", color="000000")
+
+
+def _borde_cabecera(col: dict, arriba: bool, abajo: bool) -> Border:
+    fino = Side(style="thin", color=C["raya"])
+    return Border(
+        left=_GRUESA if col.get("abre_grupo") else fino,
+        right=fino,
+        top=_GRUESA if arriba else None,
+        bottom=_GRUESA if abajo else None,
+    )
+
+
+def _con_grupo(base: Border, col: dict) -> Border:
+    """El mismo borde de la celda, con la raya gruesa del grupo a la izquierda.
+
+    ⚠️ Se aplica a TODAS las filas y no sólo a la cabecera: una raya que se
+    corta debajo del encabezado no separa nada."""
+    if not col.get("abre_grupo"):
+        return base
+    return Border(left=_GRUESA, right=base.right, top=base.top,
+                  bottom=base.bottom)
+
+
 def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     columnas = cuadro.get("columnas") or []
     filas = cuadro.get("filas") or []
@@ -213,15 +250,38 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     # Las constantes de fila eran fijas; con la franja delante, escribir la
     # tabla en la fila 4 la pisaría.
     FILA_CABECERA = _kpis(ws, cuadro, FILA_SUBTITULO + 2)
-    PRIMERA_FILA = FILA_CABECERA + 1
+
+    # ── La cabecera, en DOS líneas ───────────────────────────────────────
+    #
+    # Owner, 2026-09-30, con una captura de cómo la quiere: *«esta vista se ve
+    # muy cargada y está en la misma celda… podrás ver que se usan 2 celdas»*.
+    #
+    # Arriba la versión —«Actual», «Budget», «Variance»— y abajo el período
+    # —«Agosto», «YTD Agosto», «Full Year»—. Antes iba todo junto y envuelto en
+    # una celda: «Agosto · ACTUAL Final» en dos renglones que no significan
+    # nada por separado.
+    #
+    # ⚠️ La segunda fila sólo existe si alguna columna trae `sub`. Un cuadro sin
+    # períodos —el mapeo de cuentas, los anexos— no tiene por qué ganar una fila
+    # en blanco.
+    dos_lineas = any((col.get("sub") or "").strip() for col in columnas)
+    FILA_SUB = FILA_CABECERA + 1 if dos_lineas else FILA_CABECERA
+    PRIMERA_FILA = FILA_SUB + 1
 
     for i, col in enumerate(columnas, start=1):
+        # La primera columna es la etiqueta de la fila; el resto son números.
+        pos = "left" if i == 1 else "center"
         c = ws.cell(FILA_CABECERA, i, col.get("label", ""))
         c.fill = fill(C["cab_tabla"])
-        c.font = font(bold=True, color=C["white"], size=10)
-        # La primera columna es la etiqueta de la fila; el resto son números.
-        c.alignment = align("left" if i == 1 else "center", wrap=True)
-        c.border = border()
+        c.font = font(bold=True, color=C["cab_texto"], size=10)
+        c.alignment = align(pos, wrap=True)
+        c.border = _borde_cabecera(col, arriba=True, abajo=not dos_lineas)
+        if dos_lineas:
+            c2 = ws.cell(FILA_SUB, i, (col.get("sub") or "").strip() or None)
+            c2.fill = fill(C["cab_tabla"])
+            c2.font = font(bold=True, color=C["cab_sub"], size=9.5)
+            c2.alignment = align(pos, wrap=True)
+            c2.border = _borde_cabecera(col, arriba=False, abajo=True)
 
     detalle = 0
     for j, f in enumerate(filas):
@@ -290,16 +350,17 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
             celda.alignment = align("left" if isinstance(valor, str) else "right")
             celda.font = font(bold=es_total or es_seccion,
                               color=C["tinta"])
+            col = columnas[i - 1]
             if es_total:
                 # ⚠️ El negro sólo en los extremos. En todas las celdas, el
                 # total saldría con la rejilla negra y parecería otra tabla.
-                celda.border = marco_total(False, i == ultima_col)
+                celda.border = _con_grupo(marco_total(False, i == ultima_col), col)
                 celda.fill = fill(C["banda_total"])
             elif es_seccion:
-                celda.border = border(sides="all_top")
+                celda.border = _con_grupo(border(sides="all_top"), col)
                 celda.fill = fill(C["banda_seccion"])
             else:
-                celda.border = border()
+                celda.border = _con_grupo(border(), col)
                 if cebra:
                     celda.fill = fill(C["cebra"])
 
@@ -311,8 +372,9 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
                 celda = ws.cell(fila, i)
                 celda.fill = fill(C["banda_total"] if es_total
                                   else C["banda_seccion"])
-                celda.border = (marco_total(False, i == n_col) if es_total
-                                else border(sides="all_top"))
+                celda.border = _con_grupo(
+                    marco_total(False, i == n_col) if es_total
+                    else border(sides="all_top"), columnas[i - 1])
 
     set_col_widths(ws, {i: (col.get("ancho") or (38 if i == 1 else 14))
                         for i, col in enumerate(columnas, start=1)})
@@ -340,6 +402,12 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     ws.page_margins.left = ws.page_margins.right = 0.3
     ws.page_margins.top = ws.page_margins.bottom = 0.4
+    # ⚠️ **Sin la cuadrícula de Excel** (owner, 2026-09-30: *«quitar el grid de
+    # la vista de excel en todas las tabs»*). El cuadro ya trae sus propias
+    # rayas; encima la cuadrícula del programa, que sigue hasta el borde de la
+    # pantalla, hace que la tabla no tenga fin y que todo se vea igual de
+    # importante.
+    ws.sheet_view.showGridLines = False
     # El área de impresión se acota a lo escrito: sin esto, una celda tocada
     # por accidente lejos de la tabla arrastra hojas en blanco.
     ultima = PRIMERA_FILA + max(0, len(filas)) - 1
@@ -416,6 +484,7 @@ def _indice(wb: Workbook, cuadros: list[dict], nombres: list[str]) -> None:
                                                height=170)
     set_col_widths(ws, {1: 5, 2: 34, 3: 88})
     ws.freeze_panes = ws.cell(4, 1)
+    ws.sheet_view.showGridLines = False    # también acá: son TODAS las hojas
     # ⚠️ El índice también se imprime, y sin esto salía partido en DOS hojas:
     # la descripción, que es la columna ancha, caía sola en la segunda. Un
     # índice en dos papeles no es un índice.

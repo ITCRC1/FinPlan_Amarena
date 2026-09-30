@@ -1,7 +1,7 @@
 import type { DetalleCelda, Scenario } from "@/lib/api";
 import type { Cuadro, ColumnaCuadro, FilaCuadro } from "@/lib/exportCuadro";
-import { celdasDe, cortesDe, parDe, suma, vistaDe,
-         type Corte, type Vista } from "@/lib/tresCortes";
+import { celdasDe, cortesDe, parDe, ROTULO_VAR, rotulosDeVersion, suma,
+         vistaDe, type Corte, type Vista } from "@/lib/tresCortes";
 
 /**
  * El checkbook en los TRES cortes: mes, YTD y full year, con su varianza.
@@ -84,10 +84,8 @@ export function cuadroCheckbookCortes(
                         escenarios);
   const cortes = cortesDe(mes);
   const doce = Array.from({ length: 12 }, (_, i) => i);
-  const etiqueta = (sid: string) => {
-    const s = escenarios.find(x => x.id === sid);
-    return s ? `${s.type} ${s.version}` : sid.slice(0, 8);
-  };
+  /** El rótulo corto de cada versión: «Actual», «Budget», «Forecast». */
+  const corto = rotulosDeVersion(todas, escenarios);
 
   /** El id de una versión ya resuelta por la vista. */
   const sidDe = (vi: number) => todas[vi]?.scenario_id ?? "";
@@ -138,13 +136,17 @@ export function cuadroCheckbookCortes(
                   + (parDe(x, todas, escenarios, vista) ? 1 : 0), 0);
       const par = parDe(c, todas, escenarios, vista);
       return [
+        // ⚠️ DOS líneas y la raya gruesa que abre el bloque: la misma cabecera
+        // del P&L (owner, 2026-09-30).
         ...vista.columnas.map((_c, col) => ({
-          label: `${c.titulo} · ${etiqueta(idDe(col, ci))}`,
+          label: corto(idDe(col, ci)),
+          sub: c.titulo,
+          ...(col === 0 ? { abre_grupo: true } : {}),
           ancho: 15, formato: "usd2" as const })),
         // ⚠️ La variación baja como FÓRMULA (owner, 2026-09-30). El par lo da
         // `parDe`, que en el año completo devuelve Forecast contra Budget.
         ...(par
-          ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: "usd2" as const,
+          ? [{ label: ROTULO_VAR, ancho: 15, formato: "usd2" as const,
                ...(colDe(par[0], ci, base) !== null && colDe(par[1], ci, base) !== null
                  ? { resta: [colDe(par[0], ci, base)!,
                              colDe(par[1], ci, base)!] as [number, number] }

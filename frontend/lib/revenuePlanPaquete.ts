@@ -6,7 +6,8 @@ import {
   ES_PROMEDIO, filasDeIngresos, totalDeIngresos, valorDeIngresos,
   type FuenteIngresos, type VistaIngresos,
 } from "@/lib/revenuePlanCortes";
-import { celdasDe, cortesDe, parDe, vistaDe } from "@/lib/tresCortes";
+import { celdasDe, cortesDe, parDe, ROTULO_VAR, rotulosDeVersion,
+         vistaDe } from "@/lib/tresCortes";
 
 /**
  * Las ocho hojas del armado de ingresos, listas para cualquier archivo.
@@ -146,10 +147,8 @@ export function cuadroDelArmado(
   const { todas, vista } = vistaDelArmado(a);
   const idDe = (col: number, ci: number) =>
     todas[vista.vi(col, ci)]?.scenario_id ?? "";
-  const etiqueta = (sid: string) => {
-    const e = a.escenarios.find(x => x.id === sid);
-    return e ? `${e.type} ${e.version}` : "";
-  };
+  /** El rótulo corto de cada versión: «Actual», «Budget», «Forecast». */
+  const corto = rotulosDeVersion(todas, a.escenarios);
   return {
     titulo: `${rotuloVista} · mes, YTD y full year`,
     subtitulo: `${a.rotuloMes} — en el full year la primera columna es el `
@@ -166,11 +165,14 @@ export function cuadroDelArmado(
       { label: cual === "canales" ? "Canal" : "Tipo de habitación",
         ancho: 34, formato: "texto" },
       ...cortes.flatMap((c, ci) => [
+        // ⚠️ DOS líneas y la raya gruesa que abre el bloque: la misma cabecera
+        // del P&L y de los checkbooks (owner, 2026-09-30).
         ...vista.columnas.map((_c, col) => ({
-          label: `${c.titulo} · ${etiqueta(idDe(col, ci))}`,
+          label: corto(idDe(col, ci)), sub: c.titulo,
+          ...(col === 0 ? { abre_grupo: true } : {}),
           ancho: 15, formato: fmt })),
         ...(parDe(c, todas, a.escenarios, vista)
-          ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: fmt }] : []),
+          ? [{ label: ROTULO_VAR, ancho: 15, formato: fmt }] : []),
       ]),
     ],
     filas,

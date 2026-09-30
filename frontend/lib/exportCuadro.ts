@@ -20,7 +20,22 @@ import { BASE, getToken } from "@/lib/api";
 export type FormatoCol = "usd" | "usd2" | "pct" | "num" | "num1" | "texto";
 
 export interface ColumnaCuadro {
+  /** La primera línea de la cabecera: la versión —«Actual», «Budget»,
+   *  «Variance», «Forecast»—. */
   label: string;
+  /**
+   * La SEGUNDA línea: el período —«Agosto», «YTD Agosto», «Full Year»—.
+   *
+   * Owner, 2026-09-30, con una captura de cómo la quiere: *«esta vista se ve
+   * muy cargada y está en la misma celda… podrás ver que se usan 2 celdas»*.
+   * Antes iba todo junto —«Agosto · ACTUAL Final»— envuelto dentro de una
+   * celda, partido en dos renglones que por separado no significan nada.
+   */
+  sub?: string;
+  /** Esta columna ABRE un bloque: lleva la raya gruesa a su izquierda, de la
+   *  cabecera al pie. Owner: *«se identifica con una línea gruesa lo que es
+   *  Agosto, YTD Agosto y Full Year»*. */
+  abre_grupo?: boolean;
   /** Ancho en caracteres. Sin esto, 38 para la primera columna y 14 para el resto. */
   ancho?: number;
   formato?: FormatoCol;

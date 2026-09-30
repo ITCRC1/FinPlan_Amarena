@@ -52,7 +52,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDetalleDeCelda, type DetalleCelda, type Scenario } from "@/lib/api";
 import { anchoDelCorte, cortesDelCheckbook,
          cuadroCheckbookCortes } from "@/lib/checkbookCortes";
-import { vistaDe } from "@/lib/tresCortes";
+import { ROTULO_VAR, vistaDe } from "@/lib/tresCortes";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -325,13 +325,15 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                       ...(i === 0 ? { ...TDL, textAlign: "left", minWidth: 250 }
                                   : { ...TD, minWidth: 96 }),
                       position: "static", fontWeight: 700,
-                      fontStyle: col.label.endsWith("· Var") ? "italic" : undefined,
+                      fontStyle: col.label === ROTULO_VAR ? "italic" : undefined,
                       color: "var(--text-secondary)",
                       borderBottom: "2px solid var(--text-primary)",
                     }}>
                       {/* El corte ya está en la fila de arriba; acá va sólo la
                           versión, o «Var». */}
-                      {i === 0 ? "Cuenta" : col.label.split(" · ").slice(1).join(" · ")}
+                      {/* El período ya está en la fila de arriba; acá va sólo
+                          la versión. Ver `ColumnaCuadro.sub`. */}
+                      {i === 0 ? "Cuenta" : col.label}
                     </th>
                   ))}
                 </tr>
@@ -359,7 +361,7 @@ export default function Checkbooks({ escenarios, scenarioIds, deptos,
                         {f.label}
                       </td>
                       {(f.valores as (number | null)[]).map((v, j) => {
-                        const esVar = cuadro.columnas[j + 1]?.label.endsWith("· Var");
+                        const esVar = cuadro.columnas[j + 1]?.label === ROTULO_VAR;
                         const abre = cortes.some((c, ci) => ci > 0 && j === cortes
                           .slice(0, ci).reduce(
                             (a, x) => a + anchoDelCorte(x, versiones, escenarios,

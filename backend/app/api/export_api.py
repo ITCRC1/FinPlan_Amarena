@@ -31,6 +31,18 @@ MAX_FILAS = 20_000       # techo de cordura: un cuadro más grande es un error
 
 class Columna(BaseModel):
     label: str = ""
+    #: La SEGUNDA línea de la cabecera: el período —«Agosto», «YTD Agosto»,
+    #: «Full Year»— debajo de la versión.
+    #:
+    #: Owner, 2026-09-30, con una captura: *«esta vista se ve muy cargada y está
+    #: en la misma celda… podrás ver que se usan 2 celdas»*. Antes iba todo
+    #: junto —«Agosto · ACTUAL Final»— envuelto en una celda, en dos renglones
+    #: que por separado no significan nada.
+    sub: str | None = None
+    #: Esta columna ABRE un bloque: lleva la raya gruesa a su izquierda, de la
+    #: cabecera al pie. Owner: *«se identifica con una línea gruesa lo que es
+    #: Agosto, YTD Agosto y Full Year»*.
+    abre_grupo: bool = False
     ancho: float | None = None
     formato: str = "usd"
     #: Esta columna es una RESTA de otras dos: `[i, j]`, base 1 sobre

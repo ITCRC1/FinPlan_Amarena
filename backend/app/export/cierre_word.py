@@ -397,6 +397,19 @@ def _tabla(doc, cuadro: dict) -> None:
         r.font.size = Pt(7.5)
         r.font.bold = True
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        # ⚠️ La segunda línea —el período— va en su propio renglón DENTRO de la
+        # celda, no pegada al rótulo. El Word no tiene una segunda fila de
+        # encabezado como el Excel, pero el corte tiene que decirse igual: sin
+        # él, tres bloques de columnas con los mismos nombres no se distinguen
+        # (owner, 2026-09-30).
+        sub = str(col.get("sub") or "").strip()
+        if sub:
+            salto = p.add_run()
+            salto.add_break()
+            r2 = p.add_run(sub)
+            r2.font.size = Pt(7)
+            r2.font.bold = False
+            r2.font.color.rgb = RGBColor(0xDC, 0xE4, 0xEC)
         _sombra(celda, "1B3A5C")
         # La banda del encabezado ya separa; la regla la cierra por abajo.
         _regla(celda, "bottom", 8, "1B3A5C")

@@ -452,12 +452,27 @@ def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
         p0 = c.paragraphs[0]
         p0.paragraph_format.line_spacing = 1.0
         p0.paragraph_format.space_after = Pt(0)
-        r = p0.add_run(h)
+        # ── El encabezado, en DOS líneas ──────────────────────────────────
+        #
+        # Owner, 2026-09-30, con una captura: *«esta vista se ve muy cargada y
+        # está en la misma celda»*. Arriba la versión en una palabra —«Actual»,
+        # «Budget», «Variación»— y abajo, chiquito, cuál es —«Final 2026»—.
+        # Antes iba «ACTUAL Final 2026» de corrido, envuelto en la celda.
+        rotulo, abajo = h if isinstance(h, tuple) else (h, "")
+        r = p0.add_run(rotulo)
         r.bold = True
         r.font.name = FUENTE
         r.font.size = Pt(CUERPO_TABLA)
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
         _fuente_en_todo(r._element.get_or_add_rPr())
+        if abajo:
+            salto = p0.add_run()
+            salto.add_break()
+            r2 = p0.add_run(abajo)
+            r2.font.name = FUENTE
+            r2.font.size = Pt(CUERPO_TABLA - 1)
+            r2.font.color.rgb = RGBColor(0xD2, 0xDD, 0xD6)
+            _fuente_en_todo(r2._element.get_or_add_rPr())
         # El encabezado se alinea como su columna: si el título va centrado y el
         # número a la derecha, la columna se lee torcida.
         p0.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i
@@ -642,7 +657,16 @@ def _cuadro_corte(doc, titulo: str, act: dict, bud: dict, fcs: dict | None,
     # quinta columna repetía el mismo número al lado: «$673,888.06» dos veces en
     # la misma fila. Cuando la principal y el forecast son la misma versión, la
     # quinta no va.
-    cabezas = ["CUENTA", rot_a, rot_b, "Variación", rot_c]
+    # ⚠️ El rótulo se parte en dos: la palabra que dice QUÉ es la columna, y
+    # debajo cuál versión. `rot_a` llega como «ACTUAL Final 2026».
+    def _dos(rot: str, palabra: str) -> tuple[str, str]:
+        resto = rot.split(" ", 1)[1] if " " in rot else ""
+        return (palabra, resto)
+
+    cabezas = ["CUENTA", _dos(rot_a, "Forecast" if (fcs is not None and fcs is act)
+                              else "Actual"),
+               _dos(rot_b, "Budget"), "Variación",
+               _dos(rot_c, "Forecast") if rot_c else ""]
     anchos = [5.3, 2.7, 2.7, 3.4, 2.6]
     if fcs is None or fcs is act:
         cabezas, anchos = cabezas[:4], [6.2, 3.2, 3.2, 4.1]

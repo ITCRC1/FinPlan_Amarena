@@ -48,7 +48,19 @@ C = {
     #: formato a todos de rebote. El azul de `navy_mid` (2D5A9E) es el azul
     #: vivo de una plantilla de oficina; al lado de una banda pastel canta.
     "cab_titulo":  "2E4A62",     #: la banda del título, pizarra profunda
-    "cab_tabla":   "44637F",     #: la cabecera de columnas, azul apagado
+    #: ── La cabecera de columnas ──────────────────────────────────────────
+    #:
+    #: Owner, 2026-09-30, con una captura de cómo la quiere: *«no sé si ese azul
+    #: funciona, podrías quizás bajarle el tono un poco para que se vea más
+    #: nítido»*.
+    #:
+    #: ⚠️ **Se invirtió: fondo claro y letra oscura.** Era un azul medio con la
+    #: letra en blanco, y a 10 pt el blanco sobre color pierde definición —es
+    #: justo lo que el owner llama «no se ve nítido»—. La referencia que mandó
+    #: es cabecera clara con el rótulo en azul y el período en negro.
+    "cab_tabla":   "EDF1F6",     #: el relleno de la cabecera, casi papel
+    "cab_texto":   "1F3D5C",     #: el rótulo de la versión, azul de tinta
+    "cab_sub":     "2B2B2B",     #: el período, debajo, en negro
     #: El relleno de las filas de TOTAL en los cuadros que se bajan.
     #:
     #: Owner, 2026-09-30: *«quiero que todos los que son totales bajen con el
