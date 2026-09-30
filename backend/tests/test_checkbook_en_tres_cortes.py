@@ -199,3 +199,25 @@ def test_el_current_lo_marca_el_BACKEND_no_el_nombre():
     # Y si no hay ninguno marcado, se usa el elegido en vez de dejar la columna
     # vacia.
     assert "|| tres.forecast || \"\"" in pag
+
+
+# ═════════ Formulas de verdad, 2026-09-30 ════════════════════════════════════
+
+def test_el_SUBTOTAL_del_checkbook_es_la_suma_de_lo_que_se_ve():
+    """Aca el subtotal SI es la suma de las filas que el cuadro acaba de
+    escribir, asi que baja como `=X7+X8+X9`.
+
+    ⚠️ En el P&L no lo es: ahi el total lo calcula el motor y el cuadro puede no
+    mostrar todos sus componentes. El exportador igual comprueba la suma contra
+    el numero antes de escribir la formula, asi que declararlo no puede cambiar
+    ninguna cifra.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "suma_de: detalle," in src
+    assert "suma_de: subtotales," in src
+
+
+def test_la_VARIANZA_del_checkbook_baja_como_FORMULA():
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "resta: [colDe(par[0], ci, base)!," in src
+    assert "const colDe = (vi: number, ci: number, base: number)" in src

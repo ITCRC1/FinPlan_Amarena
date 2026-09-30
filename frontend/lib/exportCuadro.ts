@@ -24,6 +24,18 @@ export interface ColumnaCuadro {
   /** Ancho en caracteres. Sin esto, 38 para la primera columna y 14 para el resto. */
   ancho?: number;
   formato?: FormatoCol;
+  /**
+   * Esta columna es la RESTA de otras dos: `[a, b]`, índices base 0 sobre
+   * `columnas`. En el Excel la celda sale como `=Ca-Cb`, no como el número.
+   *
+   * Owner, 2026-09-30, auditando el archivo: *«los subtotales, totales y
+   * variaciones deben ser fórmulas reales»*.
+   *
+   * ⚠️ Un Excel de junta se toca: alguien corrige un actual en una celda y
+   * espera que la variación se mueva con él. Con el número puesto no se mueve,
+   * y la hoja queda diciendo dos cosas distintas sin que nada avise.
+   */
+  resta?: [number, number];
 }
 
 export interface FilaCuadro {
@@ -41,6 +53,17 @@ export interface FilaCuadro {
   es_seccion?: boolean;
   /** Pisa el formato de la columna: para cuadros que mezclan unidades por fila. */
   formato?: FormatoCol;
+  /**
+   * Esta fila es la SUMA de otras: los ordinales (base 0) dentro de `filas`.
+   *
+   * ⚠️ La fórmula se escribe **sólo si da lo mismo que el número**. El total
+   * del P&L lo calcula el motor, no la pantalla: si el cuadro no muestra todos
+   * sus componentes —o los muestra netos de un reparto— `=SUMA(...)` daría otra
+   * cifra y el archivo diría algo que el sistema no dice. Cuando no cuadra se
+   * deja el número y se pierde la fórmula, que es el lado correcto en el que
+   * equivocarse.
+   */
+  suma_de?: number[];
   /**
    * `null` deja la celda vacía — no es lo mismo que un cero.
    *

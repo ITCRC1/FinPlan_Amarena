@@ -110,22 +110,46 @@ export function cuadroCheckbookCortes(
     return [...out.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   })();
 
+  /** En qué columna está A LA VISTA la versión `vi` del corte `ci`, o `null` si
+   *  ninguna la muestra. La variación apunta a las columnas que se ven, no a
+   *  los índices de `versiones`: en el año completo la primera columna muestra
+   *  el Forecast Current, y una fórmula que reste otras dos columnas diría algo
+   *  que el cuadro no dice. */
+  const colDe = (vi: number, ci: number, base: number) => {
+    const sid = versiones[vi]?.scenario_id ?? "";
+    const j = versiones.findIndex((_v, k) => idDe(k, ci) === sid);
+    return j < 0 ? null : base + j;
+  };
+
   const columnas: ColumnaCuadro[] = [
     { label: "Cuenta", ancho: 40, formato: "texto" },
-    ...cortes.flatMap((c, ci) => [
-      ...versiones.map((_v, vi) => ({
-        label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
-        ancho: 15, formato: "usd2" as const })),
-      ...(parDe(c, versiones, escenarios)
-        ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: "usd2" as const }]
-        : []),
-    ]),
+    ...cortes.flatMap((c, ci) => {
+      const base = 1 + cortes.slice(0, ci).reduce(
+        (a, x) => a + versiones.length + (parDe(x, versiones, escenarios) ? 1 : 0), 0);
+      const par = parDe(c, versiones, escenarios);
+      return [
+        ...versiones.map((_v, vi) => ({
+          label: `${c.titulo} · ${etiqueta(idDe(vi, ci))}`,
+          ancho: 15, formato: "usd2" as const })),
+        // ⚠️ La variación baja como FÓRMULA (owner, 2026-09-30). El par lo da
+        // `parDe`, que en el año completo devuelve Forecast contra Budget.
+        ...(par
+          ? [{ label: `${c.titulo} · Var`, ancho: 15, formato: "usd2" as const,
+               ...(colDe(par[0], ci, base) !== null && colDe(par[1], ci, base) !== null
+                 ? { resta: [colDe(par[0], ci, base)!,
+                             colDe(par[1], ci, base)!] as [number, number] }
+                 : {}) }]
+          : []),
+      ];
+    }),
   ];
 
   const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
     celdasDe(cortes, versiones, escenarios, de);
 
   const filas: FilaCuadro[] = [];
+  /** Los ordinales de los subtotales, para que el TOTAL sea su suma. */
+  const subtotales: number[] = [];
   for (const [code, g] of grupos) {
     filas.push({
       label: g.nombre ? `${code} · ${g.nombre}` : code,
@@ -143,8 +167,16 @@ export function cuadroCheckbookCortes(
         valores: celdas((vi, meses, ci) => suma(serie(f, vi, ci), meses)),
       });
     }
+    // ⚠️ Acá el subtotal SÍ es la suma de lo que se ve —las mismas `g.filas`
+    // que se acaban de escribir—, así que baja como `=X7+X8+X9`. En el P&L no
+    // lo es: ahí el total lo calcula el motor y el cuadro puede no mostrar
+    // todos sus componentes. El exportador igual lo comprueba antes de escribir
+    // la fórmula, así que declararlo de más no cambia ningún número.
+    const detalle = orden.map((_f, k) => filas.length - orden.length + k);
+    subtotales.push(filas.length);
     filas.push({
       label: `Subtotal ${code}`, es_total: true, nivel: 1,
+      suma_de: detalle,
       valores: celdas((vi, meses, ci) =>
         g.filas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
     });
@@ -152,6 +184,7 @@ export function cuadroCheckbookCortes(
   }
   filas.push({
     label: "TOTAL", es_total: true, nivel: 0,
+    suma_de: subtotales,
     valores: celdas((vi, meses, ci) =>
       vivas.reduce((a, f) => a + suma(serie(f, vi, ci), meses), 0)),
   });

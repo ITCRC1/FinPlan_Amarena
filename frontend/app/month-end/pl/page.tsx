@@ -43,7 +43,8 @@ import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import TresCortes from "./TresCortes";
 import {
-  AMBITOS, cortesDe, cuadroTresCortes, estadisticasDeLosCortes,
+  AMBITOS, KPIS, celdasDe, cortesDe, cuadroTresCortes, esDelClub,
+  estadisticasDeLosCortes, parDe,
 } from "@/lib/tresCortes";
 import { compararDetalle, indiceDe, sumaContra } from "@/lib/auditoriaCompara";
 import Auditoria from "./Auditoria";
@@ -2210,27 +2211,39 @@ export default function MonthEndPLPage() {
     } catch {
       return null;   // sin estadísticas el documento sale igual; sin documento, no
     }
-    const planas = porCorte.flat();
-    if (!planas.some(Boolean)) return null;
-    const fila = (label: string, get: (e: EstadisticasCierre) => number | null) =>
-      ({ label, valores: planas.map(e => (e ? get(e) : null)) });
-    const hayClub = planas.some(e => e && e.club_pagando != null);
+    if (!porCorte.flat().some(Boolean)) return null;
+
+    // ── UNA celda por cada COLUMNA del cuadro ────────────────────────────
+    //
+    // Owner, 2026-09-30, en la auditoría del Excel: la franja tiene que caer
+    // sobre las mismas columnas que la tabla de abajo.
+    //
+    // ⚠️ Antes emitía `cortes × versiones` y la tabla lleva además una columna
+    // de variación por corte. Con una columna de menos por corte, la franja se
+    // iba corriendo: el ADR del Budget del mes caía encima de la variación, y
+    // para el full year el desfase ya era de dos columnas. Se leía como si
+    // fueran los números de otra versión, que es la peor forma de estar mal.
+    //
+    // `celdasDe` es la MISMA función que arma las celdas del cuerpo: mientras
+    // las dos la usen, no hay forma de que se desalineen otra vez.
+    const versiones = usadas.map(u => ({ scenario_id: u.id }));
+    const viDe = (vi: number, ci: number) => {
+      if (ci !== 2 || vi !== 0 || !actualFullPL) return vi;
+      const j = versiones.findIndex(v => v.scenario_id === actualFullPL);
+      return j >= 0 ? j : vi;
+    };
     return {
-      kpis_columnas: cortes.flatMap(c =>
-        usadas.map(u => `${c.titulo} · ${etiqueta(u.id)}`)),
-      kpis: [
-        fila("Total available Rooms", e => e.rooms_available),
-        fila("Total Rooms Occupied", e => e.rooms_occupied),
-        fila("Total Guests", e => e.guests),
-        fila("% Occupancy", e => e.occupancy_pct),
-        fila("Average Daily Room Only", e => e.adr),
-        fila("Total RevPAR", e => e.revpar),
-        ...(hayClub ? [
-          fila("Socios pagando (Club)", e => e.club_pagando),
-          fila("Socios al cierre del mes", e => e.club_pagando_cierre),
-          fila("Cuota promedio por socio", e => e.club_cuota_promedio),
-        ] : []),
-      ],
+      kpis_columnas: cortes.flatMap((c, ci) => [
+        ...versiones.map((_v, vi) =>
+          `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`),
+        ...(parDe(c, versiones, escenarios) ? [`${c.titulo} · Variance`] : []),
+      ]),
+      kpis: KPIS.map(k => ({
+        label: k.rotulo,
+        valores: celdasDe(cortes, versiones, escenarios,
+          (vi, _m, ci) => k.calc(porCorte[ci]?.[viDe(vi, ci)] ?? null)),
+      })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
+                           || f.valores.some(v => v !== null)),
     };
   }
 

@@ -30,12 +30,25 @@ C = {
     # vivo compite con los números; estos tonos se apoyan en el papel y dejan que
     # la cifra sea lo primero que se lee. Y todos pasan el contraste con texto
     # oscuro, que es lo que hace que sigan leyéndose impresos en blanco y negro.
-    "banda_seccion": "E8EDF3",   #: encabezado de sección — azul pizarra pálido
-    "banda_total":   "DCE6F1",   #: fila de total — un punto más de color
-    "raya":          "CBD5E0",   #: la rejilla fina
+    "banda_seccion": "E7EDF2",   #: encabezado de sección — azul pizarra pálido
+    "banda_total":   "D8E4EE",   #: fila de total — un punto más de color
+    "raya":          "C7D2DD",   #: la rejilla fina
     "marco":         "000000",   #: el recuadro de los totales
     "tinta":         "1A1A2E",   #: el texto de los totales
-    "cebra":         "F7F9FB",   #: la fila alterna, casi imperceptible
+    #: La fila alterna. ⚠️ Tiene que verse IMPRESA: con `F7F9FB` se adivinaba en
+    #: pantalla y en papel desaparecía, que es justo donde un checkbook de trece
+    #: columnas necesita que el ojo no se salte de renglón. Y tiene que quedar
+    #: claramente por debajo de `banda_seccion`, o una fila normal se confunde
+    #: con un encabezado de bloque.
+    "cebra":         "F2F6FA",
+    #: ── Los dos tonos de encabezado de los cuadros que se bajan ──────────
+    #:
+    #: ⚠️ Son PROPIOS y no `navy` / `navy_mid`: esos dos los usan una docena de
+    #: exportadores viejos, y bajarles la saturación acá les cambiaría el
+    #: formato a todos de rebote. El azul de `navy_mid` (2D5A9E) es el azul
+    #: vivo de una plantilla de oficina; al lado de una banda pastel canta.
+    "cab_titulo":  "2E4A62",     #: la banda del título, pizarra profunda
+    "cab_tabla":   "44637F",     #: la cabecera de columnas, azul apagado
     #: El relleno de las filas de TOTAL en los cuadros que se bajan.
     #:
     #: Owner, 2026-09-30: *«quiero que todos los que son totales bajen con el
@@ -45,7 +58,13 @@ C = {
     #:
     #: ⚠️ Claro pero VISIBLE. Un total oscuro obligaría a poner el texto en
     #: blanco y el cuadro pasaría a tener tantas bandas como bloques.
-    "total_fill":  "DCE6F1",
+    #:
+    #: ⚠️ **Es el mismo valor que `banda_total`, y tiene que seguir siéndolo.**
+    #: Son dos nombres del mismo relleno —uno viejo, uno de la paleta de junta—.
+    #: Cuando se retocó la paleta sólo se movió `banda_total` y quedaron dos
+    #: azules casi iguales conviviendo en la misma hoja. Se define abajo, fuera
+    #: del literal, para que no se puedan separar otra vez.
+    "total_fill":  "",
     "white":       "FFFFFF",
     "text_dark":   "1A1A2E",
     "text_mid":    "4A5568",
@@ -57,6 +76,10 @@ C = {
     "teal_dark":   "0D5E5E",
     "teal_light":  "E0F7F7",
 }
+
+
+#: Un solo relleno para los totales, con sus dos nombres. Ver `total_fill`.
+C["total_fill"] = C["banda_total"]
 
 
 def fill(hex_color: str) -> PatternFill:

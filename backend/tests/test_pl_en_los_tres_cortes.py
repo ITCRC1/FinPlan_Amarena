@@ -250,3 +250,53 @@ def test_la_varianza_de_la_franja_sale_de_los_numeros_CRUDOS():
     # Sin uno de los dos lados no hay resta: restar de la nada daria el valor
     # entero disfrazado de variacion.
     assert "xa === null || xb === null ? null : xa - xb" in franja
+
+
+# ═════════ Lo que se rompio y lo que se blindo, 2026-09-30 ═══════════════════
+
+def test_viDe_se_declara_ANTES_de_usarse():
+    """⚠️ Esto se cayo en produccion sin que nada lo dijera.
+
+    `viDe` —la funcion que en el ano completo pone el Forecast Current en la
+    primera columna— estaba declarada DESPUES de `columnas`, que es quien la
+    usa. Un `const` no existe hasta su linea: armar las columnas tiraba
+    «Cannot access 'viDe' before initialization», y las tres hojas del P&L
+    —Consolidado, Hotel y Club— se caian del Excel y del Word. La pantalla
+    atrapa el fallo por capitulo, asi que el archivo bajaba con tres tabs menos
+    y sin un error a la vista.
+
+    TypeScript NO lo marca: la zona muerta temporal es de ejecucion, no de
+    tipos, y `tsc --noEmit` pasaba limpio.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    cuerpo = src[src.index("export function cuadroTresCortes"):]
+    declara = cuerpo.index("const viDe = (vi: number, ci: number)")
+    usa = cuerpo.index("const columnas: ColumnaCuadro[]")
+    assert declara < usa, "viDe se usa antes de declararse: el cuadro no se arma"
+
+
+def test_la_VARIANZA_del_cuadro_baja_como_FORMULA():
+    """Owner, 2026-09-30, auditando el Excel: *«los subtotales, totales y
+    variaciones deben ser formulas reales»*.
+
+    Un Excel de junta se toca: alguien corrige un actual en una celda y espera
+    que la variacion se mueva con el. Con el numero puesto no se mueve, y la
+    hoja queda diciendo dos cosas distintas sin que nada avise.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "resta: [colDe(par[0], ci, base)!," in src
+
+
+def test_la_formula_apunta_a_la_columna_QUE_MUESTRA_cada_operando():
+    """⚠️ No al indice en `versiones`.
+
+    En el ano completo la primera columna puede estar mostrando OTRA version
+    —el Forecast Current que eligio el usuario— y entonces `=C-D` restaria dos
+    columnas que no son las del calculo. Si el operando no esta a la vista no
+    hay formula y queda el numero: una celda sin formula se puede revisar; una
+    formula que resta lo que no es, no.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const colDe = (vi: number, ci: number, base: number)" in src
+    assert "viDe(k, ci) === vi" in src
+    assert "colDe(par[0], ci, base) !== null" in src

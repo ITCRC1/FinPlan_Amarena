@@ -50,7 +50,8 @@ def _cuadro():
 def _hoja(cuadros=None):
     blob = build_cuadros_workbook(cuadros or [_cuadro()])
     wb = load_workbook(io.BytesIO(blob))
-    return wb, wb[[n for n in wb.sheetnames if "Full" in n][0]]
+    # La primera hoja es siempre el Índice; la que interesa es la siguiente.
+    return wb, wb[[n for n in wb.sheetnames if n != "Índice"][0]]
 
 
 def _relleno(celda) -> str:
@@ -162,3 +163,104 @@ def test_el_INDICE_lleva_link_a_cada_hoja():
                 if indice.cell(r, 2).hyperlink]
     assert len(con_link) >= 2, "las hojas del indice no son links"
     assert all(c.hyperlink.location.startswith("'") for c in con_link)
+
+
+# ═════════ Formulas de verdad, 2026-09-30 ════════════════════════════════════
+#
+# Owner, auditando el archivo: *«los subtotales, totales y variaciones deben ser
+# formulas reales»*. Un Excel de junta se toca: alguien corrige un actual en una
+# celda y espera que la variacion se mueva con el. Con el numero puesto no se
+# mueve, y la hoja queda diciendo dos cosas distintas sin que nada avise.
+
+def _con_var():
+    return {
+        "titulo": "Tres cortes", "hoja": "Tres cortes",
+        "columnas": [
+            {"label": "CUENTA", "formato": "texto"},
+            {"label": "Ago · ACTUAL", "formato": "usd2"},
+            {"label": "Ago · BUDGET", "formato": "usd2"},
+            {"label": "Ago · Variance", "formato": "usd2", "resta": [1, 2]},
+        ],
+        "filas": [
+            {"label": "Rooms", "valores": [100.0, 80.0, 20.0]},
+            {"label": "F&B", "valores": [40.0, 30.0, 10.0]},
+            {"label": "TOTAL", "es_total": True, "valores": [140.0, 110.0, 30.0],
+             "suma_de": [0, 1]},
+        ],
+    }
+
+
+def test_la_VARIACION_baja_como_formula():
+    wb, ws = _hoja([_con_var()])
+    # Las filas arrancan en la 5: titulo (1), subtitulo en blanco (2), (3),
+    # cabecera (4).
+    assert ws.cell(5, 4).value == "=B5-C5"
+    assert ws.cell(6, 4).value == "=B6-C6"
+
+
+def test_la_formula_apunta_a_las_columnas_QUE_SE_VEN():
+    """`resta` son indices base 0 sobre `columnas`, y la columna 0 es el rotulo
+    de la fila: [1, 2] es B menos C, no A menos B."""
+    wb, ws = _hoja([_con_var()])
+    assert ws.cell(5, 4).value.startswith("=B"), ws.cell(5, 4).value
+
+
+def test_un_TOTAL_que_CUADRA_baja_como_suma():
+    wb, ws = _hoja([_con_var()])
+    assert ws.cell(7, 2).value == "=B5+B6"
+    assert ws.cell(7, 3).value == "=C5+C6"
+
+
+def test_un_TOTAL_que_NO_cuadra_se_queda_con_SU_NUMERO():
+    """⚠️ Esto es lo que impide que el archivo diga algo que el sistema no dice.
+
+    El total del P&L lo calcula el motor, no la pantalla. Si el cuadro no
+    muestra todos sus componentes —o los muestra netos de un reparto—
+    `=SUMA(...)` daria OTRA cifra, y nadie lo notaria porque una formula se ve
+    mas confiable que un numero. Owner, 2026-09-30: *«el Consolidado NO debe
+    cambiar de valor»*.
+    """
+    cu = _con_var()
+    cu["filas"][2]["valores"] = [999.0, 110.0, 889.0]   # el motor dice 999
+    wb, ws = _hoja([cu])
+    assert ws.cell(7, 2).value == 999.0, "la formula piso el numero del motor"
+
+
+def test_sin_resta_ni_suma_de_la_celda_sigue_siendo_EL_NUMERO():
+    """La mayoria de los cuadros no declaran nada, y tienen que salir igual que
+    siempre."""
+    wb, ws = _hoja()
+    assert isinstance(ws.cell(5, 2).value, (int, float))
+
+
+def test_la_franja_de_estadisticas_NO_repite_los_rotulos_de_columna():
+    """Owner, 2026-09-30: *«necesito que esto quede super alineado»*.
+
+    ⚠️ Los repetia, y era justo lo que se veia torcido: el rotulo de una columna
+    de tres cortes —«AGOSTO 2026 · ACTUAL Final»— es mas largo que la celda, y
+    sin relleno detras Excel lo derrama sobre la vecina. En la hoja salia
+    «O 2026ACTUAL Final»: dos rotulos pisados y corridos respecto de la cabecera
+    de abajo. La cabecera de verdad esta dos filas mas abajo, en las MISMAS
+    columnas.
+    """
+    cu = _con_var()
+    cu["kpis_columnas"] = [c["label"] for c in cu["columnas"][1:]]
+    cu["kpis"] = [{"label": "Noches vendidas", "valores": [202, 124, 78]}]
+    wb, ws = _hoja([cu])
+    franja = [ws.cell(4, i).value for i in range(2, 5)]
+    assert franja == [None, None, None], f"la franja repite rotulos: {franja}"
+    assert ws.cell(4, 1).value == "ESTADÍSTICAS"
+
+
+def test_la_franja_cae_en_LAS_MISMAS_columnas_que_el_cuadro():
+    """Cada estadistica encima de su corte y de su version, incluida la columna
+    de variacion. Con una columna de menos por corte la franja se iba
+    corriendo: el ADR del Budget del mes caia encima de la variacion."""
+    cu = _con_var()
+    cu["kpis_columnas"] = [c["label"] for c in cu["columnas"][1:]]
+    cu["kpis"] = [{"label": "Noches vendidas", "valores": [202, 124, 78]}]
+    wb, ws = _hoja([cu])
+    assert [ws.cell(5, i).value for i in range(2, 5)] == [202, 124, 78]
+    # Y la cabecera del cuadro, justo debajo, con las mismas tres columnas.
+    assert [ws.cell(7, i).value for i in range(2, 5)] == [
+        "Ago · ACTUAL", "Ago · BUDGET", "Ago · Variance"]

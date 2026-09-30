@@ -152,24 +152,53 @@ def test_la_franja_y_el_cuadro_usan_LOS_MISMOS_cortes():
     assert "desde=" not in pantalla and "hasta=" not in pantalla
 
 
-def test_el_DOCUMENTO_lleva_los_tres_cortes_rotulados():
-    """Una hoja suelta se lee sola: sin el acumulado al lado, el mes no dice si
-    cambia el año. Y las columnas tienen que decir de que corte son — tres
-    bloques de versiones con el mismo nombre no se distinguen."""
+def _franja() -> str:
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
     cuerpo = pagina[pagina.index("async function franjaKpis()"):]
-    cuerpo = cuerpo[:cuerpo.index("async function bajarExcel")]
+    return cuerpo[:cuerpo.index("async function bajarExcel")]
+
+
+def test_el_DOCUMENTO_lleva_los_tres_cortes_rotulados():
+    """Una hoja suelta se lee sola: sin el acumulado al lado, el mes no dice si
+    cambia el anio. Y las columnas tienen que decir de que corte son: tres
+    bloques de versiones con el mismo nombre no se distinguen."""
+    cuerpo = _franja()
     assert "cortesDe(mes)" in cuerpo
     assert "estadisticasDeLosCortes(" in cuerpo
-    assert "${c.titulo} \u00b7 ${etiqueta(u.id)}" in cuerpo
+    assert "${c.titulo} · ${etiqueta(" in cuerpo
+
+
+def test_la_franja_cae_en_LAS_MISMAS_columnas_QUE_EL_CUADRO():
+    """Owner, 2026-09-30, auditando el Excel: la franja ESTADISTICAS tiene que
+    alinearse con la tabla, con las columnas Var en su lugar.
+
+    La franja emitia `cortes x versiones` y la tabla lleva ademas una columna de
+    variacion por corte. Con una columna de menos por corte, la franja se iba
+    corriendo: el ADR del Budget del mes caia encima de la variacion, y para el
+    full year el desfase ya era de dos columnas. Se leia como si fueran los
+    numeros de otra version, que es la peor forma de estar mal.
+
+    Se defiende que use `celdasDe`, que es la MISMA funcion que arma las celdas
+    del cuerpo. Mientras las dos la usen no hay forma de que se desalineen otra
+    vez; con dos armados paralelos, la hay.
+    """
+    cuerpo = _franja()
+    assert "celdasDe(cortes, versiones, escenarios," in cuerpo
+    assert "parDe(c, versiones, escenarios)" in cuerpo
 
 
 def test_los_dos_renglones_de_socios_van_al_documento():
     """Pagando y cierre contestan preguntas distintas, y en un YTD no coinciden.
-    El documento llevaba solo uno."""
-    pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
-    cuerpo = pagina[pagina.index("async function franjaKpis()"):]
-    cuerpo = cuerpo[:cuerpo.index("async function bajarExcel")]
+    El documento llevaba solo uno.
+
+    Desde el 2026-09-30 los renglones NO se escriben en la pantalla: salen de
+    `KPIS`, en `lib/tresCortes.ts`, que es de donde los toma tambien el cuerpo
+    del cuadro. Eran dos listas iguales en dos archivos, y con dos listas el dia
+    que se agregue un renglon en una, la otra sigue sin el y nada avisa.
+    """
+    cuerpo = _franja()
+    assert "KPIS.map(" in cuerpo, "la franja dejo de salir de la lista compartida"
+    kpis = (FRONT / "lib/tresCortes.ts").read_text(encoding="utf-8")
     for rotulo in ("Socios pagando (Club)", "Socios al cierre del mes",
                    "Cuota promedio por socio"):
-        assert rotulo in cuerpo, f"el documento no trae «{rotulo}»"
+        assert rotulo in kpis, f"el documento no trae {rotulo}"

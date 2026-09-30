@@ -104,18 +104,36 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
     if not filas or not columnas:
         return desde
 
+    # ── La franja NO repite los rótulos de columna ────────────────────────
+    #
+    # Owner, 2026-09-30: *«necesito que esto quede super alineado»*.
+    #
+    # ⚠️ Los repetía, y era exactamente lo que se veía torcido: el rótulo de una
+    # columna de tres cortes es «AGOSTO 2026 / ACTUAL Final», más largo que la
+    # celda, y sin relleno detrás Excel lo derrama sobre la celda vecina. En la
+    # hoja salía «O 2026ACTUAL Final»: dos rótulos pisados, corridos respecto de
+    # la cabecera de abajo.
+    #
+    # La cabecera de verdad está DOS FILAS más abajo y en las MISMAS columnas.
+    # Con la franja alineada a esas columnas, cada estadística cae encima de su
+    # corte y de su versión sin que haya que rotularla otra vez.
     fila = desde
     c = ws.cell(fila, 1, "ESTADÍSTICAS")
-    c.font = font(bold=True, size=9, color=C["navy_mid"])
-    for i, col in enumerate(columnas, start=2):
-        c = ws.cell(fila, i, col)
-        c.font = font(bold=True, size=9, color=C["navy_mid"])
-        c.alignment = align("right")
+    c.font = font(bold=True, size=9, color=C["cab_titulo"])
+    c.fill = fill(C["banda_seccion"])
+    c.border = border(sides="all_top")
+    for i in range(2, len(columnas) + 2):
+        c = ws.cell(fila, i)
+        c.fill = fill(C["banda_seccion"])
+        c.border = border(sides="all_top")
     fila += 1
 
     for f in filas:
         rot = str(f.get("label") or "")
-        ws.cell(fila, 1, rot).font = font(size=9)
+        c = ws.cell(fila, 1, rot)
+        c.font = font(size=9)
+        c.alignment = align("left")
+        c.border = border()
         # El formato lo decide el rótulo: la ocupación es un porcentaje y la
         # tarifa son dólares. Mandarlo por fila desde la pantalla sería una
         # tercera copia de la misma decisión.
@@ -124,12 +142,61 @@ def _kpis(ws, cuadro: dict, desde: int) -> int:
                "usd2" if ("adr" in bajo or "daily" in bajo or "revpar" in bajo
                           or "cuota" in bajo) else "num")
         for i, v in enumerate(f.get("valores") or [], start=2):
+            if i > len(columnas) + 1:
+                break
             celda = ws.cell(fila, i, v)
             celda.number_format = FORMATOS.get(fmt, FORMATOS["usd"])
             celda.alignment = align("right")
             celda.font = font(size=9)
+            celda.border = border()
         fila += 1
     return fila + 1          # una en blanco antes del cuadro
+
+
+def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
+             primera: int) -> str | None:
+    """La celda como FÓRMULA, cuando se puede decir con certeza cuál es.
+
+    Owner, 2026-09-30: *«los subtotales, totales y variaciones deben ser
+    fórmulas reales»*. Un Excel de junta se toca: alguien corrige un actual y
+    espera que la variación se mueva.
+
+    Dos formas, y sólo esas dos:
+
+    * `columnas[n].resta = [a, b]` → `=Xn-Yn`. Una variación es exactamente eso
+      y no hay margen de error.
+    * `filas[n].suma_de = [...]` → `=X7+X9+X12`.
+
+    ⚠️ **La suma se escribe SÓLO si da lo mismo que el número que venía.** El
+    total del P&L lo calcula el motor, no la pantalla: si el cuadro no muestra
+    todos sus componentes —o los muestra netos de un reparto— la suma daría
+    otra cifra y el Excel diría algo que el sistema no dice. Cuando no cuadra se
+    deja el número: se pierde la fórmula, que es el lado correcto en el que
+    equivocarse.
+    """
+    # ⚠️ Una celda VACÍA se queda vacía. Un blanco no es un cero: la fila de
+    # sección no tiene números, y `=B12-C12` sobre dos celdas vacías es un cero
+    # —que el formato esconde hoy, pero que suma si alguien copia la columna—.
+    if (f.get("valores") or [None] * i)[i - 2] is None:
+        return None
+
+    letra = get_column_letter(i)
+    resta = col.get("resta")
+    if resta and len(resta) == 2:
+        a, b = (get_column_letter(x + 1) for x in resta)
+        return f"={a}{fila}-{b}{fila}"
+
+    suma = f.get("suma_de")
+    if not suma:
+        return None
+    try:
+        valor = float((f.get("valores") or [])[i - 2])
+        partes = [float((filas[k].get("valores") or [])[i - 2]) for k in suma]
+    except (IndexError, TypeError, ValueError):
+        return None
+    if abs(sum(partes) - valor) > 0.005:
+        return None          # el motor dice otra cosa: manda el motor
+    return "=" + "+".join(f"{letra}{primera + k}" for k in suma)
 
 
 def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
@@ -140,7 +207,7 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
 
     ws = wb.create_sheet(nombre_de_hoja(cuadro.get("hoja") or titulo, usados))
 
-    merged_header(ws, FILA_TITULO, 1, n_col, titulo, C["navy"], sz=13)
+    merged_header(ws, FILA_TITULO, 1, n_col, titulo, C["cab_titulo"], sz=13)
 
     # ⚠️ La cabecera del cuadro se corre hacia abajo lo que ocupe la franja.
     # Las constantes de fila eran fijas; con la franja delante, escribir la
@@ -150,12 +217,13 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
 
     for i, col in enumerate(columnas, start=1):
         c = ws.cell(FILA_CABECERA, i, col.get("label", ""))
-        c.fill = fill(C["navy_mid"])
+        c.fill = fill(C["cab_tabla"])
         c.font = font(bold=True, color=C["white"], size=10)
         # La primera columna es la etiqueta de la fila; el resto son números.
         c.alignment = align("left" if i == 1 else "center", wrap=True)
         c.border = border()
 
+    detalle = 0
     for j, f in enumerate(filas):
         fila = PRIMERA_FILA + j
         # ── Tres estados de fila, y son tres cosas distintas ─────────────────
@@ -184,6 +252,16 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
         etiqueta.alignment = Alignment(horizontal="left", vertical="center",
                                        indent=min(nivel, 8))
         etiqueta.border = border()
+        # ⚠️ La cebra se cuenta sobre las filas de DETALLE, no sobre `j`. Con
+        # `j` los encabezados de sección y los totales entran en la cuenta y la
+        # alternancia se salta un renglón cada vez que pasa uno: el ojo pierde
+        # el hilo justo donde más falta hace, en un checkbook de doce meses.
+        cebra = False
+        if not (es_total or es_seccion):
+            cebra = detalle % 2 == 1
+            detalle += 1
+            if cebra:
+                etiqueta.fill = fill(C["cebra"])
         if es_total:
             etiqueta.fill = fill(C["banda_total"])
             etiqueta.border = marco_total(True, n_col == 1)
@@ -200,7 +278,8 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
         for i, valor in enumerate(f.get("valores") or [], start=2):
             if i > n_col:
                 break
-            celda = ws.cell(fila, i, valor)
+            celda = ws.cell(fila, i, _formula(columnas[i - 1], f, filas,
+                                              i, fila, PRIMERA_FILA) or valor)
             fmt = FORMATOS.get(fmt_fila or columnas[i - 1].get("formato") or "usd",
                                FORMATOS["usd"])
             if fmt:
@@ -221,6 +300,8 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
                 celda.fill = fill(C["banda_seccion"])
             else:
                 celda.border = border()
+                if cebra:
+                    celda.fill = fill(C["cebra"])
 
         # ⚠️ Si la fila trae menos valores que columnas, el marco se cortaría a
         # media tabla. Se completan las celdas que faltan con el mismo formato y
@@ -283,10 +364,10 @@ def _indice(wb: Workbook, cuadros: list[dict], nombres: list[str]) -> None:
     mostrar el nombre real de la pestaña o no sirve para encontrarla.
     """
     ws = wb.create_sheet("Índice", 0)
-    merged_header(ws, 1, 1, 3, "CONTENIDO", C["navy"], sz=13)
+    merged_header(ws, 1, 1, 3, "CONTENIDO", C["cab_titulo"], sz=13)
     for i, rotulo in enumerate(("#", "Hoja", "Cuadro"), start=1):
         c = ws.cell(3, i, rotulo)
-        c.fill = fill(C["navy_mid"])
+        c.fill = fill(C["cab_tabla"])
         c.font = font(bold=True, color=C["white"], size=10)
         c.alignment = align("left")
         c.border = border()
@@ -335,17 +416,31 @@ def _indice(wb: Workbook, cuadros: list[dict], nombres: list[str]) -> None:
                                                height=170)
     set_col_widths(ws, {1: 5, 2: 34, 3: 88})
     ws.freeze_panes = ws.cell(4, 1)
+    # ⚠️ El índice también se imprime, y sin esto salía partido en DOS hojas:
+    # la descripción, que es la columna ancha, caía sola en la segunda. Un
+    # índice en dos papeles no es un índice.
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_margins.left = ws.page_margins.right = 0.3
+    ws.page_margins.top = ws.page_margins.bottom = 0.4
+    ws.print_area = f"A1:C{3 + len(cuadros)}"
 
 
 #: Con qué color se pinta cada bloque del índice.
 #:
 #: ⚠️ Por el nombre de la hoja y no por el orden: el paquete se puede reordenar
 #: desde «Armar paquete», y con el orden las bandas quedarían repartidas al azar.
+#: ⚠️ Tres pasteles de la MISMA familia, para que el índice se lea como un
+#: documento y no como una alerta. El primero era un rosa (`F3DFE0`): al lado de
+#: una banda azul, un renglón rosa se lee como que algo está mal, y lo que marca
+#: es el bloque del P&L.
 _BLOQUES = (
-    ("P&L", "F3DFE0"),          #: los tres estados de resultados
-    ("Checkbook", "EDE6D6"),    #: el detalle por cuenta
+    ("P&L", "DEE8F0"),          #: los tres estados de resultados — azul pálido
+    ("Checkbook", "E8EADF"),    #: el detalle por cuenta — arena
 )
-_BANDA_RESTO = "DCE9F2"         #: estadística y anexos
+_BANDA_RESTO = "E3EDE8"         #: estadística y anexos — salvia
 
 
 def _banda_del_bloque(hoja: str) -> str:

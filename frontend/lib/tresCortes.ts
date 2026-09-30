@@ -265,25 +265,69 @@ export function cuadroTresCortes(
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>
     !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
-  const columnas: ColumnaCuadro[] = [
-    { label: "ACCOUNT DESCRIPTION", ancho: 42, formato: "texto" },
-    ...cortes.flatMap((c, ci) => [
-      ...versiones.map((_v, vi) => ({
-        label: `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`,
-        ancho: 16, formato: "usd2" as const })),
-      ...(parDe(c, versiones, escenarios)
-        ? [{ label: `${c.titulo} · Variance`, ancho: 16, formato: "usd2" as const }]
-        : []),
-    ]),
-  ];
-
   /** El índice de versión que ocupa una columna en un corte. Sólo cambia en la
-   *  primera del año completo. */
+   *  primera del año completo.
+   *
+   *  ⚠️ **Se declara ANTES de `columnas`, que es quien la usa.** Estaba
+   *  declarada después, y un `const` no existe hasta su línea: armar las
+   *  columnas tiraba «Cannot access 'viDe' before initialization» y las tres
+   *  hojas del P&L —consolidado, Hotel y Club— se caían del Excel y del Word
+   *  sin decir por qué. TypeScript no lo marca: la zona muerta temporal es de
+   *  ejecución, no de tipos. */
   const viDe = (vi: number, ci: number) => {
     if (ci !== 2 || vi !== 0 || !actualDelFullYear) return vi;
     const j = versiones.findIndex(v => v.scenario_id === actualDelFullYear);
     return j >= 0 ? j : vi;
   };
+
+  /** Cuántas columnas ocupa cada corte: sus versiones más la variación, si la
+   *  hay. Hace falta para saber en qué columna del Excel cae cada una. */
+  const anchoCorte = (c: Corte) =>
+    versiones.length + (parDe(c, versiones, escenarios) ? 1 : 0);
+
+  /** En qué columna está A LA VISTA la versión `vi` dentro del corte `ci`, o
+   *  `null` si ninguna la muestra. */
+  const colDe = (vi: number, ci: number, base: number) => {
+    const j = versiones.findIndex((_v, k) => viDe(k, ci) === vi);
+    return j < 0 ? null : base + j;
+  };
+
+  const columnas: ColumnaCuadro[] = [
+    { label: "ACCOUNT DESCRIPTION", ancho: 42, formato: "texto" },
+    ...cortes.flatMap((c, ci) => {
+      // La primera columna de este corte, base 0 sobre `columnas` (la 0 es el
+      // rótulo de la fila).
+      const base = 1 + cortes.slice(0, ci).reduce((a, x) => a + anchoCorte(x), 0);
+      const par = parDe(c, versiones, escenarios);
+      return [
+        ...versiones.map((_v, vi) => ({
+          label: `${c.titulo} · ${etiqueta(versiones[viDe(vi, ci)].scenario_id)}`,
+          ancho: 16, formato: "usd2" as const })),
+        // ⚠️ La variación va como FÓRMULA, no como número (owner, 2026-09-30).
+        //
+        // El par lo da `parDe`, que en el año completo devuelve Forecast contra
+        // Budget y no Actual contra Budget: escribir `=Actual-Budget` a mano
+        // ahí pondría en el archivo una resta que el sistema no hace.
+        //
+        // ⚠️ Y se apunta a la columna que MUESTRA cada operando, no a su índice
+        // en `versiones`. En el año completo la primera columna puede estar
+        // mostrando otra versión —el Forecast Current que eligió el usuario— y
+        // entonces `=C-D` restaría dos columnas que no son las del cálculo. Si
+        // el operando no está a la vista, no hay fórmula y queda el número:
+        // una celda sin fórmula se puede revisar; una fórmula que resta lo que
+        // no es, no.
+        ...(par
+          ? [{ label: `${c.titulo} · Variance`, ancho: 16,
+               formato: "usd2" as const,
+               ...(colDe(par[0], ci, base) !== null
+                   && colDe(par[1], ci, base) !== null
+                 ? { resta: [colDe(par[0], ci, base)!,
+                             colDe(par[1], ci, base)!] as [number, number] }
+                 : {}) }]
+          : []),
+      ];
+    }),
+  ];
 
   const kpi: FilaCuadro[] = KPIS.map((k): FilaCuadro => ({
     label: k.rotulo, es_total: !!k.fuerte,

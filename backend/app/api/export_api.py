@@ -33,6 +33,17 @@ class Columna(BaseModel):
     label: str = ""
     ancho: float | None = None
     formato: str = "usd"
+    #: Esta columna es una RESTA de otras dos: `[i, j]`, base 1 sobre
+    #: `columnas`, y la celda se escribe como `=Xn-Yn`.
+    #:
+    #: Owner, 2026-09-30, en la auditoría del Excel: *«los subtotales, totales y
+    #: variaciones deben ser fórmulas reales»*.
+    #:
+    #: ⚠️ **Por qué importa que sea fórmula y no el número.** Un Excel de junta
+    #: se toca: alguien corrige un actual en una celda y espera que la variación
+    #: se mueva. Con el número puesto, no se mueve — y la hoja queda diciendo
+    #: dos cosas distintas sin que nada avise.
+    resta: list[int] | None = None
 
 
 class Fila(BaseModel):
@@ -55,6 +66,17 @@ class Fila(BaseModel):
     # `str` primero, Pydantic convertiría los números a cadena y volveríamos al
     # problema que esto viene a evitar.
     valores: list[float | str | None] = Field(default_factory=list)
+    #: Esta fila es la SUMA de otras: los ordinales (base 0) de las filas que
+    #: la componen dentro de este mismo cuadro.
+    #:
+    #: ⚠️ **La fórmula sólo se escribe si da lo mismo que el número.** El total
+    #: del P&L lo calcula el motor, no la pantalla: si el cuadro no muestra
+    #: todos sus componentes —o los muestra netos de un reparto—, `=SUMA(...)`
+    #: daría OTRA cifra y el Excel diría algo que el sistema no dice. Owner,
+    #: 2026-09-30: *«el Consolidado NO debe cambiar de valor»*. Cuando no
+    #: cuadra, se deja el número y se pierde la fórmula, que es el lado
+    #: correcto en el que equivocarse.
+    suma_de: list[int] | None = None
 
 
 class FilaKpi(BaseModel):
