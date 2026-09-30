@@ -93,6 +93,23 @@ export const KPIS: {
     calc: e => e?.club_cuota_promedio ?? null },
 ];
 
+/** El ancho de las columnas, compartido por la franja de estadísticas y por el
+ *  cuadro que va debajo.
+ *
+ *  Owner, 2026-09-30: *«necesito que esto quede súper alineado»*.
+ *
+ *  ⚠️ **Dos tablas HTML distintas no se alinean solas.** Cada una reparte el
+ *  ancho entre sus columnas según su propio contenido, así que con los mismos
+ *  datos quedan corridas —y es peor que si estuvieran lejos: se leen como una
+ *  sola y cada número cae bajo el encabezado del vecino.
+ *
+ *  Se alinean cuando las tres cosas coinciden: el MISMO número de columnas
+ *  —por eso la franja también lleva su varianza—, el MISMO ancho, y
+ *  `table-layout: fixed`, que es lo que hace que el navegador obedezca el ancho
+ *  en vez de estirar la columna del texto más largo. */
+export const ANCHO_ROTULO = 250;
+export const ANCHO_DATO = 116;
+
 /** Los tres renglones que sólo existen si la propiedad tiene Club.
  *
  *  ⚠️ Una definición: la pantalla y el archivo tienen que esconder los MISMOS

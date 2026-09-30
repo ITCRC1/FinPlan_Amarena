@@ -35,8 +35,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type EstadisticasCierre } from "@/lib/api";
-import { cortesDe, estadisticasDeLosCortes } from "@/lib/tresCortes";
+import { type EstadisticasCierre, type Scenario } from "@/lib/api";
+import {
+  ANCHO_DATO, ANCHO_ROTULO, cortesDe, estadisticasDeLosCortes, parDe,
+} from "@/lib/tresCortes";
 
 const num = (n: number | null | undefined) =>
   n === null || n === undefined || !n ? "—"
@@ -85,33 +87,57 @@ const TDL: React.CSSProperties = {
 const FILAS: {
   rotulo: string;
   valor: (d: EstadisticasCierre) => string;
+  /** El número crudo, para poder RESTAR dos versiones. `valor` ya viene
+   *  formateado y de un texto no se saca una diferencia. */
+  crudo?: (d: EstadisticasCierre) => number | null;
+  /** Cómo se escribe la diferencia. Un punto porcentual no es un dólar. */
+  dif?: (n: number) => string;
   club?: boolean;
   fuerte?: boolean;
 }[] = [
-  { rotulo: "Total available Rooms", valor: d => num(d.rooms_available) },
-  { rotulo: "Total Rooms Occupied", valor: d => num(d.rooms_occupied) },
-  { rotulo: "Total Guests", valor: d => num(d.guests) },
-  { rotulo: "% Occupancy", valor: d => pct(d.occupancy_pct), fuerte: true },
-  { rotulo: "Average Daily Room Only", valor: d => usd(d.adr), fuerte: true },
-  { rotulo: "Total RevPAR", valor: d => usd(d.revpar), fuerte: true },
+  { rotulo: "Total available Rooms", valor: d => num(d.rooms_available),
+    crudo: d => d.rooms_available, dif: num },
+  { rotulo: "Total Rooms Occupied", valor: d => num(d.rooms_occupied),
+    crudo: d => d.rooms_occupied, dif: num },
+  { rotulo: "Total Guests", valor: d => num(d.guests),
+    crudo: d => d.guests, dif: num },
+  { rotulo: "% Occupancy", valor: d => pct(d.occupancy_pct), fuerte: true,
+    crudo: d => d.occupancy_pct,
+    // ⚠️ Puntos porcentuales, no un porcentaje: la diferencia entre 40,73 %
+    // y 25,00 % es 15,73 **pp**, y escribirla con `%` invita a leerla como
+    // un crecimiento del 15,73 %, que es otra cosa.
+    dif: n => (n * 100).toFixed(2) + "pp" },
+  { rotulo: "Average Daily Room Only", valor: d => usd(d.adr), fuerte: true,
+    crudo: d => d.adr, dif: usd },
+  { rotulo: "Total RevPAR", valor: d => usd(d.revpar), fuerte: true,
+    crudo: d => d.revpar, dif: usd },
   // El promedio de los meses con socios (owner, 2026-09-02). En un mes suelto
   // es el mes; en un YTD, el promedio — nunca la suma, que daría 516 donde hay
   // 72.
   { rotulo: "Socios pagando (Club)", club: true,
     valor: d => (d.club_meses_con_socios ?? 0) > 1
-      ? `${num(d.club_pagando)} prom.` : num(d.club_pagando) },
+      ? `${num(d.club_pagando)} prom.` : num(d.club_pagando),
+    crudo: d => d.club_pagando, dif: num },
   { rotulo: "Socios al cierre del mes", club: true,
-    valor: d => num(d.club_pagando_cierre) },
+    valor: d => num(d.club_pagando_cierre),
+    crudo: d => d.club_pagando_cierre, dif: num },
   { rotulo: "Cuota promedio por socio", valor: d => usd(d.club_cuota_promedio),
-    club: true, fuerte: true },
+    club: true, fuerte: true,
+    crudo: d => d.club_cuota_promedio, dif: usd },
 ];
 
-export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
+export default function Estadisticas({ scenarioIds, etiquetas, mes,
+                                      escenarios = [] }: {
   /** Las versiones elegidas arriba, en su orden. Las vacías se ignoran. */
   scenarioIds: string[];
   etiquetas: string[];
   /** El mes del cierre: define el corte «mes» y hasta dónde llega el YTD. */
   mes: number;
+  /** Para saber qué par se resta en cada corte. ⚠️ El tipo sale de acá y no
+   *  del rótulo: el rótulo es texto libre. Sin esto la franja no puede llevar
+   *  su columna de varianza, y sin ella nunca cuadra con el cuadro de abajo,
+   *  que sí la tiene. */
+  escenarios?: Scenario[];
 }) {
   /** Por corte × versión. */
   const [datos, setDatos] = useState<(EstadisticasCierre | null)[][]>([]);
@@ -122,6 +148,14 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
     .filter(x => x.id);
   const clave = usadas.map(u => u.id).join(",");
   const cortes = useMemo(() => cortesDe(mes), [mes]);
+  /** ⚠️ La MISMA regla que el cuadro de abajo (`parDe`): en el full year se
+   *  resta Forecast contra Budget, no Actual. Si la franja restara otro par,
+   *  las dos varianzas de la misma columna dirían cosas distintas. */
+  const versiones = useMemo(
+    () => usadas.map(u => ({ scenario_id: u.id })), [clave]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const parDeCorte = useCallback(
+    (c: typeof cortes[number]) => parDe(c, versiones, escenarios),
+    [versiones, escenarios]);
 
   const cargar = useCallback(async () => {
     const ids = clave ? clave.split(",") : [];
@@ -164,12 +198,30 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
   return (
     <div style={{ marginBottom: 16 }}>
       <div className="fin-scroll-x">
-        <table style={{ borderCollapse: "collapse", minWidth: 420 }}>
+        {/* ⚠️ `table-layout: fixed` + `colgroup`: es lo que hace que el
+            navegador OBEDEZCA los anchos en vez de estirar la columna del texto
+            más largo. Sin eso, esta tabla y la de abajo quedan corridas aunque
+            tengan las mismas columnas — y corridas se leen como una sola, con
+            cada número bajo el encabezado del vecino. */}
+        <table style={{ borderCollapse: "collapse", tableLayout: "fixed",
+                        minWidth: ANCHO_ROTULO + cortes.reduce(
+                          (a, c) => a + (usadas.length
+                            + (parDeCorte(c) ? 1 : 0)) * ANCHO_DATO, 0) }}>
+          <colgroup>
+            <col style={{ width: ANCHO_ROTULO }} />
+            {cortes.flatMap((c, ci) => [
+              ...usadas.map((_u, i) => (
+                <col key={`${c.clave}-${i}`} style={{ width: ANCHO_DATO }} />)),
+              ...(parDeCorte(c)
+                ? [<col key={`${c.clave}-v`} style={{ width: ANCHO_DATO }} />] : []),
+            ])}
+          </colgroup>
           <thead>
             <tr>
-              <th style={{ ...TDL, ...TH_ESTATICO, minWidth: 220 }} />
+              <th style={{ ...TDL, ...TH_ESTATICO }} />
               {cortes.map((c, ci) => (
-                <th key={c.clave} colSpan={usadas.length}
+                <th key={c.clave}
+                    colSpan={usadas.length + (parDeCorte(c) ? 1 : 0)}
                     style={{ ...TD, ...TH_ESTATICO, textAlign: "center",
                              fontWeight: 800, color: "var(--brand)",
                              borderLeft: ci ? BL : undefined }}>
@@ -179,17 +231,26 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
             </tr>
             <tr>
               <th style={{ ...TDL, ...TH_ESTATICO, textAlign: "left",
-                           fontWeight: 800, minWidth: 220 }}>
+                           fontWeight: 800 }}>
                 ESTADÍSTICAS
               </th>
-              {cortes.flatMap((c, ci) => usadas.map((u, i) => (
-                <th key={c.clave + u.id + i}
-                    style={{ ...TD, ...TH_ESTATICO, fontWeight: 700,
-                             color: "var(--text-secondary)", minWidth: 130,
-                             borderLeft: ci && !i ? BL : undefined }}>
-                  {u.rotulo}
-                </th>
-              )))}
+              {cortes.flatMap((c, ci) => [
+                ...usadas.map((u, i) => (
+                  <th key={c.clave + u.id + i}
+                      style={{ ...TD, ...TH_ESTATICO, fontWeight: 700,
+                               color: "var(--text-secondary)",
+                               borderLeft: ci && !i ? BL : undefined }}>
+                    {u.rotulo}
+                  </th>
+                )),
+                ...(parDeCorte(c) ? [
+                  <th key={c.clave + "-var"}
+                      style={{ ...TD, ...TH_ESTATICO, fontWeight: 700,
+                               fontStyle: "italic",
+                               color: "var(--text-secondary)" }}>
+                    Var
+                  </th>] : []),
+              ])}
             </tr>
           </thead>
           <tbody>
@@ -197,16 +258,38 @@ export default function Estadisticas({ scenarioIds, etiquetas, mes }: {
               <tr key={f.rotulo}
                   style={{ background: n % 2 ? "transparent" : "var(--bg-surface)" }}>
                 <td style={TDL}>{f.rotulo}</td>
-                {cortes.flatMap((c, ci) => usadas.map((_u, i) => {
-                  const d = datos[ci]?.[i] ?? null;
-                  return (
-                    <td key={c.clave + i}
-                        style={{ ...TD, fontWeight: f.fuerte ? 800 : 600,
-                                 borderLeft: ci && !i ? BL : undefined }}>
-                      {d ? f.valor(d) : "—"}
+                {cortes.flatMap((c, ci) => {
+                  const par = parDeCorte(c);
+                  const celdas = usadas.map((_u, i) => {
+                    const d = datos[ci]?.[i] ?? null;
+                    return (
+                      <td key={c.clave + i}
+                          style={{ ...TD, fontWeight: f.fuerte ? 800 : 600,
+                                   borderLeft: ci && !i ? BL : undefined }}>
+                        {d ? f.valor(d) : "—"}
+                      </td>
+                    );
+                  });
+                  if (!par) return celdas;
+                  // ⚠️ La diferencia sale de los números CRUDOS, no del texto
+                  // ya formateado. Y va vacía si a alguno de los dos le falta:
+                  // restar de la nada daría el valor entero disfrazado de
+                  // variación.
+                  const xa = f.crudo && datos[ci]?.[par[0]]
+                    ? f.crudo(datos[ci]![par[0]]!) : null;
+                  const xb = f.crudo && datos[ci]?.[par[1]]
+                    ? f.crudo(datos[ci]![par[1]]!) : null;
+                  const v = xa === null || xb === null ? null : xa - xb;
+                  return [...celdas, (
+                    <td key={c.clave + "-var"}
+                        style={{ ...TD, fontStyle: "italic",
+                                 fontWeight: f.fuerte ? 800 : 600,
+                                 color: v === null || Math.abs(v) < 1e-9
+                                   ? "var(--text-disabled)" : undefined }}>
+                      {v === null ? "" : (f.dif ?? num)(v)}
                     </td>
-                  );
-                }))}
+                  )];
+                })}
               </tr>
             ))}
           </tbody>

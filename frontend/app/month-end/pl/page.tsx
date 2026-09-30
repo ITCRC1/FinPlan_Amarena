@@ -2420,7 +2420,7 @@ export default function MonthEndPLPage() {
       <Estadisticas
         scenarioIds={ranuras}
         etiquetas={ranuras.map(id => id ? etiqueta(id) : "")}
-        mes={mes} />
+        mes={mes} escenarios={escenarios} />
 
       {vista === "fb" && (() => {
         /* Total F&B Cost Detail. Único cuadro que no sale del P&L — ver

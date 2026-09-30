@@ -33,6 +33,7 @@ import { getPLDetail, type EstadisticasCierre, type PLDetail,
          type Scenario } from "@/lib/api";
 import { bajarCuadros } from "@/lib/exportCuadro";
 import {
+  ANCHO_DATO, ANCHO_ROTULO,
   celdasDe, cortesDe, cuadroTresCortes, esDelClub, estadisticasDeLosCortes, KPIS,
   parDe as parDeLib, PIE_ESTADISTICO, suma, usd, valorDe, type Corte,
 } from "@/lib/tresCortes";
@@ -169,11 +170,22 @@ export default function TresCortes({ escenarios, ranuras, mes, compacto = true }
       </div>
 
       <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: "100%" }}>
+        {/* Los MISMOS anchos que la franja de arriba, y `fixed` por la misma
+            razón: dos tablas sólo se alinean si el navegador obedece el ancho
+            en las dos. Ver `ANCHO_ROTULO` en `lib/tresCortes`. */}
+        <table style={{ borderCollapse: "collapse", fontSize: 12,
+                        tableLayout: "fixed",
+                        minWidth: ANCHO_ROTULO + (anchoTotal - 1) * ANCHO_DATO }}>
+          <colgroup>
+            <col style={{ width: ANCHO_ROTULO }} />
+            {Array.from({ length: anchoTotal - 1 }, (_, i) => (
+              <col key={i} style={{ width: ANCHO_DATO }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               <th rowSpan={2} style={{ ...TH, ...PEGA, textAlign: "left",
-                    verticalAlign: "bottom", minWidth: 250 }}>
+                    verticalAlign: "bottom" }}>
                 ACCOUNT DESCRIPTION
               </th>
               {cortes.map(c => (

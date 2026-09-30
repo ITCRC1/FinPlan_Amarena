@@ -194,3 +194,50 @@ def test_la_aritmetica_vive_aparte_del_render():
     src = LOGICA.read_text(encoding="utf-8")
     assert "useState" not in src and "useMemo" not in src
     assert "export const KPIS" in src
+
+
+def test_la_franja_y_el_cuadro_quedan_ALINEADOS():
+    """Owner, 2026-09-30: *«necesito que esto quede super alineado»*.
+
+    ⚠️ **Dos tablas HTML distintas no se alinean solas.** Cada una reparte el
+    ancho entre sus columnas segun su propio contenido, asi que con los mismos
+    datos quedan corridas — y corridas se leen como una sola, con cada numero
+    bajo el encabezado del vecino, que es peor que si estuvieran lejos.
+
+    Se alinean cuando coinciden las TRES cosas:
+
+      1. el mismo numero de columnas —por eso la franja tambien lleva su
+         varianza, que antes no tenia—;
+      2. el mismo ancho, declarado en un solo lugar;
+      3. `table-layout: fixed`, que es lo que hace que el navegador OBEDEZCA el
+         ancho en vez de estirar la columna del texto mas largo.
+    """
+    lib = LOGICA.read_text(encoding="utf-8")
+    assert "export const ANCHO_ROTULO" in lib and "export const ANCHO_DATO" in lib
+
+    franja = (FRONT / "app/month-end/pl/Estadisticas.tsx").read_text(encoding="utf-8")
+    comp = COMP.read_text(encoding="utf-8")
+    for fuente, quien in ((franja, "la franja"), (comp, "el cuadro")):
+        assert 'tableLayout: "fixed"' in fuente, f"{quien} no fija el ancho"
+        assert "<colgroup>" in fuente, f"{quien} no declara sus columnas"
+        assert "ANCHO_ROTULO" in fuente and "ANCHO_DATO" in fuente, \
+            f"{quien} usa un ancho propio"
+    # La franja gano su columna de varianza, con la MISMA regla del par.
+    assert "parDe(c, versiones, escenarios)" in franja
+    assert "Var" in franja
+
+
+def test_la_varianza_de_la_franja_sale_de_los_numeros_CRUDOS():
+    """⚠️ `valor` ya viene formateado —«27.31%», «$514.31»— y de un texto no se
+    saca una diferencia. Por eso cada fila declara su `crudo`.
+
+    Y el formato de la diferencia es el suyo: entre 40,73 % y 25,00 % hay 15,73
+    **pp**, y escribirlo con `%` invita a leerlo como un crecimiento del 15,73 %,
+    que es otra cosa.
+    """
+    franja = (FRONT / "app/month-end/pl/Estadisticas.tsx").read_text(encoding="utf-8")
+    assert "crudo?: (d: EstadisticasCierre) => number | null;" in franja
+    assert 'dif: n => (n * 100).toFixed(2) + "pp"' in franja
+    # Sin uno de los dos lados no hay resta: restar de la nada daria el valor
+    # entero disfrazado de variacion.
+    assert "xa === null || xb === null ? null : xa - xb" in franja

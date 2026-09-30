@@ -483,7 +483,10 @@ def test_la_franja_NO_calcula_el_corte_en_la_pantalla():
     # Lo pide por `estadisticasDeLosCortes`, que es `getEstadisticasCierre` una
     # vez por corte. Lo que importa es que el corte lo haga el BACKEND.
     assert "estadisticasDeLosCortes" in fuente
-    for inventado in ("reduce(", "/ 12"):
+    # ⚠️ Lo prohibido es agregar LOS DATOS. `cortes.reduce(...)` suma anchos de
+    # columna en píxeles y no tiene nada que ver — el guard se apunta a los
+    # nombres de los datos, no a la palabra `reduce`.
+    for inventado in ("datos.reduce(", "vivas.reduce(", "/ 12"):
         assert inventado not in fuente, (
             f"el cuadro empezó a agregar solo ({inventado}): las razones no son "
             f"aditivas y el corte lo tiene que hacer el backend")
