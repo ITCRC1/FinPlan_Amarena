@@ -58,6 +58,27 @@ from docx.shared import Cm, Pt, RGBColor
 DOCX = ("application/vnd.openxmlformats-officedocument"
         ".wordprocessingml.document")
 
+#: Qué secciones lleva el informe.
+#:
+#: Owner, 2026-09-30: *«sólo vamos a dejar sección 1 y 2 por ahora; quita todo
+#: lo demás»*. El «por ahora» es literal: la 3 y la 4 vuelven agregándolas acá.
+SECCIONES = ("1", "2")
+
+#: La tipografía del informe (owner, 2026-09-30).
+#:
+#: ⚠️ Las constantes van juntas porque el documento tiene que verse igual de
+#: punta a punta: con el tamaño escrito a mano en cada párrafo, basta que
+#: alguien agregue uno para que quede un renglón de otro cuerpo y no se note
+#: hasta que está impreso.
+FUENTE = "Times New Roman"
+CUERPO = 12          #: el texto
+CUERPO_TABLA = 9     #: los cuadros; con doce columnas, 12 pt no entra
+INTERLINEA = 1.5
+#: El aire ANTES de un título. El pedido fue «entre títulos un espacio
+#: adicional»: es lo que separa un bloque del anterior sin meter párrafos vacíos,
+#: que se descolocan al editar.
+AIRE_TITULO = 18
+
 VERDE = RGBColor(0x2A, 0x4A, 0x33)
 ORO = RGBColor(0xA8, 0x8C, 0x50)
 GRIS = RGBColor(0x60, 0x66, 0x6E)
@@ -87,8 +108,19 @@ def k(v: float | None) -> str:
 
 
 def usd(v: float | None, dec: int = 2) -> str:
+    """En dólares. ⚠️ Los negativos van entre PARÉNTESIS.
+
+    `f"${-1234.5:,.2f}"` da `$-1,234.50`: el signo queda escondido entre el
+    símbolo y el número, se pierde de vista en una columna y —lo que importa
+    acá— no se puede detectar para pintarlo de rojo.
+
+    El paréntesis es además la convención contable y la que usa el PDF del
+    owner.
+    """
     if v is None:
         return "n/d"
+    if v < 0:
+        return f"(${abs(v):,.{dec}f})"
     return f"${v:,.{dec}f}"
 
 
@@ -127,6 +159,18 @@ def signo(v: float) -> str:
 
 # ═══════════════════════════ Piezas de Word ═══════════════════════════════════
 
+def _fuente_en_todo(rPr) -> None:
+    """Fija la fuente para los tres alfabetos que Word distingue."""
+    if rPr is None:
+        return
+    rf = rPr.find(qn("w:rFonts"))
+    if rf is None:
+        rf = OxmlElement("w:rFonts")
+        rPr.append(rf)
+    for atributo in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rf.set(qn(atributo), FUENTE)
+
+
 def _margenes(sec) -> None:
     sec.top_margin = Cm(2.2)
     sec.bottom_margin = Cm(2.2)
@@ -161,29 +205,39 @@ def _campo(parrafo, instruccion: str) -> None:
 
 
 def _h(doc, texto: str, nivel: int = 1, color=VERDE):
+    """Un título. ⚠️ El aire va como `space_before` y NO como un párrafo vacío:
+    un párrafo vacío se descoloca en cuanto alguien edita arriba, y en Word se
+    arrastra al pegar."""
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(14 if nivel == 1 else 10)
-    p.paragraph_format.space_after = Pt(5)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_before = Pt(AIRE_TITULO if nivel == 1
+                                         else AIRE_TITULO * 0.75)
+    p.paragraph_format.space_after = Pt(7)
+    p.paragraph_format.line_spacing = 1.15   # un título no necesita 1,5
     r = p.add_run(texto)
     r.bold = True
-    r.font.size = Pt(14 if nivel == 1 else 12 if nivel == 2 else 11)
+    r.font.name = FUENTE
+    r.font.size = Pt(CUERPO + (3 if nivel == 1 else 1 if nivel == 2 else 0))
     r.font.color.rgb = color
+    _fuente_en_todo(r._element.get_or_add_rPr())
     return p
 
 
 def _p(doc, partes, justificar: bool = True):
     """Un párrafo. `partes` es texto, o una lista de (texto, negrita)."""
     p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(7)
-    p.paragraph_format.line_spacing = 1.15
-    if justificar:
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    p.paragraph_format.space_after = Pt(8)
+    p.paragraph_format.line_spacing = INTERLINEA
+    p.alignment = (WD_ALIGN_PARAGRAPH.JUSTIFY if justificar
+                   else WD_ALIGN_PARAGRAPH.LEFT)
     for trozo in ([partes] if isinstance(partes, str) else partes):
         txt, negrita = (trozo, False) if isinstance(trozo, str) else trozo
         r = p.add_run(txt)
         r.bold = negrita
-        r.font.size = Pt(11)
+        r.font.name = FUENTE
+        r.font.size = Pt(CUERPO)
         r.font.color.rgb = NEGRO
+        _fuente_en_todo(r._element.get_or_add_rPr())
     return p
 
 
@@ -192,6 +246,11 @@ def _sombra(celda, hexcolor: str) -> None:
     el.set(qn("w:val"), "clear")
     el.set(qn("w:fill"), hexcolor)
     celda._tc.get_or_add_tcPr().append(el)
+
+
+def _es_negativo(texto: str) -> bool:
+    t = texto.strip()
+    return t.startswith("(") or t.startswith("-") or t.startswith("-$")
 
 
 def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
@@ -205,24 +264,44 @@ def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
     for i, h in enumerate(encabezados):
         c = t.rows[0].cells[i]
         c.text = ""
-        r = c.paragraphs[0].add_run(h)
+        p0 = c.paragraphs[0]
+        p0.paragraph_format.line_spacing = 1.0
+        p0.paragraph_format.space_after = Pt(0)
+        r = p0.add_run(h)
         r.bold = True
-        r.font.size = Pt(8.5)
+        r.font.name = FUENTE
+        r.font.size = Pt(CUERPO_TABLA)
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        if i:
-            c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        _fuente_en_todo(r._element.get_or_add_rPr())
+        # El encabezado se alinea como su columna: si el título va centrado y el
+        # número a la derecha, la columna se lee torcida.
+        p0.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i
+                        else WD_ALIGN_PARAGRAPH.LEFT)
         _sombra(c, "2A4A33")
     for n, fila in enumerate(filas):
         celdas = t.add_row().cells
         for i, v in enumerate(fila):
             celdas[i].text = ""
             p = celdas[i].paragraphs[0]
-            if i:
-                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            # ⚠️ Interlineado 1 y sin aire en las celdas: con el 1,5 del cuerpo,
+            # una tabla de veinte filas se parte en dos páginas y los números
+            # quedan flotando en el medio de su celda.
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.space_after = Pt(0)
+            # La primera columna es el rótulo; TODO lo demás son números y va a
+            # la derecha, que es lo único que alinea las unidades entre sí.
+            p.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i
+                           else WD_ALIGN_PARAGRAPH.LEFT)
             r = p.add_run(str(v))
-            r.font.size = Pt(8.5)
+            r.font.name = FUENTE
+            r.font.size = Pt(CUERPO_TABLA)
+            _fuente_en_todo(r._element.get_or_add_rPr())
             r.bold = n in resaltar
-            if str(v).startswith("-") or str(v).startswith("($"):
+            # ⚠️ El rojo se decide por el TEXTO ya formateado y no por el
+            # número, porque la celda recibe texto: `k()`, `usd()` y `pct()`
+            # devuelven cadenas. Se cubren las tres formas en que un negativo
+            # puede llegar: `(...)`, `-$…` y `-12,3%`.
+            if _es_negativo(str(v)):
                 r.font.color.rgb = ROJO
             if n in resaltar:
                 _sombra(celdas[i], "EDF1F5")
@@ -371,8 +450,16 @@ def build_executive_summary(datos: dict) -> bytes:
 
     doc = Document()
     est = doc.styles["Normal"]
-    est.font.name = "Arial"
-    est.font.size = Pt(11)
+    est.font.name = FUENTE
+    est.font.size = Pt(CUERPO)
+    est.paragraph_format.line_spacing = INTERLINEA
+    est.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    # ⚠️ Word guarda TRES nombres de fuente por estilo —latina, asiática y
+    # complex script— y respeta el que corresponda al carácter. Con sólo el
+    # latino puesto, las tildes y la «ñ» pueden salir con otra tipografía en
+    # algunas instalaciones, y el documento se ve mezclado sin que nadie sepa
+    # por qué.
+    _fuente_en_todo(est.element.rPr)
     _margenes(doc.sections[0])
     _pie(doc.sections[0], propiedad)
 
@@ -484,6 +571,16 @@ def build_executive_summary(datos: dict) -> bytes:
                     f"{k(abs(eb_a - ef))} {signo(eb_a - ef)} esa misma "
                     f"proyección.")
 
+        # ⚠️ La regla del año completo va DENTRO de su corte y no en una nota
+        # al final: es donde se lee la columna, y sin ella un Actual de ocho
+        # meses contra doce de presupuesto parece un derrumbe.
+        if corte == "full":
+            _p(doc, "⚠️ En el año completo la columna principal es el Forecast y "
+                    "la variación se mide contra el presupuesto. El Actual del "
+                    "año son los meses efectivamente cargados: restarle doce "
+                    "meses de presupuesto mostraría una caída que sólo significa "
+                    "que el año no ha terminado.")
+
         _cuadro_corte(doc, f"{rotulo_corte} {anio} — Actual · Presupuesto · Forecast",
                       principal, b, f, rot_principal, rot["budget"],
                       rot.get("forecast", ""))
@@ -528,58 +625,24 @@ def build_executive_summary(datos: dict) -> bytes:
         _pendiente(doc, "Composición del ingreso",
                    "el detalle por departamento no vino en esta corrida.")
 
-    doc.add_page_break()
-
-    # ── Sección 3 — lo que la contabilidad no sabe ───────────────────────────
-    _h(doc, "SECCIÓN 3 — La gestión comercial del mes", nivel=1)
-    _pendiente(doc, "Actividad comercial del mes",
-               "esta sección no sale de la contabilidad: se redacta con el "
-               "equipo comercial (actividades, agencias, medios, segmentos de "
-               "alto valor y foco de gestión). El sistema no la inventa.")
-    _pendiente(doc, "Market Intelligence — mix por país",
-               "requiere el detalle de noches por país del PMS. Si se cargó la "
-               "segmentación del mes en Cierre de Mes · Estadística de "
-               "habitaciones, el dato está ahí y se puede pegar acá.")
-
-    # ── Sección 4 — positivos y negativos, de los propios números ────────────
-    _h(doc, f"SECCIÓN 4 — Lo bueno y lo malo del acumulado a {mes_ing} {anio}",
-       nivel=1)
-    _h(doc, "4.1 Lo favorable", nivel=2)
-    if datos.get("positivos"):
-        for titulo, texto in datos["positivos"]:
-            _p(doc, [(titulo + ". ", True), texto])
-    else:
-        _p(doc, "No se identificaron variaciones favorables materiales en el "
-                "acumulado.")
-    _h(doc, "4.2 Lo desfavorable", nivel=2)
-    if datos.get("negativos"):
-        for titulo, texto in datos["negativos"]:
-            _p(doc, [(titulo + ". ", True), texto])
-    else:
-        _p(doc, "No se identificaron variaciones desfavorables materiales en el "
-                "acumulado.")
-
-    # ── Sección 4.3 — tipo de cambio ─────────────────────────────────────────
-    _h(doc, "4.3 Tipo de cambio — riesgo abierto", nivel=2)
-    if datos.get("fx"):
-        _p(doc, datos["fx"])
-    else:
-        _pendiente(doc, "Exposición cambiaria",
-                   "requiere el tipo de cambio presupuestado contra el real del "
-                   "período y la proporción de costos pagados en colones. Se "
-                   "carga en Master Data · Tipos de cambio.")
-
-    # ── Cierre ───────────────────────────────────────────────────────────────
-    doc.add_page_break()
-    _h(doc, "Nota metodológica", nivel=2, color=GRIS)
-    _p(doc, "Todas las cifras de este informe salen del mismo motor que alimenta "
-            "el P&L del cierre: no hay una segunda aritmética. El corte del año "
-            "completo compara el Forecast contra el Budget —no el Actual—, "
-            "porque el Actual del año son los meses efectivamente cargados y "
-            "restarle doce meses de presupuesto mostraría una caída que sólo "
-            "significa que el año no ha terminado. La ocupación, el ADR y el "
-            "RevPAR de un período se rederivan sobre los totales de ese período; "
-            "no son promedios de los meses.")
+    # ── ⚠️ Hasta acá ────────────────────────────────────────────────────────
+    #
+    # Owner, 2026-09-30: *«sólo vamos a dejar sección 1 y 2 por ahora; quita
+    # todo lo demás»*.
+    #
+    # Lo que se sacó: la Sección 3 (gestión comercial, que no sale de la
+    # contabilidad), la 4 (lo favorable y lo desfavorable, y la exposición
+    # cambiaria) y la nota metodológica del cierre.
+    #
+    # ⚠️ **`SECCIONES` sigue existiendo y `_positivos_y_negativos` se sigue
+    # llamando.** El «por ahora» del pedido dice que vuelven: borrar el armado
+    # obligaría a reescribirlo, y dejarlo sin llamar lo convertiría en código
+    # muerto que se pudre. Volver a encenderlas es agregar `"3"` y `"4"` a la
+    # constante.
+    #
+    # ⚠️ Lo único que NO se podía perder era la regla del año completo — sin
+    # ella la columna del full year se lee como un derrumbe—, y por eso subió a
+    # su propio corte, en 1.3, que es donde aplica.
 
     buf = io.BytesIO()
     doc.save(buf)

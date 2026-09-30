@@ -126,8 +126,7 @@ def test_trae_las_secciones_del_formato_del_owner():
                    "1.3 Proyección del año completo 2026 contra el presupuesto",
                    "SECCIÓN 2 — De qué depende el resultado",
                    "2.1 Volumen (demanda)", "2.2 Tarifa (calidad del ingreso)",
-                   "2.3 Composición del ingreso",
-                   "4.1 Lo favorable", "4.2 Lo desfavorable"):
+                   "2.3 Composición del ingreso"):
         assert titulo in t, f"falta «{titulo}»"
     # Y no quedo prosa en ingles suelta.
     for ingles in ("Total Revenue reached", "above Budget", "versus Budget",
@@ -188,14 +187,32 @@ def test_en_gasto_MENOS_es_favorable():
     assert 'efecto = (a - b) if clave == "TOTAL_REVENUES" else -(a - b)' in docx
 
 
-def test_lo_que_el_sistema_no_sabe_se_DICE():
-    """⚠️ Lo contrario de dejar la seccion afuera y tambien de rellenarla. Una
-    seccion ausente no se nota; una inventada se lee igual de bien que una
-    cierta."""
+def test_SOLO_van_las_secciones_1_y_2():
+    """Owner, 2026-09-30: *«solo vamos a dejar seccion 1 y 2 por ahora; quita
+    todo lo demas»*.
+
+    ⚠️ El «por ahora» es literal: `SECCIONES` sigue existiendo y
+    `_positivos_y_negativos` se sigue llamando. Borrar el armado obligaria a
+    reescribirlo, y dejarlo sin llamar lo convertiria en codigo muerto.
+    """
     t = _texto(build_executive_summary(_datos()))
-    assert "Actividad comercial del mes" in t
-    assert "El sistema no la inventa." in t
-    assert "Market Intelligence" in t
+    for fuera in ("SECCIÓN 3", "SECCIÓN 4", "4.1 Lo favorable",
+                  "4.2 Lo desfavorable", "4.3 Tipo de cambio",
+                  "Actividad comercial del mes", "Nota metodológica"):
+        assert fuera not in t, f"quedo «{fuera}»"
+    # Lo que si se queda.
+    assert "1.1 Agosto 2026" in t and "SECCIÓN 2" in t
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert 'SECCIONES = ("1", "2")' in src
+
+
+def test_la_regla_del_ano_completo_NO_se_perdio():
+    """⚠️ Vivia en la nota metodologica del final, que se saco. Sin ella un
+    Actual de ocho meses contra doce de presupuesto se lee como un derrumbe, asi
+    que subio a su propio corte —1.3—, que es donde se lee la columna."""
+    t = _texto(build_executive_summary(_datos()))
+    assert "la columna principal es el Forecast" in t
+    assert "que el año no ha terminado" in t
 
 
 def test_dividir_entre_cero_NO_inventa_un_porcentaje():
@@ -269,3 +286,56 @@ def test_el_informe_real_no_contradice_su_propio_texto():
     t = _texto(build_executive_summary(d))
     assert "RESUMEN EJECUTIVO MENSUAL" in t   # se genera igual
     assert "n/d%" not in t
+
+
+def test_la_tipografia_es_la_que_pidio_el_owner():
+    """Owner, 2026-09-30: *«el reporte debe ser en Times New Roman, letra 12,
+    justificado, espacio 1.5, y entre titulos un espacio adicional»*."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert 'FUENTE = "Times New Roman"' in src
+    assert "CUERPO = 12" in src
+    assert "INTERLINEA = 1.5" in src
+    assert "AIRE_TITULO" in src
+    # Y de verdad queda escrito en el documento.
+    import io
+    from docx import Document
+    doc = Document(io.BytesIO(build_executive_summary(_datos())))
+    normal = doc.styles["Normal"]
+    assert normal.font.name == "Times New Roman"
+    assert normal.font.size.pt == 12
+    assert normal.paragraph_format.line_spacing == 1.5
+
+
+def test_el_aire_entre_titulos_NO_es_un_parrafo_vacio():
+    """⚠️ Un párrafo vacío se descoloca en cuanto alguien edita arriba, y en
+    Word se arrastra al pegar. El aire va como `space_before` del propio
+    titulo."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "p.paragraph_format.space_before = Pt(AIRE_TITULO" in src
+
+
+def test_los_NEGATIVOS_van_en_rojo():
+    """⚠️ `f\"${-1234.5:,.2f}\"` da `$-1,234.50`: el signo queda escondido entre el
+    simbolo y el numero, se pierde de vista en una columna y —lo que importa
+    aca— no se puede detectar para pintarlo.
+
+    Por eso los negativos salen entre PARENTESIS, que es ademas la convencion
+    contable y la del PDF del owner.
+    """
+    assert usd(-1234.5) == "($1,234.50)"
+    assert usd(1234.5) == "$1,234.50"
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "def _es_negativo(texto: str) -> bool:" in src
+    assert "if _es_negativo(str(v)):" in src
+    assert "r.font.color.rgb = ROJO" in src
+
+
+def test_los_numeros_de_las_tablas_van_a_la_DERECHA():
+    """Es lo unico que alinea las unidades entre si: con el texto centrado, un
+    $1,234.50 y un $12.00 no comparten ninguna columna de digitos."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "p.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i" in src
+    # El encabezado se alinea como su columna, o la columna se lee torcida.
+    assert "p0.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i" in src
+    # Y la celda no hereda el 1,5 del cuerpo.
+    assert "p.paragraph_format.line_spacing = 1.0" in src
