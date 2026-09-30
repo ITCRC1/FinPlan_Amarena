@@ -339,3 +339,118 @@ def test_los_numeros_de_las_tablas_van_a_la_DERECHA():
     assert "p0.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i" in src
     # Y la celda no hereda el 1,5 del cuerpo.
     assert "p.paragraph_format.line_spacing = 1.0" in src
+
+
+# ═════════ La presentacion, 2026-09-30 ═══════════════════════════════════════
+#
+# Owner: *«metete a la website de Amarena y mete imagenes a la presentacion en
+# el inicio para que se vea super lindo. debes mejorar el diseno de los cuadros
+# se ven raros»*.
+
+def test_el_informe_sale_AUNQUE_falten_las_fotos():
+    """⚠️ Las fotos son estetica; el informe es el trabajo. Si el directorio de
+    assets no esta —un deploy a medias, un checkout sin LFS— el informe se
+    genera igual, sin portada, y no revienta."""
+    import app.export.executive_summary as mod
+    viejo = mod.ASSETS
+    try:
+        mod.ASSETS = pathlib.Path("no/existe/en/ningun/lado")
+        blob = build_executive_summary(_datos())
+        assert blob[:2] == b"PK"
+    finally:
+        mod.ASSETS = viejo
+
+
+def test_las_fotos_estan_en_el_REPO_y_no_se_bajan_al_generar():
+    """El informe se arma en el servidor. Bajar las fotos de la web cada vez lo
+    dejaria sin portada el dia que el sitio no conteste, y un documento a
+    duenos sin portada se nota."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "urllib" not in src and "requests" not in src
+    assets = pathlib.Path(__file__).resolve().parents[1] / "app/export/assets"
+    for foto in ("logo.png", "portada.jpg", "propiedad.jpg", "habitacion.jpg"):
+        assert (assets / foto).exists(), f"falta {foto}"
+
+
+def test_el_LOGO_no_es_blanco():
+    """El del sitio es blanco con transparencia, porque alla va sobre una foto
+    oscura. Sobre el papel blanco del informe seria invisible: la primera
+    portada salio con un hueco donde deberia ir la marca."""
+    from PIL import Image
+    assets = pathlib.Path(__file__).resolve().parents[1] / "app/export/assets"
+    px = Image.open(assets / "logo.png").convert("RGBA")
+    tintas = [px.getpixel((x, y))[:3]
+              for x in range(0, px.width, 7) for y in range(0, px.height, 7)
+              if px.getpixel((x, y))[3] > 200]
+    assert tintas, "el logo no tiene trazo opaco"
+    assert max(sum(t) / 3 for t in tintas) < 200, \
+        "el logo sigue siendo claro: no se veria sobre el papel"
+
+
+def test_en_el_ANO_COMPLETO_no_se_repite_la_columna_del_forecast():
+    """En el ano completo la columna principal YA ES el Forecast. La quinta
+    repetia el mismo numero al lado, en la misma fila."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "if fcs is None or fcs is act:" in src
+    assert "cabezas, anchos = cabezas[:4]" in src
+
+
+def test_las_verticales_de_los_cuadros_van_en_NIL():
+    """⚠️ Word RESERVA el ancho del borde y no lo rellena: un borde vertical,
+    aunque sea del mismo color del relleno, deja una franja sin pintar entre
+    columna y columna. Se midio en el PDF: 1,57 pt de hueco con un borde de
+    1,5 pt. Esa franja blanca ERA la raya que el owner veia como «rara»."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert '_borde(celda, "left", 0, color)' in src
+    assert '_borde(celda, "right", 0, color)' in src
+
+
+def test_el_orden_de_los_hijos_de_tcPr_y_tblPr_se_respeta():
+    """⚠️ Word IGNORA en silencio un hijo que llegue fuera del orden del
+    esquema: no da error, no avisa, simplemente no aplica. Con `w:shd` escrito
+    antes que `w:tcBorders` los bordes de celda no se aplicaban y no habia
+    manera de tapar la costura por mas que se le cambiara color y grosor."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "_ORDEN_TCPR" in src and "_ORDEN_TBLPR" in src
+    from app.export.executive_summary import _ORDEN_TCPR, _ORDEN_TBLPR
+    assert _ORDEN_TCPR.index("tcBorders") < _ORDEN_TCPR.index("shd")
+    assert _ORDEN_TBLPR.index("tblBorders") < _ORDEN_TBLPR.index("tblCellMar")
+
+
+def test_el_encabezado_se_REPITE_cuando_el_cuadro_cruza_la_pagina():
+    """Un cuadro de veinte filas cruza la pagina, y sin esto la mitad de abajo
+    queda como una lista de numeros sin columnas."""
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert 'OxmlElement("w:tblHeader")' in src
+    assert 'OxmlElement("w:cantSplit")' in src
+
+
+def test_un_cuadro_CORTO_no_se_parte_entre_dos_paginas():
+    """El flow-through son ocho filas y quedaba cortado: una fila al pie de una
+    pagina y las otras siete al principio de la siguiente.
+
+    ⚠️ Solo los cortos. Un cuadro de treinta filas marcado como inseparable
+    Word lo empuja entero y deja una pagina en blanco."""
+    from app.export.executive_summary import CABE_ENTERO
+    assert CABE_ENTERO == 10
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    assert "if len(tabla.rows) > CABE_ENTERO:" in src
+    assert "return" in src
+
+
+def test_los_anchos_de_columna_CABEN_en_la_pagina():
+    """21,59 cm de carta menos 2,4 de cada margen = 16,79 cm utiles. Cuando
+    sumaban mas, Word los reescalaba solo y los encabezados se partian."""
+    import re
+    src = DOCX_MOD.read_text(encoding="utf-8")
+    for crudo in re.findall(r"anchos=\[([0-9.,\s]+)\]", src):
+        suma = sum(float(x) for x in crudo.split(",") if x.strip())
+        assert suma <= 16.79, f"anchos=[{crudo}] suma {suma:.2f} cm"
+
+
+def test_la_tabla_de_tarifas_dice_el_MES_con_su_nombre():
+    """El informe se lee en espanol; un «03» en la primera columna parece un
+    codigo."""
+    api = API.read_text(encoding="utf-8")
+    assert 'MESES[m["month"] - 1], usd(float(kp.get("adr") or 0)),' in api
+    assert "MESES," in api.split("from app.export.executive_summary import")[1][:200]

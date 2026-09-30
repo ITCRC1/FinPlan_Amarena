@@ -46,6 +46,7 @@ muestra la pantalla de la que salió.
 from __future__ import annotations
 
 import io
+import pathlib
 from datetime import date
 
 from docx import Document
@@ -78,6 +79,49 @@ INTERLINEA = 1.5
 #: adicional»: es lo que separa un bloque del anterior sin meter párrafos vacíos,
 #: que se descolocan al editar.
 AIRE_TITULO = 18
+
+#: Las fotos de la propiedad, para la portada y las aperturas de sección.
+#:
+#: Owner, 2026-09-30: *«métete a la website de Amarena y mete imágenes a la
+#: presentación en el inicio para que se vea súper lindo»*.
+#:
+#: ⚠️ **Viven en el REPO y no se bajan al generar.** El informe se arma en el
+#: servidor; salir a internet cada vez lo dejaría sin portada el día que el
+#: sitio no conteste, y un documento a dueños sin portada se nota. Vienen de
+#: amarenabeachhotel.com, convertidas de WEBP —que `python-docx` no lee— a JPEG
+#: y PNG.
+ASSETS = pathlib.Path(__file__).resolve().parent / "assets"
+
+
+def _filete(doc, ancho_cm: float = 6.0) -> None:
+    """Un filete de oro. Separa la marca del título sin meter otra línea de
+    texto, que es lo que hacía que la portada se viera desordenada."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(12)
+    p.paragraph_format.line_spacing = 1.0
+    r = p.add_run("—" * int(ancho_cm * 2))
+    r.font.size = Pt(9)
+    r.font.color.rgb = ORO
+    _fuente_en_todo(r._element.get_or_add_rPr())
+
+
+def _imagen(doc, nombre: str, ancho_cm: float, centrada: bool = True):
+    """Una foto, si está. ⚠️ Si falta, el informe sale igual: una portada sin
+    imagen es un problema de estética; un informe que no se genera es un
+    problema de verdad."""
+    ruta = ASSETS / nombre
+    if not ruta.exists():
+        return None
+    p = doc.add_paragraph()
+    p.alignment = (WD_ALIGN_PARAGRAPH.CENTER if centrada
+                   else WD_ALIGN_PARAGRAPH.LEFT)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(10)
+    p.paragraph_format.line_spacing = 1.0
+    p.add_run().add_picture(str(ruta), width=Cm(ancho_cm))
+    return p
 
 VERDE = RGBColor(0x2A, 0x4A, 0x33)
 ORO = RGBColor(0xA8, 0x8C, 0x50)
@@ -241,11 +285,34 @@ def _p(doc, partes, justificar: bool = True):
     return p
 
 
+#: El orden en que el esquema de OOXML exige los hijos de `w:tcPr`.
+#:
+#: ⚠️ Lo mismo que en `w:tblPr`: un hijo fuera de orden Word lo IGNORA sin decir
+#: nada. Aquí costó caro — `w:shd` se escribía antes que `w:tcBorders`, así que
+#: los bordes de celda no se aplicaban y la costura blanca entre columnas no
+#: había manera de taparla por más que se le cambiara el color y el grosor.
+_ORDEN_TCPR = ("cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders",
+               "shd", "noWrap", "tcMar", "textDirection", "tcFitText",
+               "vAlign", "hideMark")
+
+
+def _ordenar_tcPr(celda) -> None:
+    tcPr = celda._tc.get_or_add_tcPr()
+    for hijo in sorted(tcPr, key=lambda e: (
+            _ORDEN_TCPR.index(e.tag.split("}")[1])
+            if e.tag.split("}")[1] in _ORDEN_TCPR else len(_ORDEN_TCPR))):
+        tcPr.append(hijo)
+
+
 def _sombra(celda, hexcolor: str) -> None:
+    tcPr = celda._tc.get_or_add_tcPr()
+    for viejo in tcPr.findall(qn("w:shd")):
+        tcPr.remove(viejo)
     el = OxmlElement("w:shd")
     el.set(qn("w:val"), "clear")
     el.set(qn("w:fill"), hexcolor)
-    celda._tc.get_or_add_tcPr().append(el)
+    tcPr.append(el)
+    _ordenar_tcPr(celda)
 
 
 def _es_negativo(texto: str) -> bool:
@@ -253,14 +320,132 @@ def _es_negativo(texto: str) -> bool:
     return t.startswith("(") or t.startswith("-") or t.startswith("-$")
 
 
+#: Los tonos de los cuadros. Pasteles: el informe va impreso y a proyector, y
+#: un relleno saturado se come el número que tiene encima.
+VERDE_CAB = "2A4A33"    #: el encabezado, con la letra en blanco
+CEBRA = "F4F7F5"        #: la fila alterna, apenas perceptible en papel
+FONDO_TOTAL = "E4EBE6"  #: el total, del mismo verde pero lavado
+RAYA = "C9D3CC"         #: las rayas horizontales
+
+
+def _borde(celda, lado: str, sz: int, color: str) -> None:
+    """Una raya de UN lado de la celda.
+
+    ⚠️ `w:tcBorders` tiene que ir en su orden del esquema (top, left, bottom,
+    right) o Word abre el documento diciendo que está dañado. Por eso se
+    reordena el elemento entero cada vez y no se hace `append` a secas.
+    """
+    tcPr = celda._tc.get_or_add_tcPr()
+    bordes = tcPr.find(qn("w:tcBorders"))
+    if bordes is None:
+        bordes = OxmlElement("w:tcBorders")
+        tcPr.append(bordes)
+    for viejo in bordes.findall(qn(f"w:{lado}")):
+        bordes.remove(viejo)
+    el = OxmlElement(f"w:{lado}")
+    el.set(qn("w:val"), "single" if sz else "nil")
+    el.set(qn("w:sz"), str(sz))
+    el.set(qn("w:color"), color)
+    bordes.append(el)
+    orden = {"top": 0, "left": 1, "bottom": 2, "right": 3, "insideH": 4,
+             "insideV": 5}
+    for hijo in sorted(bordes, key=lambda e: orden.get(e.tag.split("}")[1], 9)):
+        bordes.append(hijo)
+    _ordenar_tcPr(celda)
+
+
+def _sin_rejilla(tabla) -> None:
+    """Apaga las rayas que dibuja el ESTILO de la tabla.
+
+    ⚠️ No basta con poner los bordes de cada celda en `nil`: `Table Grid` define
+    `insideV` a nivel de TABLA, y esa raya se seguía viendo entre columna y
+    columna aunque las celdas dijeran que no. Las rayas que sí queremos se
+    dibujan después, celda por celda, en `_borde`.
+    """
+    bordes = OxmlElement("w:tblBorders")
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{lado}")
+        el.set(qn("w:val"), "nil")
+        bordes.append(el)
+    tabla._tbl.tblPr.append(bordes)
+    _ordenar_tblPr(tabla)
+
+
+#: El orden en que el esquema de OOXML exige los hijos de `w:tblPr`.
+#:
+#: ⚠️ Word IGNORA en silencio un hijo que llegue fuera de orden —no da error, no
+#: avisa: simplemente no aplica—. Las rayas verticales que sobraban entre
+#: columna y columna eran eso: `w:tblBorders` puesto con `append` al final.
+_ORDEN_TBLPR = ("tblStyle", "tblpPr", "tblOverlap", "bidiVisual",
+                "tblStyleRowBandSize", "tblStyleColBandSize", "tblW", "jc",
+                "tblCellSpacing", "tblInd", "tblBorders", "shd", "tblLayout",
+                "tblCellMar", "tblLook", "tblCaption", "tblDescription")
+
+
+def _ordenar_tblPr(tabla) -> None:
+    tblPr = tabla._tbl.tblPr
+    for hijo in sorted(tblPr, key=lambda e: (
+            _ORDEN_TBLPR.index(e.tag.split("}")[1])
+            if e.tag.split("}")[1] in _ORDEN_TBLPR else len(_ORDEN_TBLPR))):
+        tblPr.append(hijo)
+
+
+def _costuras(celda, color: str) -> None:
+    """Las verticales, pintadas DEL COLOR DE LA CELDA.
+
+    ⚠️ No se apagan: se camuflan. Con la vertical en `nil` Word deja sin pintar
+    la franja del borde, y entre dos celdas de fondo verde quedaba una costura
+    blanca de un pelo que a la vista era exactamente la raya que se quería
+    quitar. Del color del relleno, la costura desaparece.
+    """
+    # ⚠️ En `nil`, no del color del relleno. Word RESERVA el ancho del borde y
+    # no lo rellena: un borde vertical, aunque sea del mismo verde, deja una
+    # franja sin pintar entre columna y columna —se midió en el PDF: 1,57 pt de
+    # hueco con un borde de 1,5 pt—. Esa franja blanca ERA la raya que sobraba.
+    # Sin borde no hay franja y los rellenos de dos celdas vecinas se tocan.
+    _borde(celda, "left", 0, color)
+    _borde(celda, "right", 0, color)
+
+
+def _aire_en_celdas(tabla, arriba=60, lado=110) -> None:
+    """El margen interno de todas las celdas, en vigésimas de punto.
+
+    Sin esto el número toca la raya de al lado y el cuadro se ve apretado: es
+    la mitad de lo que hacía que los cuadros «se vieran raros».
+    """
+    tblPr = tabla._tbl.tblPr
+    mar = OxmlElement("w:tblCellMar")
+    for lado_, valor in (("top", arriba), ("left", lado), ("bottom", arriba),
+                         ("right", lado)):
+        el = OxmlElement(f"w:{lado_}")
+        el.set(qn("w:w"), str(valor))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
+    tblPr.append(mar)
+    _ordenar_tblPr(tabla)
+
+
 def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
     """Un cuadro. `filas` = lista de listas de texto ya formateado.
 
     `resaltar` son los índices de fila que van en negrita con fondo —los
     totales—. Los negativos salen en rojo, que es como se leen en el PDF.
+
+    ⚠️ **Sin rejilla.** Antes usaba `Table Grid`, que dibuja una caja negra
+    alrededor de cada celda: en un cuadro de doce filas son cien rayas y el
+    número deja de ser lo que se ve primero. Un estado financiero se lee por
+    filas, así que sólo hay rayas HORIZONTALES —finas, grises— más el
+    encabezado y la línea del total. Las verticales no hacen falta: la columna
+    la marca la alineación.
     """
     t = doc.add_table(rows=1, cols=len(encabezados))
+    # ⚠️ El estilo se queda en «Table Grid» porque la plantilla de `python-docx`
+    # no trae «Table Normal» con ese nombre. Sus rayas se apagan enseguida en
+    # `_sin_rejilla`.
     t.style = "Table Grid"
+    t.autofit = False
+    _sin_rejilla(t)
+    _aire_en_celdas(t)
     for i, h in enumerate(encabezados):
         c = t.rows[0].cells[i]
         c.text = ""
@@ -277,9 +462,25 @@ def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
         # número a la derecha, la columna se lee torcida.
         p0.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if i
                         else WD_ALIGN_PARAGRAPH.LEFT)
-        _sombra(c, "2A4A33")
+        _sombra(c, VERDE_CAB)
+        _costuras(c, VERDE_CAB)
+        for lado in ("top", "bottom"):
+            _borde(c, lado, 0, VERDE_CAB)
+    # ⚠️ Un cuadro de veinte filas cruza la página, y sin esto la mitad de
+    # abajo queda como una lista de números sin columnas: `tblHeader` repite el
+    # encabezado en cada página.
+    trPr = t.rows[0]._tr.get_or_add_trPr()
+    cab = OxmlElement("w:tblHeader")
+    cab.set(qn("w:val"), "true")
+    trPr.append(cab)
+    ultima = len(filas) - 1
     for n, fila in enumerate(filas):
-        celdas = t.add_row().cells
+        tr = t.add_row()
+        # Una fila partida por la mitad entre dos páginas es ilegible.
+        no_partir = OxmlElement("w:cantSplit")
+        tr._tr.get_or_add_trPr().append(no_partir)
+        celdas = tr.cells
+        es_total = n in resaltar
         for i, v in enumerate(fila):
             celdas[i].text = ""
             p = celdas[i].paragraphs[0]
@@ -296,22 +497,62 @@ def _tabla(doc, encabezados, filas, anchos=None, resaltar=()):
             r.font.name = FUENTE
             r.font.size = Pt(CUERPO_TABLA)
             _fuente_en_todo(r._element.get_or_add_rPr())
-            r.bold = n in resaltar
+            r.bold = es_total
             # ⚠️ El rojo se decide por el TEXTO ya formateado y no por el
             # número, porque la celda recibe texto: `k()`, `usd()` y `pct()`
             # devuelven cadenas. Se cubren las tres formas en que un negativo
             # puede llegar: `(...)`, `-$…` y `-12,3%`.
             if _es_negativo(str(v)):
                 r.font.color.rgb = ROJO
-            if n in resaltar:
-                _sombra(celdas[i], "EDF1F5")
+            elif es_total:
+                r.font.color.rgb = NEGRO
+            # Las verticales no se ven; las horizontales dicen de qué tipo es
+            # la fila.
+            if es_total:
+                _sombra(celdas[i], FONDO_TOTAL)
+                _costuras(celdas[i], FONDO_TOTAL)
+                _borde(celdas[i], "top", 8, VERDE_CAB)
+                _borde(celdas[i], "bottom", 8 if n == ultima else 4, VERDE_CAB)
+            else:
+                _sombra(celdas[i], CEBRA if n % 2 else "FFFFFF")
+                _costuras(celdas[i], CEBRA if n % 2 else "FFFFFF")
+                _borde(celdas[i], "top", 0, RAYA)
+                _borde(celdas[i], "bottom", 4, RAYA)
     if anchos:
         for fila in t.rows:
             for i, w in enumerate(anchos):
                 fila.cells[i].width = Cm(w)
+    _no_partir_si_es_corto(doc, t)
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(10)
     return t
+
+
+#: Hasta cuántas filas se considera que un cuadro «cabe entero».
+#:
+#: ⚠️ Por encima de esto NO se fuerza: un cuadro de treinta filas que no cabe en
+#: ninguna página, marcado como inseparable, Word lo empuja y deja una página en
+#: blanco. Por eso el de la cascada —veinte filas— sí se parte, y para eso se
+#: repite el encabezado.
+CABE_ENTERO = 10
+
+
+def _no_partir_si_es_corto(doc, tabla) -> None:
+    """Un cuadro chico entero en una página, con su rótulo encima.
+
+    El flow-through son ocho filas y quedaba cortado: una fila al pie de una
+    página y las otras siete al principio de la siguiente, con media hoja en
+    blanco en medio.
+    """
+    if len(tabla.rows) > CABE_ENTERO:
+        return
+    # El rótulo es el párrafo que acaba de escribirse antes del cuadro.
+    if doc.paragraphs:
+        doc.paragraphs[-1].paragraph_format.keep_with_next = True
+    for fila in tabla.rows[:-1]:
+        for celda in fila.cells:
+            for p in celda.paragraphs:
+                p.paragraph_format.keep_with_next = True
 
 
 def _pendiente(doc, titulo: str, que_falta: str) -> None:
@@ -323,6 +564,7 @@ def _pendiente(doc, titulo: str, que_falta: str) -> None:
     """
     t = doc.add_table(rows=1, cols=1)
     t.style = "Table Grid"
+    _aire_en_celdas(t, arriba=110, lado=140)
     c = t.rows[0].cells[0]
     c.text = ""
     p = c.paragraphs[0]
@@ -396,8 +638,16 @@ def _cuadro_corte(doc, titulo: str, act: dict, bud: dict, fcs: dict | None,
         filas.append([rotulo, usd(a), usd(b), usd(a - b) + (
             f"  ({vp * 100:,.1f}%)" if vp is not None else ""),
             usd(linea(fcs, code)) if fcs else ""])
-    _tabla(doc, ["ACCOUNT DESCRIPTION", rot_a, rot_b, "Variación", rot_c],
-           filas, anchos=[5.2, 2.9, 2.9, 3.2, 2.9],
+    # ⚠️ En el año completo la columna principal YA ES el Forecast, así que la
+    # quinta columna repetía el mismo número al lado: «$673,888.06» dos veces en
+    # la misma fila. Cuando la principal y el forecast son la misma versión, la
+    # quinta no va.
+    cabezas = ["CUENTA", rot_a, rot_b, "Variación", rot_c]
+    anchos = [5.3, 2.7, 2.7, 3.4, 2.6]
+    if fcs is None or fcs is act:
+        cabezas, anchos = cabezas[:4], [6.2, 3.2, 3.2, 4.1]
+        filas = [f[:4] for f in filas]
+    _tabla(doc, cabezas, filas, anchos=anchos,
            resaltar={i for i, (_, _, f) in enumerate(CASCADA, start=6) if f})
 
 
@@ -433,7 +683,7 @@ def _flow_through(doc, titulo: str, act: dict, bud: dict, totales) -> None:
         d = linea(act, code) - linea(bud, code)
         filas.append([rotulo, usd(d) if d >= 0 else f"({usd(abs(d))})", nota])
     _tabla(doc, ["Concepto", "Diferencia ($)", "Qué la explica"], filas,
-           anchos=[6.5, 3.4, 7.2], resaltar={len(filas) - 2, len(filas) - 1})
+           anchos=[5.6, 3.3, 7.8], resaltar={len(filas) - 2, len(filas) - 1})
 
 
 # ═════════════════════════════ El documento ═══════════════════════════════════
@@ -464,8 +714,12 @@ def build_executive_summary(datos: dict) -> bytes:
     _pie(doc.sections[0], propiedad)
 
     # ── Portada ──────────────────────────────────────────────────────────────
-    for _ in range(8):
-        doc.add_paragraph()
+    #
+    # ⚠️ El aire de arriba ya no son ocho párrafos vacíos: con el logo y la foto
+    # el bloque ocupa la página, y los ocho empujaban el título a la segunda.
+    doc.add_paragraph()
+    _imagen(doc, "logo.png", 8.0)
+    _filete(doc)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("RESUMEN EJECUTIVO MENSUAL")
@@ -490,6 +744,8 @@ def build_executive_summary(datos: dict) -> bytes:
                   + (f" vs {rot['forecast']}" if fcs else ""))
     r.font.size = Pt(8.5)
     r.font.color.rgb = GRIS
+    doc.add_paragraph()
+    _imagen(doc, "portada.jpg", 16.0)
     doc.add_page_break()
 
     # ── Introducción ─────────────────────────────────────────────────────────
@@ -507,10 +763,12 @@ def build_executive_summary(datos: dict) -> bytes:
     _p(doc, "El objetivo no es sólo mostrar cuánto ingreso y cuánta utilidad se "
             "alcanzaron, sino entender de dónde vienen: volumen, tarifa, "
             "estructura de costos y la dinámica operativa del año.")
+    _imagen(doc, "propiedad.jpg", 15.5)
     doc.add_page_break()
 
     _h(doc, f"Resumen Ejecutivo — Resultados financieros y operativos "
             f"al cierre de {mes_ing} {anio}", nivel=1)
+    _imagen(doc, "costa.jpg", 15.5)
 
     # ── 1.1 / 1.2 / 1.3 ──────────────────────────────────────────────────────
     cortes = [
@@ -581,7 +839,9 @@ def build_executive_summary(datos: dict) -> bytes:
                     "meses de presupuesto mostraría una caída que sólo significa "
                     "que el año no ha terminado.")
 
-        _cuadro_corte(doc, f"{rotulo_corte} {anio} — Actual · Presupuesto · Forecast",
+        _cuadro_corte(doc, f"{rotulo_corte} {anio} — "
+                           + ("Forecast · Presupuesto" if principal is f
+                              else "Actual · Presupuesto · Forecast"),
                       principal, b, f, rot_principal, rot["budget"],
                       rot.get("forecast", ""))
         _flow_through(doc, f"{rotulo_corte} {anio} — de dónde viene la diferencia "
@@ -590,6 +850,7 @@ def build_executive_summary(datos: dict) -> bytes:
 
     # ── Sección 2 — Drivers ──────────────────────────────────────────────────
     _h(doc, "SECCIÓN 2 — De qué depende el resultado", nivel=1)
+    _imagen(doc, "habitacion.jpg", 15.5)
     ytd_a, ytd_b = act["ytd"], bud["ytd"]
     _h(doc, "2.1 Volumen (demanda)", nivel=2)
     d_noc = kpi(ytd_a, "rooms_occupied") - kpi(ytd_b, "rooms_occupied")
@@ -610,7 +871,7 @@ def build_executive_summary(datos: dict) -> bytes:
             f"sólo la noche vendida.")
     if datos.get("adr_por_mes"):
         _tabla(doc, ["Mes", "Tarifa promedio", "Ocupación", "Noches vendidas"],
-               datos["adr_por_mes"], anchos=[4.0, 4.0, 4.0, 4.0])
+               datos["adr_por_mes"], anchos=[4.15, 4.15, 4.15, 4.15])
 
     # ── 2.3 Revenue mix ──────────────────────────────────────────────────────
     _h(doc, "2.3 Composición del ingreso", nivel=2)
@@ -620,7 +881,7 @@ def build_executive_summary(datos: dict) -> bytes:
                 "presupuesto:")
         _tabla(doc, ["Departamento", "Acumulado real", "Presupuesto",
                      "Variación $", "Variación %"],
-               mix, anchos=[5.6, 3.2, 3.2, 3.0, 2.2])
+               mix, anchos=[5.4, 3.1, 3.1, 2.9, 2.2])
     else:
         _pendiente(doc, "Composición del ingreso",
                    "el detalle por departamento no vino en esta corrida.")

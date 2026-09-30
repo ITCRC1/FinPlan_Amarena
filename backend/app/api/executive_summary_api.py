@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from app.auth import get_current_user
 from app.errores import ErrorApi
 from app.export.executive_summary import (
-    DOCX, build_executive_summary, k, linea, pct, usd, var_pct,
+    DOCX, MESES, build_executive_summary, k, linea, pct, usd, var_pct,
 )
 
 router = APIRouter(tags=["reports"])
@@ -132,7 +132,9 @@ async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
             if not float(kp.get("rooms_occupied") or 0):
                 continue
             adr_mes.append([
-                f"{m['month']:02d}", usd(float(kp.get("adr") or 0)),
+                # El nombre del mes, no «03»: el informe se lee en español y un
+                # número de dos cifras en la primera columna parece un código.
+                MESES[m["month"] - 1], usd(float(kp.get("adr") or 0)),
                 pct(float(kp.get("occupancy_pct") or 0)),
                 f"{float(kp.get('rooms_occupied') or 0):,.0f}"])
     except Exception:
