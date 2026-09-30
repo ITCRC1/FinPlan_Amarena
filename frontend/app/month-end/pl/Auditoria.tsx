@@ -737,14 +737,20 @@ export default function Auditoria({ escenarios, inicial, mes, horizonte = "month
                                 title={f.porTotal
                                   ? `${rotuloB} no tiene este desglose: es el TOTAL de la `
                                     + `cuenta en el departamento.`
+                                  : f.porLinea
+                                  ? `${rotuloB} no tiene esta cuenta con este código: es lo `
+                                    + `que le queda al renglón «${f.linea}», que es donde `
+                                    + `el motor hace caer a las dos.`
                                   : f.contra === null && f.movimiento
-                                  ? `${rotuloB} no tiene esta cuenta, o ya se comparó en la `
-                                    + `fila de arriba por el total.`
+                                  ? `${rotuloB} no tiene esta cuenta, o ya se comparó en `
+                                    + `una fila de arriba.`
                                   : undefined}>
                               {f.contra === null ? "" : usd(f.contra)}
-                              {f.porTotal && (
+                              {(f.porTotal || f.porLinea) && (
                                 <span style={{ color: "var(--text-disabled)",
-                                               marginLeft: 4, fontSize: 10 }}>tot.</span>
+                                               marginLeft: 4, fontSize: 10 }}>
+                                  {f.porTotal ? "tot." : "lín."}
+                                </span>
                               )}
                             </td>
                             <td style={{ ...TD, fontStyle: "italic",

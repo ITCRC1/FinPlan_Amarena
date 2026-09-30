@@ -7,20 +7,43 @@ import type { Auditoria, AuditoriaFila } from "@/lib/api";
  * versión que yo quiera para que compare el actual. algunas solamente serán
  * por cuenta total. no pasa nada. pero al menos comparar contra algo»*.
  *
- * ## Por qué esto vive aparte del render
+ * ## Los dos lados no hablan el mismo idioma, y eso es el problema entero
  *
- * El cruce tiene tres casos y ninguno se ve mirando la pantalla: la cuenta que
- * coincide exacto, la que sólo coincide por total, y la que existe de un lado y
- * no del otro. Separado se puede correr contra datos de verdad.
+ * El real llega del mayor: departamento `0110`, cuenta `4000`. El presupuesto
+ * llega de los checkbooks, y **el ingreso no tiene ni cuenta ni departamento**
+ * — la llave es el GRUPO (`ROOMS`), y el departamento va vacío (ver
+ * `auditoria_api._asientos_del_checkbook`). Emparejar sólo por cuenta dejaba
+ * todos los ingresos sin comparar mientras los gastos cuadraban, que es
+ * exactamente lo que el owner vio: *«por que los gastos salen y los ingresos no
+ * salen para ninguno»*.
+ *
+ * Por eso el cruce baja por TRES niveles, del más fino al más grueso:
+ *
+ * 1. el mismo desglose — `departamento + cuenta + outlet`;
+ * 2. el total de la cuenta — `departamento + cuenta`;
+ * 3. **el renglón del P&L** — lo que queda de esa línea sin emparejar.
+ *
+ * El nivel 3 es el que salva al ingreso: los dos lados caen en `REV_ROOMS`
+ * porque lo decidió el mismo motor, aunque uno diga `4000` y el otro `ROOMS`.
+ *
+ * ## ⚠️ Lo que se reparte es el RESTO, nunca el total otra vez
+ *
+ * Cada nivel consume lo que toma. Si dos cuentas de una línea ya emparejaron
+ * por código y una tercera baja al nivel de línea, recibe **lo que sobra** y no
+ * el total de la línea — si recibiera el total, la columna sumaría de más y
+ * ninguna fila se vería rara. Blindado: la columna tiene que dar exactamente el
+ * total de la otra versión.
  *
  * ## ⚠️ Nada se reclasifica acá
  *
- * Las dos auditorías salen del MISMO endpoint, así que el renglón del P&L al
- * que cae cada cuenta lo decidió `pl_engine.linea_de_fila` en los dos casos.
- * Este archivo sólo empareja por `departamento + cuenta`; si además tradujera o
- * reagrupara, una versión podría quedar clasificada distinto que la otra y la
- * comparación se vería perfectamente normal estando mal.
+ * Las dos auditorías salen del MISMO endpoint, así que a qué renglón del P&L
+ * cae cada monto lo decidió `pl_engine.linea_de_fila` de los dos lados. Este
+ * archivo sólo empareja; si además tradujera o reagrupara, una versión podría
+ * quedar clasificada distinto que la otra y la comparación se vería
+ * perfectamente normal estando mal.
  */
+
+const CERO = 0.005;
 
 /** La llave fina: el mismo desglose de los dos lados. */
 const kExacta = (f: { dept_code: string; account_code: string; outlet?: string | null }) =>
@@ -30,48 +53,56 @@ const kCuenta = (f: { dept_code: string; account_code: string }) =>
   `${f.dept_code}|${f.account_code}`;
 
 export interface FilaComparada extends AuditoriaFila {
-  /** Lo que la otra versión tiene en esta cuenta.
+  /** Lo que la otra versión tiene acá.
    *
-   *  `null` = no hay con qué comparar, o ya se comparó en la fila de arriba.
+   *  `null` = no hay con qué comparar, o ya se comparó más arriba.
    *  ⚠️ No es cero. Un cero dice «la otra versión no tiene nada acá», que es
    *  una afirmación distinta y muchas veces falsa. */
   contra: number | null;
-  /** El monto de la otra versión salió del TOTAL de la cuenta y no del mismo
-   *  desglose. Pasa siempre que el presupuesto se digita por cuenta y el real
-   *  llega por outlet — que es el caso que el owner ya daba por bueno. */
+  /** El monto salió del TOTAL de la cuenta y no del mismo desglose. */
   porTotal: boolean;
-  /** La otra versión tiene esta cuenta y ésta no. Es el renglón que no se ve de
+  /** El monto salió del RENGLÓN del P&L: la otra versión no tiene esa cuenta
+   *  con ese código. Es el caso del ingreso presupuestado, que viene por grupo
+   *  (`ROOMS`) y no por cuenta (`4000`). */
+  porLinea: boolean;
+  /** La otra versión tiene esto y ésta no. Es el renglón que no se ve de
    *  ninguna otra forma: lo presupuestado y no ejecutado. */
   soloContra: boolean;
 }
 
-export interface Indice {
-  /** Por `dept|cuenta|outlet`. */
+/** Una cuenta de la otra versión, con lo que le queda por emparejar. */
+interface Bolsa {
+  dept: string; linea: string; muestra: AuditoriaFila;
+  /** Por desglose, para el nivel 1. */
   exacto: Map<string, number>;
-  /** Por `dept|cuenta`, sumando los desgloses. */
-  porCuenta: Map<string, number>;
-  /** Una fila de muestra por cuenta, para el nombre y la naturaleza de las que
-   *  sólo existen del otro lado. */
-  muestra: Map<string, AuditoriaFila>;
-  /** El motor por renglón del P&L, para el cuadre. */
+  /** Lo que todavía no se le asignó a ninguna fila. */
+  resto: number;
+}
+
+export interface Indice {
+  bolsas: Map<string, Bolsa>;
+  /** El motor por renglón del P&L, para el cuadre de arriba. */
   porLinea: Map<string, number>;
 }
 
 /** El índice de la versión contra la que se compara. */
 export function indiceDe(b: Auditoria | null): Indice | null {
   if (!b) return null;
-  const ix: Indice = {
-    exacto: new Map(), porCuenta: new Map(), muestra: new Map(), porLinea: new Map(),
-  };
+  const ix: Indice = { bolsas: new Map(), porLinea: new Map() };
   for (const f of b.detalle) {
     // ⚠️ Las opciones del catálogo sin usar NO entran: son el inventario de
     // cuentas disponibles, no un monto presupuestado. Compararlas metería un
     // cero donde no hay nada.
     if (!f.movimiento) continue;
-    const ke = kExacta(f), kc = kCuenta(f);
-    ix.exacto.set(ke, (ix.exacto.get(ke) ?? 0) + f.monto);
-    ix.porCuenta.set(kc, (ix.porCuenta.get(kc) ?? 0) + f.monto);
-    if (!ix.muestra.has(kc)) ix.muestra.set(kc, f);
+    const kc = kCuenta(f);
+    const bolsa = ix.bolsas.get(kc) ?? {
+      dept: f.dept_code, linea: f.linea ?? "", muestra: f,
+      exacto: new Map<string, number>(), resto: 0,
+    };
+    const ke = kExacta(f);
+    bolsa.exacto.set(ke, (bolsa.exacto.get(ke) ?? 0) + f.monto);
+    bolsa.resto += f.monto;
+    ix.bolsas.set(kc, bolsa);
   }
   for (const f of b.cuadre) {
     if (f.linea && f.motor !== null) ix.porLinea.set(f.linea, f.motor);
@@ -79,56 +110,93 @@ export function indiceDe(b: Auditoria | null): Indice | null {
   return ix;
 }
 
+/** Saca de una bolsa lo que se le asigna a una fila, y lo descuenta. */
+function tomar(b: Bolsa, monto: number): number {
+  b.resto -= monto;
+  return monto;
+}
+
 /**
- * El detalle de A con la columna de B al lado, más las cuentas que sólo están
- * en B.
+ * El detalle de A con la columna de B al lado, más lo que sólo está en B.
  *
- * ⚠️ **El total de la cuenta se cuelga de UNA sola fila.** Si el real trae tres
- * outlets de la misma cuenta y el presupuesto la tiene sin desglosar, repetir
- * el total en las tres filas lo contaría tres veces — y la suma de la columna
- * daría el triple sin que ninguna fila se viera rara. Las otras van en blanco,
- * con su explicación.
+ * ⚠️ **Cada monto de B se entrega UNA sola vez.** Si el real trae tres outlets
+ * de la misma cuenta y el presupuesto la tiene sin desglosar, repetir el total
+ * en las tres filas lo contaría tres veces — y la suma de la columna daría el
+ * triple sin que ninguna fila se viera rara.
  */
 export function compararDetalle(
   a: AuditoriaFila[], ix: Indice | null,
 ): FilaComparada[] {
-  if (!ix) {
-    return a.map(f => ({ ...f, contra: null, porTotal: false, soloContra: false }));
-  }
+  const limpia = (f: AuditoriaFila): FilaComparada =>
+    ({ ...f, contra: null, porTotal: false, porLinea: false, soloContra: false });
+  if (!ix) return a.map(limpia);
 
-  /** Qué cuentas de B ya quedaron emparejadas, para no repetirlas al final. */
-  const vistas = new Set<string>();
-  /** A qué cuentas ya se les colgó el total, para no contarlo dos veces. */
-  const totalPuesto = new Set<string>();
+  // Copia de trabajo: el índice se reusa entre renders y no se puede vaciar.
+  const bolsas = new Map<string, Bolsa>();
+  for (const [k, b] of ix.bolsas) bolsas.set(k, { ...b, exacto: new Map(b.exacto) });
+
+  /** Las bolsas de un renglón del P&L que todavía tienen resto.
+   *
+   *  `dept` vacío = la otra versión no dice de qué departamento es. Le pasa al
+   *  ingreso presupuestado, y es justo el que hay que poder emparejar: si se
+   *  exigiera el mismo departamento, no encontraría ninguno. */
+  const deLaLinea = (dept: string, linea: string) =>
+    [...bolsas.values()].filter(b =>
+      b.linea === linea && Math.abs(b.resto) >= CERO
+      && (b.dept === dept || b.dept === ""));
 
   const out: FilaComparada[] = a.map(f => {
-    if (!f.movimiento) {
-      return { ...f, contra: null, porTotal: false, soloContra: false };
+    if (!f.movimiento) return limpia(f);
+    const r = limpia(f);
+    const bolsa = bolsas.get(kCuenta(f));
+
+    // ── 1. El mismo desglose ────────────────────────────────────────────────
+    const exacto = bolsa?.exacto.get(kExacta(f));
+    if (bolsa && exacto !== undefined && Math.abs(exacto) >= CERO) {
+      bolsa.exacto.delete(kExacta(f));
+      r.contra = tomar(bolsa, exacto);
+      return r;
     }
-    const ke = kExacta(f), kc = kCuenta(f);
-    vistas.add(kc);
-    const exacto = ix.exacto.get(ke);
-    if (exacto !== undefined) {
-      return { ...f, contra: exacto, porTotal: false, soloContra: false };
+    // ── 2. El total de la cuenta ────────────────────────────────────────────
+    if (bolsa && Math.abs(bolsa.resto) >= CERO) {
+      bolsa.exacto.clear();
+      r.contra = tomar(bolsa, bolsa.resto);
+      r.porTotal = true;
+      return r;
     }
-    const total = ix.porCuenta.get(kc);
-    if (total !== undefined && !totalPuesto.has(kc)) {
-      totalPuesto.add(kc);
-      return { ...f, contra: total, porTotal: true, soloContra: false };
+    // ── 3. El renglón del P&L ───────────────────────────────────────────────
+    //
+    // Acá empareja el ingreso: los dos lados caen en `REV_ROOMS` porque lo
+    // decidió el mismo motor, aunque uno diga `4000` y el otro `ROOMS`.
+    //
+    // ⚠️ **Sólo baja acá la cuenta que la otra versión NO tiene.** Si la tiene
+    // y ya se agotó arriba, esta fila queda en blanco y punto: dejarla bajar
+    // haría que el segundo outlet de una cuenta ya comparada se llevara el
+    // presupuesto de OTRA cuenta de la misma línea. La columna seguiría
+    // sumando bien —por eso no se nota— pero la plata estaría en la fila
+    // equivocada, que es el peor error de una auditoría.
+    const resto = f.linea && !bolsa ? deLaLinea(f.dept_code, f.linea) : [];
+    if (resto.length) {
+      let suma = 0;
+      for (const b of resto) { b.exacto.clear(); suma += tomar(b, b.resto); }
+      r.contra = suma;
+      r.porLinea = true;
+      return r;
     }
-    return { ...f, contra: null, porTotal: false, soloContra: false };
+    return r;
   });
 
   // ── Lo que la otra versión tiene y ésta no ────────────────────────────────
   //
-  // Es el renglón que no aparece de ninguna otra forma: una partida
-  // presupuestada y sin ejecutar no deja rastro en el real, así que sin esto la
-  // auditoría no la puede mostrar. Va en cero del lado de acá, que es el dato.
-  for (const [kc, monto] of ix.porCuenta) {
-    if (vistas.has(kc) || Math.abs(monto) < 0.005) continue;
-    const m = ix.muestra.get(kc);
-    if (!m) continue;
-    out.push({ ...m, monto: 0, contra: monto, porTotal: false, soloContra: true });
+  // Una partida presupuestada y sin ejecutar no deja rastro en el real, así que
+  // sin esto la auditoría no la puede mostrar — y es de las que más interesan.
+  // Va en cero del lado de acá, que es el dato.
+  for (const b of bolsas.values()) {
+    if (Math.abs(b.resto) < CERO) continue;
+    out.push({
+      ...b.muestra, monto: 0, contra: b.resto,
+      porTotal: false, porLinea: false, soloContra: true,
+    });
   }
   return out;
 }

@@ -49,8 +49,9 @@ def test_el_total_de_la_cuenta_se_cuelga_de_UNA_sola_fila():
     da 8.800, que es exactamente el motor de la otra version.
     """
     src = LOGICA.read_text(encoding="utf-8")
-    assert "totalPuesto" in src
-    assert "!totalPuesto.has(kc)" in src
+    # Cada nivel CONSUME lo que toma: la bolsa de la otra version se descuenta.
+    assert "function tomar(b: Bolsa, monto: number)" in src
+    assert "b.resto -= monto;" in src
     assert "porTotal" in src, "no se avisa que el monto vino del total"
 
 
@@ -72,7 +73,10 @@ def test_lo_que_solo_esta_del_otro_lado_TAMBIEN_se_ve():
     se leeria como un movimiento de cero."""
     src = LOGICA.read_text(encoding="utf-8")
     assert "soloContra" in src
-    assert "if (vistas.has(kc)" in src
+    # Lo que quedo en la bolsa sin repartir es, literalmente, lo que solo esta
+    # del otro lado.
+    assert "for (const b of bolsas.values())" in src
+    assert "Math.abs(b.resto) < CERO) continue;" in src
     comp = COMP.read_text(encoding="utf-8")
     assert "f.soloContra &&" in comp and "sólo en {rotuloB}" in comp
 
@@ -183,3 +187,55 @@ def test_cuando_NO_puede_comparar_lo_DICE():
     assert "no tiene detalle por cuenta en este período" in comp
     assert "{avisoB && (" in comp, "el aviso no se dibuja"
     assert "catch { setDatosB(null); }" not in comp, "volvio el catch mudo"
+
+
+def test_el_INGRESO_tambien_compara_aunque_no_traiga_cuenta():
+    """⚠️ El error que el owner vio primero: *«por que los gastos salen y los
+    ingresos no salen para ninguno»*.
+
+    Los dos lados no hablan el mismo idioma. El real llega del mayor
+    —departamento `0110`, cuenta `4000`— y el presupuesto llega de los
+    checkbooks, donde **el ingreso no tiene ni cuenta ni departamento**: la
+    llave es el GRUPO (`ROOMS`) y el departamento va vacio (ver
+    `auditoria_api._asientos_del_checkbook`). Emparejar solo por codigo dejaba
+    TODO el ingreso sin comparar mientras el gasto cuadraba.
+
+    El tercer nivel los junta por el RENGLON del P&L: los dos caen en
+    `REV_ROOMS` porque lo decidio el mismo motor.
+
+    Medido: 4000 (54.134,00) contra el grupo ROOMS (48.000,00) → 6.134,00.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "const deLaLinea = (dept: string, linea: string)" in src
+    assert "porLinea: boolean;" in src
+    # ⚠️ Y NO exige el mismo departamento cuando el otro lado no lo dice: el
+    # ingreso presupuestado no tiene departamento, asi que exigirlo no
+    # encontraria ninguno.
+    assert 'b.dept === dept || b.dept === ""' in src
+    comp = COMP.read_text(encoding="utf-8")
+    assert "f.porTotal || f.porLinea" in comp, "la marca «lin.» no se dibuja"
+
+
+def test_al_renglon_solo_baja_la_cuenta_que_el_otro_lado_NO_tiene():
+    """⚠️ El error que este cruce tuvo y se corrigio antes de desplegarlo.
+
+    Si una fila cuya cuenta SI existe del otro lado —pero ya se agoto arriba—
+    pudiera bajar al nivel de renglon, el segundo outlet de una cuenta ya
+    comparada se llevaria el presupuesto de OTRA cuenta de la misma linea.
+
+    Medido: `7105/Rooms` se quedaba con los 1.113,74 de la cuenta 6003. **La
+    columna seguia sumando bien** —por eso no se nota— pero la plata quedaba en
+    la fila equivocada, que es el peor error de una auditoria.
+    """
+    src = LOGICA.read_text(encoding="utf-8")
+    assert "f.linea && !bolsa ? deLaLinea(" in src
+
+
+def test_la_columna_de_al_lado_suma_EXACTAMENTE_el_total_del_otro():
+    """La prueba de que ningun nivel duplica ni pierde. Corrida contra los seis
+    casos —exacto, por total, segundo outlet, por linea, opcion sin uso y solo
+    en B— la columna da 57.913,74, que es el total de la otra version."""
+    src = LOGICA.read_text(encoding="utf-8")
+    # El indice se COPIA por render: vaciar el compartido dejaria la segunda
+    # pasada sin nada que repartir y la columna en blanco.
+    assert "for (const [k, b] of ix.bolsas) bolsas.set(k, { ...b, exacto: new Map(b.exacto) });" in src
