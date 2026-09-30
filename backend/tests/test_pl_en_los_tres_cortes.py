@@ -240,8 +240,25 @@ def test_la_franja_y_el_cuadro_quedan_ALINEADOS():
         assert "ANCHO_ROTULO" in fuente and "ANCHO_DATO" in fuente, \
             f"{quien} usa un ancho propio"
     # La franja gano su columna de varianza, con la MISMA regla del par.
-    assert "parDe(c, versiones, escenarios)" in franja
+    assert "parDe(c, versiones, escenarios, vista)" in franja
     assert "Var" in franja
+
+    # 4. Y la MISMA vista: quien cae en cada columna de cada corte.
+    #
+    # ⚠️ No alcanza con que las dos tablas midan igual. La franja repartia sus
+    # columnas por su cuenta —una por version pedida, en orden— y en el año
+    # completo eso deja al ACTUAL en la primera, que son los meses cargados y
+    # nada mas, mientras el cuadro mostraba el FORECAST: 539 noches arriba y
+    # 1.199 abajo, bajo el mismo rotulo (owner, 2026-09-30). Alineadas al pixel
+    # y contestando cosas distintas es peor que desalineadas.
+    for fuente, quien in ((franja, "la franja"), (comp, "el cuadro")):
+        assert "vistaDe(" in fuente, f"{quien} no usa la vista compartida"
+        assert "vista.vi(" in fuente, f"{quien} no resuelve por la vista"
+    pagina = (FRONT / "app/month-end/pl/page.tsx").read_text(encoding="utf-8")
+    # Y recibe las MISMAS versiones que el cuadro: el Forecast Current viaja
+    # aunque no este en ninguna ranura.
+    assert "scenarioIds={idsFranja}" in pagina
+    assert "actualDelFullYear={actualFullPL}" in pagina
 
 
 def test_la_varianza_de_la_franja_sale_de_los_numeros_CRUDOS():

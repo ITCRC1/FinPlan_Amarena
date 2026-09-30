@@ -273,6 +273,50 @@ def test_el_endpoint_esta_montado():
     assert "app.include_router(executive_summary_router" in main
 
 
+def test_la_ruta_del_word_devuelve_un_DOCX():
+    """La ruta tiene que colgar del ENDPOINT, no de un ayudante.
+
+    ⚠️ Paso: al agregar `_forecast_current` quedo entre el `@router.post` y
+    `resumen_ejecutivo_word`, asi que el decorador se aplico al ayudante. La
+    ruta seguia existiendo —`test_el_endpoint_esta_montado` pasaba— y contestaba
+    **200**, asi que en el log del servidor no se veia nada raro: el navegador
+    bajaba un `.docx` de 38 bytes con el id del forecast adentro y Word decia
+    «unreadable content».
+
+    Comprobar que el path existe no alcanza. Hay que comprobar QUE cuelga de el.
+    """
+    import inspect
+
+    from app.api.executive_summary_api import resumen_ejecutivo_word, router
+
+    ruta = next(r for r in router.routes
+                if r.path == "/reports/executive-summary/word/")
+    assert ruta.endpoint is resumen_ejecutivo_word
+    # Recibe el cuerpo del informe: un ayudante sin parametros no podria serlo.
+    assert "body" in inspect.signature(ruta.endpoint).parameters
+    # Y devuelve el documento, no un dato suelto.
+    cuerpo = inspect.getsource(resumen_ejecutivo_word)
+    assert "build_executive_summary(" in cuerpo
+    assert "media_type=DOCX" in cuerpo
+
+
+def test_ningun_AYUDANTE_se_cuela_bajo_un_decorador():
+    """La misma trampa, para cualquier ruta que se agregue despues.
+
+    Un ayudante privado —`_algo`— nunca es un endpoint. Si aparece pegado a un
+    `@router.`, es que alguien lo inserto en el lugar equivocado.
+    """
+    lineas = API.read_text(encoding="utf-8").splitlines()
+    for i, ln in enumerate(lineas):
+        if not ln.startswith("@router."):
+            continue
+        siguiente = next((x for x in lineas[i + 1:]
+                          if x.startswith(("def ", "async def "))), "")
+        nombre = siguiente.split("def ", 1)[-1].split("(")[0]
+        assert nombre and not nombre.startswith("_"), (
+            f"{ln} quedo colgado de `{nombre}`, que es un ayudante")
+
+
 def test_con_base_NEGATIVA_no_se_escribe_porcentaje():
     """⚠️ El error que este informe tuvo con los numeros reales de Amarena.
 

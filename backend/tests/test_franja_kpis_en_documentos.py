@@ -126,20 +126,22 @@ def test_la_franja_muestra_los_TRES_cortes():
     que se hace en el cierre: si lo del mes cambia el año.
     """
     pantalla = (CIERRE / "Estadisticas.tsx").read_text(encoding="utf-8")
-    assert "cortesDe(mes)" in pantalla
+    # ⚠️ Los cortes salen de `cortesDe`, el MISMO que arma el cuadro de abajo,
+    # y llevan el año: la franja decía «Agosto» encima de un «AGOSTO 2026».
+    assert "cortesDe(mes, anio)" in pantalla
     assert "estadisticasDeLosCortes(" in pantalla
     # Tres grupos de columnas: un encabezado de corte sobre las versiones.
     # ⚠️ Ahora el corte abarca también su columna de varianza — es lo que hace
     # que la franja y el cuadro de abajo queden alineados.
-    assert "colSpan={usadas.length + (parDeCorte(c) ? 1 : 0)}" in pantalla
+    assert "colSpan={vista.columnas.length + (parDeCorte(c) ? 1 : 0)}" in pantalla
     # Y ya no queda el corte unico que venia del selector.
     for viejo in ("rotuloCorte", "desde={", "hasta={"):
         assert viejo not in pantalla, f"la franja todavia usa {viejo}"
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
     assert "<Estadisticas" in pagina
-    # El mes y los escenarios: los segundos hacen falta para saber que par se
-    # resta en cada corte, que es lo que le da su columna de varianza.
-    assert "mes={mes} escenarios={escenarios} />" in pagina
+    # El mes, el año y los escenarios: los ultimos hacen falta para saber que
+    # par se resta en cada corte, que es lo que le da su columna de varianza.
+    assert "mes={mes} anio={year} escenarios={escenarios} />" in pagina
 
 
 def test_la_franja_y_el_cuadro_usan_LOS_MISMOS_cortes():

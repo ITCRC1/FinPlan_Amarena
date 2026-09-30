@@ -68,7 +68,6 @@ def _sel(meses: list[dict], desde: int, hasta: int, clave: str) -> float:
                for m in meses if desde <= int(m.get("month") or 0) <= hasta)
 
 
-@router.post("/reports/executive-summary/word/")
 async def _forecast_current() -> str | None:
     """El Forecast que manda: el que el backend marca como current.
 
@@ -109,8 +108,17 @@ async def _nombre_de_la_propiedad(pedido: str | None) -> str:
     return (h.name if h and h.name else (pedido or HOTEL_ID))
 
 
+@router.post("/reports/executive-summary/word/")
 async def resumen_ejecutivo_word(body: Cuerpo, _=Depends(get_current_user)):
-    """El informe del mes, en .docx."""
+    """El informe del mes, en .docx.
+
+    ⚠️ **El decorador es de ESTA función.** Al agregar `_forecast_current` se
+    coló entre el `@router.post` y el endpoint, y la ruta quedó registrada
+    sobre el ayudante: el navegador bajaba un `.docx` de 38 bytes con el id del
+    forecast adentro y Word decía «unreadable content». La ruta contestaba 200,
+    así que en el log no se veía nada raro. Lo cuida
+    `test_la_ruta_del_word_devuelve_un_DOCX`.
+    """
     if not 1 <= body.mes <= 12:
         raise ErrorApi(422, "mes.rango_invalido")
 
