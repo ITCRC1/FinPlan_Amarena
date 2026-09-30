@@ -238,7 +238,12 @@ CLUB_FILAS: list[tuple] = [
     ("sec", "Below GOP", []),
     ("det", "Owners Fee y otros", ["@CLUB_BAJO_GOP"]),
     ("esp", "", []),
-    ("tot", "NET PROFIT", ["PROFIT_CLUB", "@CLUB_BAJO_GOP"]),
+    # ⚠️ `@CLUB_NETO`, no `["PROFIT_CLUB", "@CLUB_BAJO_GOP"]`. `_serie` SUMA los
+    # códigos de una fila, y el Owners Fee es un GASTO: sumarlo le agregaba
+    # 5.942,28 a la utilidad del Club en vez de quitárselos —el Club YTD decía
+    # 55.479,38 donde son 43.594,80—. Se nota únicamente cruzando el Club contra
+    # el Consolidado; el reporte del Club cuadra contra sí mismo igual.
+    ("tot", "NET PROFIT", ["@CLUB_NETO"]),
     ("esp", "", []),
     # El seguro de propiedad va DEBAJO del GOP en el motor, así que no entra en
     # la utilidad del departamento. Se muestra como memo —el owner lo tiene
@@ -686,6 +691,11 @@ async def _derivadas_del_club(s, scenario_id: str, por_codigo,
         salida["@CLUB_" + code] = serie
     salida["@CLUB_BAJO_GOP"] = [
         sum(v[i] for v in (bajo_gop or {}).values()) for i in range(12)]
+    # La utilidad del Club DESPUÉS de lo suyo bajo el GOP. Se arma acá porque
+    # `_serie` sólo sabe sumar, y esto es una resta.
+    salida["@CLUB_NETO"] = [p - b for p, b in
+                            zip(por_codigo.get("PROFIT_CLUB", [0.0] * 12),
+                                salida["@CLUB_BAJO_GOP"])]
     return salida
 
 

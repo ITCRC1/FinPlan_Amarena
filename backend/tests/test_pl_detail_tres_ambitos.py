@@ -337,3 +337,31 @@ def test_la_linea_vuelve_sola_cuando_haya_saldo():
     # El filtro depende del dato, no de una lista guardada.
     assert "lineaVacia(f.code)" in s
     assert "localStorage" not in s.split("const visibles")[1][:400]
+
+
+# ═════════ El Owners Fee del Club es un GASTO, 2026-09-30 ════════════════════
+
+def test_el_NET_PROFIT_del_club_RESTA_lo_suyo_bajo_el_GOP():
+    """⚠️ `_serie` SUMA los codigos de una fila, y el Owners Fee es un gasto.
+
+    Con `["PROFIT_CLUB", "@CLUB_BAJO_GOP"]` la utilidad del Club salia con el
+    Owners Fee SUMADO en vez de restado: 55.479,38 YTD donde son 43.594,80. Se
+    detecta unicamente cruzando el Club contra el Consolidado; el reporte del
+    Club cuadra contra si mismo igual, que es lo que lo hace caro.
+
+    Por eso la resta se arma en `_derivadas_del_club` como `@CLUB_NETO`: la
+    plantilla no sabe restar, y una fila con dos codigos de signo distinto es
+    una trampa que el que la lea no puede ver.
+    """
+    neto = [c for t, r, c in CLUB_FILAS if r == "NET PROFIT"]
+    assert neto == [["@CLUB_NETO"]], (
+        "el NET PROFIT del Club esta sumando su Owners Fee en vez de restarlo")
+    src = pathlib.Path(__file__).resolve().parents[1] / "app/api/pl_detail_api.py"
+    texto = src.read_text(encoding="utf-8")
+    assert 'salida["@CLUB_NETO"] = [p - b for p, b in' in texto
+
+
+def test_el_owners_fee_del_club_SE_VE_como_linea():
+    """Restarlo sin mostrarlo dejaria una utilidad que no se puede explicar."""
+    assert any(r == "Owners Fee y otros" and c == ["@CLUB_BAJO_GOP"]
+               for t, r, c in CLUB_FILAS)
