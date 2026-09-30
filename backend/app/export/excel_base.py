@@ -92,8 +92,8 @@ def font(bold=False, color="1A1A2E", size=10, italic=False,
                 italic=italic, underline=underline)
 
 
-def marco_total(izq: bool, der: bool, color_marco="000000",
-                color_raya="CBD5E0") -> Border:
+def marco_total(izq: bool, der: bool, color_marco=None,
+                color_raya=None) -> Border:
     """El borde de una celda de fila TOTAL.
 
     Owner, 2026-09-30, mostrando el tab que arregló a mano: recuadro exterior
@@ -104,12 +104,16 @@ def marco_total(izq: bool, der: bool, color_marco="000000",
     y sólo la última a la derecha. Poniéndolo en todas, el total sale con la
     rejilla negra y parece otra tabla.
     """
-    n = Side(style="medium", color=color_marco)
-    f = Side(style="thin", color=color_raya)
+    # ⚠️ Los colores salen de la PALETA, no de un literal en la firma. Estaban
+    # escritos a mano —«000000», «CBD5E0»— y al retocar la paleta quedaron dos
+    # grises casi iguales conviviendo en la misma hoja sin que nada fallara.
+    n = Side(style="medium", color=color_marco or C["marco"])
+    f = Side(style="thin", color=color_raya or C["raya"])
     return Border(top=n, bottom=n, left=n if izq else f, right=n if der else f)
 
 
-def border(color="CBD5E0", sides="all") -> Border:
+def border(color=None, sides="all") -> Border:
+    color = color or C["raya"]      # la misma raya de la paleta, no un literal
     s = Side(style="thin", color=color)
     m = Side(style="medium", color=color)
     n = Side(style=None)

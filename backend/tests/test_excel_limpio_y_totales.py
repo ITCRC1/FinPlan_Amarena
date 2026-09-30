@@ -131,7 +131,9 @@ def test_el_total_va_en_un_RECUADRO_negro():
     assert ultima.border.right.style == "medium"   # y a la derecha
     # Las verticales de adentro se quedan finas y grises.
     assert ws.cell(total, 2).border.left.style == "thin"
-    assert ws.cell(total, 2).border.left.color.rgb[-6:] == "CBD5E0"
+    # ⚠️ Contra la PALETA, no contra un literal: los dos se escribian a mano y
+    # al retocar la paleta quedaron dos grises casi iguales en la misma hoja.
+    assert ws.cell(total, 2).border.left.color.rgb[-6:] == C["raya"]
 
 
 def test_el_subtitulo_sigue_viajando_en_el_INDICE():
@@ -264,3 +266,47 @@ def test_la_franja_cae_en_LAS_MISMAS_columnas_que_el_cuadro():
     # Y la cabecera del cuadro, justo debajo, con las mismas tres columnas.
     assert [ws.cell(7, i).value for i in range(2, 5)] == [
         "Ago · ACTUAL", "Ago · BUDGET", "Ago · Variance"]
+
+
+def _es_marco(celda) -> bool:
+    """El recuadro del total: medio y NEGRO.
+
+    ⚠️ «Medio» no alcanza para distinguirlo. El encabezado de seccion tambien
+    lleva una raya media arriba, pero GRIS: es la que cierra el bloque anterior.
+    Lo que separa un total de una seccion es el color.
+    """
+    b = celda.border
+    return any(l and l.style == "medium" and (l.color.rgb or "")[-6:] == C["marco"]
+               for l in (b.top, b.bottom, b.left, b.right))
+
+
+def test_NINGUNA_fila_normal_lleva_el_recuadro_negro():
+    """El otro lado de la regla del owner. Si una fila de detalle lleva marco,
+    el recuadro deja de significar «aca cierra un bloque» y el ojo pierde la
+    referencia — que es exactamente lo que pasaba cuando el encabezado de
+    seccion compartia marcador con el total.
+    """
+    wb, ws = _hoja()
+    filas_total = {r for r in range(1, 20)
+                   if str(ws.cell(r, 1).value or "").upper().startswith("TOTAL")}
+    for r in range(5, 12):
+        if r in filas_total or not ws.cell(r, 1).value:
+            continue
+        for c in range(1, 4):
+            assert not _es_marco(ws.cell(r, c)),                 f"la fila {r} ({ws.cell(r, 1).value}) lleva marco de total"
+
+
+def test_la_SECCION_no_es_un_total():
+    """Banda palida, negrita y una raya media GRIS arriba —la que cierra el
+    bloque anterior—, pero SIN el recuadro negro: es el rotulo del bloque que
+    empieza, no su cierre."""
+    cu = _con_var()
+    cu["filas"].insert(0, {"label": "REVENUES", "es_seccion": True,
+                           "es_total": True, "valores": [None, None, None]})
+    wb, ws = _hoja([cu])
+    assert ws.cell(5, 1).value == "REVENUES"
+    for c in range(1, 5):
+        assert not _es_marco(ws.cell(5, c)), "la seccion salio con marco de total"
+    assert ws.cell(5, 1).border.top.style == "medium"
+    assert ws.cell(5, 1).border.top.color.rgb[-6:] == C["raya"]
+    assert _relleno(ws.cell(5, 1)) == C["banda_seccion"]
