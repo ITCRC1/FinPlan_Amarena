@@ -501,6 +501,24 @@ export function cuadroTresCortes(
       + `Forecast contra Budget: el Actual del año todavía no existe. `
       + PIE_ESTADISTICO,
     hoja: `P&L ${MES3[mes - 1]} ${rotuloAmbito(ambito)}`,
-    columnas, filas: [...kpi, { label: "", valores: [] }, ...cuerpo],
+    columnas,
+    // ⚠️ El encabezado estadístico va en la FRANJA, no entre las filas.
+    //
+    // Owner, 2026-09-30, marcando esas nueve filas en el Excel: *«hay que
+    // quitar estas líneas, están duplicadas y desconfiguradas»*. Y tenía las
+    // dos cosas: el archivo ya trae la franja arriba —la misma lista, las
+    // mismas columnas— así que el cuerpo las repetía; y como el cuadro las
+    // marcaba `es_total` cuando la estadística es «fuerte», bajaban con el
+    // recuadro negro de un total, que es lo que se veía desconfigurado.
+    // ⚠️ Un renglón entero en blanco NO va: sin `stats` —el Word los pide
+    // aparte— la franja saldría como nueve filas vacías arriba del cuadro, que
+    // se leen como que el hotel no vendió nada.
+    kpis: kpi.filter(k => k.valores.some(v => v !== null))
+             .map(k => ({ label: k.label, valores: k.valores })),
+    // El rótulo lleva el corte: «Agosto 2026 · Actual». En la hoja no se
+    // escriben —la cabecera de abajo ya los dice— pero el Word sí los imprime.
+    kpis_columnas: columnas.slice(1).map(
+      c => (c.sub ? `${c.sub} · ${c.label}` : c.label)),
+    filas: cuerpo,
   };
 }
