@@ -72,6 +72,11 @@ export function cuadroCheckbookCortes(
     /** Quién ocupa la primera columna en el corte del año completo. Es el
      *  Forecast Current: el Actual ahí repite el YTD. */
     actualDelFullYear?: string;
+    /** Agrega, a la derecha del cuadro, de qué está hecho el presupuesto de
+     *  cada cuenta. Va apagado: la pantalla no la quiere —ahí se abre la
+     *  cuenta y se ve el detalle de verdad— y el Excel del cierre sí, porque
+     *  es el que se lee frente a los dueños sin la app al lado. */
+    notaDelPresupuesto?: boolean;
   } = {},
 ): Cuadro {
   // ⚠️ `todas` son las versiones que VINIERON —el Forecast Current se pide
@@ -161,6 +166,41 @@ export function cuadroCheckbookCortes(
     }),
   ];
 
+  // ── La nota de «de qué está hecho el presupuesto» ────────────────────────
+  //
+  // Owner, 2026-09-30: *«ocupo abrir una columna a unas 3 columnas a la derecha
+  // de la última línea actual y poner en la línea de la cuenta la nota de lo
+  // que había en el presupuesto. Esto ayuda a realizar el análisis con los
+  // dueños»*.
+  //
+  // Va SEPARADA por dos columnas en blanco, no pegada al último número: es
+  // texto al lado de una tabla de cifras, y pegada se lee como una columna más
+  // del cuadro —la vista busca números a la derecha del rótulo y encuentra un
+  // párrafo—.
+  //
+  // ⚠️ Sólo si la respuesta dice de qué Budget salió. Sin eso no se dibuja:
+  // una columna rotulada «Detalle del presupuesto» con todas las celdas vacías
+  // afirma que no hubo presupuesto, que es distinto de que no se pidió.
+  const conNota = Boolean(opciones.notaDelPresupuesto && datos.detalle_de);
+  if (conNota) {
+    columnas.push(
+      { label: "", ancho: 3, formato: "texto" },
+      { label: "", ancho: 3, formato: "texto" },
+      { label: "Detalle del presupuesto", sub: datos.detalle_de,
+        ancho: 90, formato: "texto" },
+    );
+  }
+
+  /** Completa una fila hasta la columna de la nota.
+   *
+   *  ⚠️ `null` y no `""`: los dos se ven vacíos, pero el exportador lee `null`
+   *  como «no hay dato» y por eso no le escribe fórmula ni formato de monto.
+   *  Con `""` la fila de subtotal intentaría sumar una cadena. */
+  const conDetalle = (
+    valores: (number | string | null)[], texto?: string,
+  ): (number | string | null)[] =>
+    conNota ? [...valores, null, null, texto || null] : valores;
+
   const celdas = (de: (vi: number, meses: number[], ci: number) => number | null) =>
     celdasDe(cortes, todas, escenarios, de, vista);
 
@@ -172,8 +212,8 @@ export function cuadroCheckbookCortes(
       label: g.nombre ? `${code} · ${g.nombre}` : code,
       // La banda del departamento es el rótulo del bloque, no su cierre.
       es_seccion: true, nivel: 0,
-      valores: celdas((vi, meses) =>
-        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
+      valores: conDetalle(celdas((vi, meses) =>
+        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0))),
     });
     // Lo más grande primero: lo que explica el número va arriba.
     const orden = [...g.filas].sort((a, b) =>
@@ -181,7 +221,11 @@ export function cuadroCheckbookCortes(
     for (const f of orden) {
       filas.push({
         label: `${f.cuenta}  ${f.nombre}`, es_total: false, nivel: 1,
-        valores: celdas((vi, meses) => suma(serie(f, vi), meses)),
+        // La nota va acá y en ninguna otra fila: el owner la pidió «en la línea
+        // de la cuenta». En el subtotal del departamento sería la suma de
+        // detalles de cuentas distintas, que no explica nada.
+        valores: conDetalle(celdas((vi, meses) => suma(serie(f, vi), meses)),
+                            f.detalle),
       });
     }
     // ⚠️ Acá el subtotal SÍ es la suma de lo que se ve —las mismas `g.filas`
@@ -194,16 +238,16 @@ export function cuadroCheckbookCortes(
     filas.push({
       label: `Subtotal ${code}`, es_total: true, nivel: 1,
       suma_de: detalle,
-      valores: celdas((vi, meses) =>
-        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
+      valores: conDetalle(celdas((vi, meses) =>
+        g.filas.reduce((a, f) => a + suma(serie(f, vi), meses), 0))),
     });
     filas.push({ label: "", valores: [] });
   }
   filas.push({
     label: "TOTAL", es_total: true, nivel: 0,
     suma_de: subtotales,
-    valores: celdas((vi, meses) =>
-      vivas.reduce((a, f) => a + suma(serie(f, vi), meses), 0)),
+    valores: conDetalle(celdas((vi, meses) =>
+      vivas.reduce((a, f) => a + suma(serie(f, vi), meses), 0))),
   });
 
   return {

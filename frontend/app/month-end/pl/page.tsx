@@ -1795,10 +1795,17 @@ export default function MonthEndPLPage() {
       // El Current se PIDE aunque no sea columna propia: sólo ocupa el lugar
       // del Actual en el año completo.
       const ids = [...new Set([...visibles, actualFull].filter(Boolean))];
-      const d = await getDetalleDeCelda(ids, e.clase, "");
+      // ⚠️ El `mes` va en la llamada: la nota del presupuesto muestra lo
+      // presupuestado para el mes que se cierra —que es contra lo que se
+      // compara la columna del Actual— y el año completo sólo cuando dice otra
+      // cosa. Sin él, la nota traería el año y se leería como si el mes
+      // hubiera presupuestado doce veces más.
+      const d = await getDetalleDeCelda(ids, e.clase, "", mes);
       const c = cuadroCheckbookCortes(e.rotulo.replace("Checkbook · ", ""),
                                       d, mes, escenarios, "", deptos,
-                                      { visibles, actualDelFullYear: actualFull });
+                                      { visibles, actualDelFullYear: actualFull,
+                                        // Sólo en el archivo: ver «notaDelPresupuesto».
+                                        notaDelPresupuesto: true });
       // Sólo el TOTAL y nada más: ese libro está vacío para estas versiones, y
       // una hoja con una sola fila en cero se lee como «no hubo gasto».
       return c.filas.length > 1 ? [c] : [];

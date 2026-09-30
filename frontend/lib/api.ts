@@ -5468,19 +5468,40 @@ export interface DetalleCeldaFila {
   nombre: string;
   /** Los doce meses, por escenario. */
   series: Record<string, number[]>;
+  /**
+   * De qué está hecho el presupuesto de esta cuenta, en una línea.
+   *
+   * Owner, 2026-09-30: *«poner en la línea de la cuenta la nota de lo que
+   * había en el presupuesto; esto ayuda a realizar el análisis con los
+   * dueños»*. La celda es un total —la 7105 de Habitaciones dice $2.600— y
+   * esto dice de qué: `Coral $600 (año $7,200) · Reservation Fee $2,000 ·
+   * Fumigación Hotel $0`.
+   *
+   * ⚠️ Sale del BUDGET. Vacío = no se pidió ninguno, o esa clase no guarda
+   * detalle. La planilla trae sus POSICIONES y el costo de ventas su driver.
+   */
+  detalle?: string;
 }
 export interface DetalleCelda {
   clase: string; clave: string; rotulo: string;
   versiones: DetalleCeldaVersion[];
   filas: DetalleCeldaFila[];
+  /** De qué versión salió `detalle` — «BUDGET Final 2026». Vacío = no se pidió
+   *  ningún Budget, así que ninguna fila trae nota. */
+  detalle_de?: string;
+  /** El mes con el que se armó la nota. 0 = sólo el año completo. */
+  detalle_mes?: number;
 }
 export async function getDetalleDeCelda(
-  scenarioIds: string[], clase: string, clave: string,
+  scenarioIds: string[], clase: string, clave: string, mes = 0,
 ): Promise<DetalleCelda> {
   const ids = scenarioIds.filter(Boolean).join(",");
   return api.get<DetalleCelda>(
     `/gasto-por-clase/detalle-de-celda/?scenarios=${encodeURIComponent(ids)}`
-    + `&clase=${encodeURIComponent(clase)}&clave=${encodeURIComponent(clave)}`);
+    + `&clase=${encodeURIComponent(clase)}&clave=${encodeURIComponent(clave)}`
+    // El mes que se cierra: la nota muestra lo presupuestado para ESE mes, que
+    // es contra lo que se está comparando, y el año sólo cuando dice otra cosa.
+    + `&mes=${mes}`);
 }
 
 

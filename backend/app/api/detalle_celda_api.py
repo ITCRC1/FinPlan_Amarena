@@ -47,6 +47,7 @@ tiene que funcionar sobre un presupuesto.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import NamedTuple
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
@@ -63,6 +64,7 @@ from app.models.mapping import AccountMapping
 from app.models.nonop_entry import NonOpEntry
 from app.models.opex_entry import OpexEntry
 from app.models.payroll_concept_entry import PayrollConceptEntry
+from app.models.payroll_position import PayrollPosition
 from app.models.revenue_account_entry import RevenueAccountEntry
 from app.models.scenario import Scenario
 from app.nombres_cuenta import limpiar_nombre, nombre_de_cuenta
@@ -313,11 +315,223 @@ async def _del_auxiliar(session, escenario, clase: str, clave: str) -> dict:
     return {"series": out, "nombres": nombres}
 
 
+# ── De qué está hecho el presupuesto de una celda ────────────────────────────
+#
+# Owner, 2026-09-30: *«ocupo abrir una columna a unas 3 columnas a la derecha de
+# la última línea actual y poner, en la línea de la cuenta, la nota de lo que
+# había en el presupuesto. Esto ayuda a realizar el análisis con los dueños»*.
+#
+# La celda del checkbook es un TOTAL por (departamento, cuenta). De qué está
+# hecho ese total vive un nivel más abajo y hasta ahora no salía de la base: la
+# 7105 de Habitaciones dice $2.600 y no dice que son Coral, Fumigación Hotel y
+# Reservation Fee. Sentado frente a un dueño, ésa es justo la pregunta.
+#
+# ⚠️ **Sale del BUDGET y de ningún otro lado.** Es «lo que había en el
+# presupuesto»: el actual no tiene sub-líneas —el mayor trae la cuenta y se
+# acabó— y el forecast tiene las suyas, que son otra cosa. Si entre las
+# versiones pedidas no hay Budget, no hay nota: antes eso que rotular el
+# detalle del forecast como si fuera el presupuesto.
+#
+# ⚠️ **Cada clase guarda su detalle en otro lado, y donde no hay, no se
+# inventa.** El costo de ventas no tiene sub-líneas en la base; lo que explica
+# su presupuesto es el DRIVER, así que eso es lo que lleva.
+
+#: Cómo se lee la base de un driver de costo de ventas.
+_BASE_DEL_DRIVER = {
+    "OCC_ROOMS":   "noche ocupada",
+    "GUESTS":      "huésped",
+    "AVAIL_ROOMS": "noche disponible",
+    "KILOS":       "kilo lavado",
+}
+
+_CENTAVO = Decimal("0.005")
+
+
+def _usd(x) -> str:
+    """El monto como se lee en una NOTA, no como se guarda.
+
+    Sin centavos cuando no los tiene: `$600`, `$2,000`, `-$1,054.50`. El signo
+    va antes del símbolo — `$-600` se lee como un precio raro, no como un
+    negativo.
+    """
+    v = Decimal(str(x or 0)).quantize(Decimal("0.01"))
+    signo = "-" if v < 0 else ""
+    v = abs(v)
+    return (f"{signo}${v:,.0f}" if v == v.to_integral_value()
+            else f"{signo}${v:,.2f}")
+
+
+def _pct(x) -> str:
+    """Una tasa guardada como fracción (0.28), leída como porcentaje (28%)."""
+    v = (Decimal(str(x or 0)) * 100).quantize(Decimal("0.01"))
+    return f"{v:,.0f}%" if v == v.to_integral_value() else f"{v:,.2f}%"
+
+
+class _Sub(NamedTuple):
+    """Una sub-línea del presupuesto: cómo se llama y cuánto pesa."""
+
+    nombre: str
+    mes: Decimal
+    anio: Decimal
+
+
+def _nota(subs: list[_Sub], mes: int) -> str:
+    """Las sub-líneas de una cuenta en una sola línea, la más grande primero.
+
+    Con `mes` se muestra lo del mes que se cierra —que es la cifra contra la
+    que se está comparando— y, sólo si el año completo dice otra cosa, el año
+    entre paréntesis. Sin `mes`, el año y nada más.
+
+    ⚠️ **Las que están en CERO se listan igual.** Que la 7105 tuviera
+    fumigación presupuestada en cero es información —se contempló y se dejó en
+    cero—, no ruido. Filtrarlas haría que la nota diga menos de lo que el
+    presupuesto dice, que es exactamente lo contrario de para qué existe.
+    """
+    piezas = []
+    for s in sorted(subs, key=lambda s: (-abs(s.anio), -abs(s.mes), s.nombre)):
+        if mes:
+            txt = f"{s.nombre} {_usd(s.mes)}"
+            if abs(s.anio - s.mes) > _CENTAVO:
+                txt += f" (año {_usd(s.anio)})"
+        else:
+            txt = f"{s.nombre} {_usd(s.anio)}"
+        piezas.append(txt)
+    return " · ".join(piezas)
+
+
+async def _detalle_del_presupuesto(
+    session, escenario, clase: str, clave: str, mes: int,
+) -> dict[tuple[str, str], str]:
+    """De qué está hecha cada celda, según el auxiliar del presupuesto.
+
+    Devuelve `{(departamento, cuenta): nota}`. La clase `property` no tiene
+    departamento propio —vive todo en el 0250— así que su llave lleva `""` y se
+    resuelve por cuenta sola; es la misma razón por la que `_del_auxiliar` la
+    trata aparte.
+
+    ⚠️ **La llave tiene que ser la misma que arma `_del_auxiliar`** o la nota
+    queda colgada de una fila que el cuadro no dibuja: no falla, no avisa, y la
+    columna sale vacía sin que nada explique por qué.
+
+    ⚠️ Lee SIEMPRE el auxiliar, aunque a ese Budget le hayan subido el mayor
+    encima (`lo_subido_manda`). Es lo correcto —el detalle del presupuesto vive
+    en el checkbook y el mayor no lo tiene—, pero entonces las filas se indexan
+    por el departamento crudo del asiento y algunas se quedan sin nota. Es el
+    lado correcto en el que quedarse corto: la alternativa es inventarle
+    sub-líneas a un mayor que no las tiene.
+    """
+    subs: dict[tuple[str, str], list[_Sub]] = {}
+
+    def anotar(dept: str, cuenta: str, nombre: str, fila) -> None:
+        anio = sum((Decimal(str(getattr(fila, c, None) or 0)) for c in MESES), CERO)
+        m = Decimal(str(getattr(fila, MESES[mes - 1], None) or 0)) if mes else CERO
+        # Una sub-línea sin nombre y en cero todo el año es una casilla que
+        # nadie llenó, no una decisión de presupuesto.
+        if not nombre and anio == CERO and m == CERO:
+            return
+        subs.setdefault((dept, cuenta), []).append(
+            _Sub(nombre or "(sin descripción)", m, anio))
+
+    if clase == "opex":
+        for r in (await session.execute(select(OpexEntry).where(
+                OpexEntry.scenario_id == escenario.id))).scalars():
+            dept = _padre(str(r.dept_code or ""))
+            if clave and dept != clave:
+                continue
+            anotar(dept, str(r.account_code or ""),
+                   str(getattr(r, "detail_desc", "") or "").strip(), r)
+
+    elif clase == "property":
+        for r in (await session.execute(select(NonOpEntry).where(
+                NonOpEntry.scenario_id == escenario.id))).scalars():
+            cuenta = str(r.account_code or "")
+            if clave and cuenta != clave:
+                continue
+            anotar("", cuenta,
+                   str(getattr(r, "detail_desc", "") or "").strip(), r)
+
+    elif clase == "cost":
+        # `CostEntry` no guarda sub-líneas: guarda CÓMO se calcula la cifra.
+        # «28% de FOOD» explica el presupuesto mejor que repetir el monto que
+        # la celda ya muestra al lado.
+        notas: dict[tuple[str, str], str] = {}
+        for r in (await session.execute(select(CostEntry).where(
+                CostEntry.scenario_id == escenario.id))).scalars():
+            dept = _padre(str(r.dept_code or ""))
+            if clave and dept != clave:
+                continue
+            tipo = str(getattr(r, "driver_type", "") or "")
+            if str(getattr(r, "calc_mode", "") or "") != "DRIVER":
+                texto = "Monto manual, sin driver"
+            elif tipo == "REVENUE_LINE":
+                linea = str(getattr(r, "revenue_line_ref", "") or "").strip()
+                texto = f"{_pct(r.driver_pct_or_rate)} de {linea or 'ingreso'}"
+            else:
+                base = _BASE_DEL_DRIVER.get(tipo, tipo)
+                texto = f"{_usd(r.driver_pct_or_rate)} por {base}" if base else ""
+            if texto:
+                notas[(dept, str(r.account_code or ""))] = texto
+        return notas
+
+    elif clase == "payroll":
+        # La planilla no tiene «detalle»: tiene POSICIONES. Owner, 2026-09-30:
+        # *«por lo menos poner las posiciones que tienen salario, para usarlo
+        # como referencia en el momento en que se está analizando con los
+        # dueños»*. Así la 6000 de Habitaciones deja de ser un número y pasa a
+        # ser la lista de puestos que lo forman.
+        #
+        # ⚠️ El monto sale de `PayrollConceptEntry`, que es lo que el motor ya
+        # calculó —salario × FTE / TC del mes—, y no de multiplicar otra vez
+        # acá. Rehacer esa cuenta daría una nota que no coincide con la celda
+        # que tiene al lado.
+        from app.api.consulta_api import CONCEPTOS
+        puestos = {
+            str(p.id): (str(p.dept_code or ""), str(p.position_name or "").strip())
+            for p in (await session.execute(select(PayrollPosition).where(
+                PayrollPosition.scenario_id == escenario.id))).scalars()
+        }
+        # (dept, cuenta, puesto) -> [monto del mes, monto del año, ids]
+        acum: dict[tuple[str, str, str], list] = {}
+        for r in (await session.execute(select(PayrollConceptEntry).where(
+                PayrollConceptEntry.scenario_id == escenario.id))).scalars():
+            propio, puesto = puestos.get(str(r.position_id), ("", ""))
+            # ⚠️ El departamento sale del ASIENTO y no de la posición, que es
+            # exactamente lo que hace `_del_auxiliar` al armar la celda. Si acá
+            # subiera por otro lado, la nota quedaría colgada de una fila que
+            # el cuadro no dibuja y no se vería nunca.
+            dept = _padre(str(r.dept_code or "") or propio)
+            if clave and dept != clave:
+                continue
+            m = int(getattr(r, "month", 0) or 0)
+            if not 1 <= m <= 12:
+                continue
+            for campo, cuenta, _rotulo in CONCEPTOS:
+                v = Decimal(str(getattr(r, campo, None) or 0))
+                if v == CERO:
+                    continue
+                fila = acum.setdefault(
+                    (dept, cuenta, puesto or "(posición sin nombre)"),
+                    [CERO, CERO, set()])
+                fila[1] += v
+                if m == mes:
+                    fila[0] += v
+                fila[2].add(str(r.position_id))
+        # Dos «ROOM ATTENDANT» son dos plazas, no una fila repetida: se juntan
+        # con el conteo delante, que es como se lee una planilla.
+        for (dept, cuenta, puesto), (m_amt, anio, ids) in acum.items():
+            etiqueta = puesto if len(ids) == 1 else f"{puesto} x{len(ids)}"
+            subs.setdefault((dept, cuenta), []).append(_Sub(etiqueta, m_amt, anio))
+
+    return {k: _nota(v, mes) for k, v in subs.items()}
+
+
 @router.get("/gasto-por-clase/detalle-de-celda/")
 async def detalle_de_celda(
     scenarios: str = Query(..., description="ids separados por coma"),
     clase: str = Query(..., description="revenue | cost | payroll | opex | property"),
     clave: str = Query("", description="departamento, cuenta o línea; vacío = toda la clase"),
+    mes: int = Query(0, ge=0, le=12,
+                     description="mes que se cierra; 0 = sólo el año completo"),
 ):
     """Las cuentas que suman una celda del cuadro, por versión."""
     ids = [s for s in (scenarios or "").split(",") if s.strip()]
@@ -409,6 +623,21 @@ async def detalle_de_celda(
                 "agregado": bool(r.get("agregado")),
             })
 
+        # ── La nota de «de qué está hecho el presupuesto» ───────────────
+        #
+        # Se busca el BUDGET entre las versiones pedidas y se le pregunta a su
+        # auxiliar. Sin Budget no hay nota y la columna sale vacía: es
+        # preferible a rotular como presupuesto el detalle de otra versión.
+        detalle: dict[tuple[str, str], str] = {}
+        detalle_de = ""
+        for sid in ids:
+            esc = await session.get(Scenario, sid)
+            if esc is not None and esc.type == "BUDGET":
+                detalle = await _detalle_del_presupuesto(
+                    session, esc, clase, clave, mes)
+                detalle_de = f"{esc.type} {esc.version} {esc.year}"
+                break
+
         # Una fila por (departamento, cuenta). ⚠️ Ordenadas por departamento
         # primero: la pantalla las agrupa así, y devolverlas mezcladas la
         # obligaría a reordenarlas —una segunda decisión sobre lo mismo—.
@@ -424,6 +653,12 @@ async def detalle_de_celda(
                 "series": {sid: [_f(v) for v in
                                  series[sid].get((dept, cuenta), [CERO] * 12)]
                            for sid in series},
+                # ⚠️ El respaldo por `("", cuenta)` es para el below-GOP, que
+                # no tiene departamento propio: su detalle se indexa por
+                # cuenta sola. Para las demás clases ese respaldo nunca pega,
+                # porque su llave siempre lleva departamento.
+                "detalle": (detalle.get((dept, cuenta))
+                            or detalle.get(("", cuenta), "")),
             })
 
         rotulo = clave or "Todos los departamentos"
@@ -438,4 +673,8 @@ async def detalle_de_celda(
             "rotulo": rotulo,
             "versiones": versiones,
             "filas": filas,
+            #: De qué versión salió la nota de cada fila. Vacío = no se pidió
+            #: ningún Budget, así que no hay nota que mostrar.
+            "detalle_de": detalle_de,
+            "detalle_mes": mes,
         }
