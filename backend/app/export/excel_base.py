@@ -21,6 +21,16 @@ C = {
     "navy_mid":    "2D5A9E",
     "blue_light":  "EBF3FB",
     "blue_header": "F0F4F8",
+    #: El relleno de las filas de TOTAL en los cuadros que se bajan.
+    #:
+    #: Owner, 2026-09-30: *«quiero que todos los que son totales bajen con el
+    #: relleno bien claro»*. `blue_header` (F0F4F8) es tan pálido que sobre el
+    #: blanco de Excel no se distingue: en pantalla se adivina y al imprimir en
+    #: blanco y negro desaparece, y entonces un total se lee como una fila más.
+    #:
+    #: ⚠️ Claro pero VISIBLE. Un total oscuro obligaría a poner el texto en
+    #: blanco y el cuadro pasaría a tener tantas bandas como bloques.
+    "total_fill":  "DCE6F1",
     "white":       "FFFFFF",
     "text_dark":   "1A1A2E",
     "text_mid":    "4A5568",
@@ -54,6 +64,11 @@ def border(color="CBD5E0", sides="all") -> Border:
         return Border(top=m)
     if sides == "top_bottom":
         return Border(top=s, bottom=s)
+    # La rejilla completa, con la raya de arriba MARCADA: es como se cierra un
+    # bloque en un estado de resultados impreso. Con el relleno solo, dos
+    # totales seguidos se leen como una sola banda.
+    if sides == "all_top":
+        return Border(left=s, right=s, top=m, bottom=s)
     return Border()
 
 

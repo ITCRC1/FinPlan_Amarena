@@ -59,6 +59,25 @@ FORMATOS = {
 }
 
 FILA_TITULO = 1
+#: ⚠️ **El subtítulo YA NO se escribe en la hoja.**
+#:
+#: Owner, 2026-09-30: *«que no bajen en el excel los textos insertados. que
+#: bajen limpios»*.
+#:
+#: Era prosa —«la varianza del full year es Forecast contra Budget: el Actual
+#: del año todavía no existe…»— en una banda combinada sobre las columnas. En
+#: pantalla explica; en una hoja de cálculo estorba: rompe el filtro, se lleva
+#: el ancho de la primera columna al copiar, y aparece pegada arriba del cuadro
+#: cuando alguien lo pega en otro lado.
+#:
+#: Sigue viajando: va en la hoja ÍNDICE, que es donde se lee una vez, y en el
+#: Word, que es un documento y no una tabla.
+#:
+#: ⚠️ **La constante se queda en 2 y la fila queda EN BLANCO.** Bajarla a 1
+#: subiría la tabla una fila, y hay un `test_sin_franja_el_cuadro_arranca_donde_
+#: siempre` que defiende justamente lo contrario: media docena de pruebas —y de
+#: macros de quien ya usa estos archivos— buscan la cabecera en la fila 4. Lo
+#: que se pidió fue sacar el texto, no mover el cuadro.
 FILA_SUBTITULO = 2
 FILA_CABECERA = 4
 PRIMERA_FILA = 5
@@ -119,9 +138,6 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
     ws = wb.create_sheet(nombre_de_hoja(cuadro.get("hoja") or titulo, usados))
 
     merged_header(ws, FILA_TITULO, 1, n_col, titulo, C["navy"], sz=13)
-    if cuadro.get("subtitulo"):
-        merged_header(ws, FILA_SUBTITULO, 1, n_col, cuadro["subtitulo"],
-                      C["navy_mid"], sz=10)
 
     # ⚠️ La cabecera del cuadro se corre hacia abajo lo que ocupe la franja.
     # Las constantes de fila eran fijas; con la franja delante, escribir la
@@ -152,7 +168,11 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
                                        indent=min(nivel, 8))
         etiqueta.border = border()
         if es_total:
-            etiqueta.fill = fill(C["blue_header"])
+            etiqueta.fill = fill(C["total_fill"])
+            # Una raya arriba, que es como se cierra un bloque en un estado de
+            # resultados impreso. Con el relleno solo, dos totales seguidos se
+            # ven como una sola banda.
+            etiqueta.border = border(sides="all_top")
 
         # La fila puede pisar el formato de la columna. Hace falta cuando un mismo
         # cuadro mezcla unidades en la misma columna — el bloque de drivers del
@@ -173,9 +193,9 @@ def _hoja(wb: Workbook, cuadro: dict, usados: set[str]):
             # que son casi todas de texto (cuenta · departamento · línea del P&L).
             celda.alignment = align("left" if isinstance(valor, str) else "right")
             celda.font = font(bold=es_total)
-            celda.border = border()
+            celda.border = border(sides="all_top") if es_total else border()
             if es_total:
-                celda.fill = fill(C["blue_header"])
+                celda.fill = fill(C["total_fill"])
 
     set_col_widths(ws, {i: (col.get("ancho") or (38 if i == 1 else 14))
                         for i, col in enumerate(columnas, start=1)})
