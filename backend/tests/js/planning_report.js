@@ -369,6 +369,36 @@ for (const metrica of ["fte", "sw"]) {
   ok(c.filas.some(f => f.label.includes("$2,500")),
      "y el que está en dólares, con el suyo");
 }
+// ⚠️ TRES PLAZAS IGUALES SON TRES, Y SU PLATA NO SE PIERDE.
+//
+// Medido el 2026-10-01 contra produccion: en Ama de Llaves habia tres «ROOM
+// ATTENDANT · VACANTE», la llave era la misma y el mapa se quedaba con la
+// ultima. La hoja decia $289.813,08 contra los $305.465,16 de la cuenta 6000
+// del checkbook — 15.652,08 que desaparecian sin que nada fallara, porque un
+// total mas chico se ve igual de bien que uno correcto.
+const TRES = {
+  scenario_id: "s0", escenario: "s0", year: 2027,
+  posiciones: [1, 2, 3].map(i => ({
+    id: `r${i}`, dept_code: "0113", dept_name: "Ama de Llaves",
+    position_code: "500", position_name: "ROOM ATTENDANT", employee_name: "VACANTE",
+    employee_type: "1-Permanente", salary_amount: 400000, salary_currency: "CRC",
+    fte: Array(12).fill(1), sw: Array(12).fill(100),
+  })),
+};
+for (const metrica of ["fte", "sw"]) {
+  const c = P.cuadroPosiciones([TRES], ESCENARIOS,
+                               { ambito: "", compacto: true, metrica });
+  auditar(c, `tres plazas iguales · ${metrica}`);
+  const total = c.filas[c.filas.length - 1];
+  const esperado = metrica === "fte" ? 36 : 3600;   // 3 plazas x 12 meses
+  ok(Math.abs(total.valores[12] - esperado) < CENT,
+     `⚠️ tres plazas iguales (${metrica}): el año tiene que dar ${esperado} y `
+     + `da ${total.valores[12]} — la plata de las otras dos se perdio`);
+  ok(c.filas.some(f => f.label.startsWith("ROOM ATTENDANT x3 ")),
+     "y la fila dice que son TRES: "
+     + c.filas.filter(f => f.label.includes("ROOM")).map(f => f.label).join(" | "));
+}
+
 // ⚠️ Emparejadas por depto+posición+empleado: al clonar un escenario el id
 // cambia, y con el id como llave el cuadro sale en diagonal.
 const clonada = P.cuadroPosiciones([POS(0), POS(1)], ESCENARIOS,
@@ -392,7 +422,9 @@ const REP = {
 };
 const caf = P.cuadroReparto("CAFETERIA", REP, ESCENARIOS, { ambito: "", compacto: true });
 auditar(caf, "reparto cafetería");
-ok(caf.filas.some(f => f.label === "TOTAL REPARTIDO"), "el bloque de plata tiene su total");
+ok(caf.filas.some(f => f.label.startsWith("TOTAL (el reparto")),
+   "⚠️ el total del reparto dice que tiene que dar CERO: es la regla "
+   + "«Cafetería y Lavandería siempre neto $0», no un reparto vacío");
 ok(caf.filas.some(f => f.label === "TOTAL FTE"), "y el de la base, el suyo");
 const baseFte = caf.filas.find(f => f.label === "TOTAL FTE");
 ok(Math.abs(baseFte.valores[12] - 180) < CENT,

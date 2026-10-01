@@ -308,6 +308,14 @@ export const APERTURAS = [
 
 export type ClaseApertura = (typeof APERTURAS)[number]["clase"];
 
+/** ¿Este checkbook tiene algo debajo de la cuenta?
+ *
+ *  ⚠️ El costo de ventas y el ingreso no lo tienen, así que su hoja «con
+ *  detalle» saldría idéntica a la normal. Dos hojas iguales con nombres
+ *  distintos en un paquete de revisión hacen dudar de las dos. */
+export const seAbre = (det: DetalleCelda) =>
+  (det.filas ?? []).some(f => (f.subs ?? []).length > 0);
+
 /**
  * Una apertura: una fila por departamento (o línea, o cuenta) y el total abajo.
  *
@@ -632,9 +640,33 @@ export function cuadroPosiciones(
                         employee_name: string }) =>
     `${p.dept_code}\u0000${p.position_name}\u0000${p.employee_name}`;
 
+  /** Una plaza agrupada: cuántas son y cuánto suman entre todas.
+   *
+   *  ⚠️ **Se SUMAN, no se pisa una con otra.** Tres «ROOM ATTENDANT · VACANTE»
+   *  en Ama de Llaves son tres plazas con la misma llave, y quedarse con la
+   *  última borraba las otras dos. Medido el 2026-10-01 en el Budget Working
+   *  2027: la hoja decía $289.813,08 contra los $305.465,16 de la cuenta 6000
+   *  del checkbook — 15.652,08 que desaparecían sin que nada fallara, porque un
+   *  total más chico se ve igual de bien que uno correcto. */
+  interface Plaza {
+    n: number;
+    muestra: PosicionesVersion["posiciones"][number];
+    fte: number[];
+    sw: number[];
+  }
   const porVersion = versiones.map(v => {
-    const m = new Map<string, PosicionesVersion["posiciones"][number]>();
-    for (const p of v.posiciones ?? []) m.set(llaveDe(p), p);
+    const m = new Map<string, Plaza>();
+    for (const p of v.posiciones ?? []) {
+      const k = llaveDe(p);
+      const a = m.get(k);
+      if (!a) {
+        m.set(k, { n: 1, muestra: p, fte: [...(p.fte ?? [])], sw: [...(p.sw ?? [])] });
+      } else {
+        a.n += 1;
+        DOCE.forEach(i => { a.fte[i] = (a.fte[i] ?? 0) + (p.fte?.[i] ?? 0); });
+        DOCE.forEach(i => { a.sw[i] = (a.sw[i] ?? 0) + (p.sw?.[i] ?? 0); });
+      }
+    }
     return m;
   });
   const serie = (vi: number, k: string) => porVersion[vi]?.get(k)?.[metrica] ?? null;
@@ -649,7 +681,7 @@ export function cuadroPosiciones(
 
   const grupos = new Map<string, string[]>();
   for (const k of llaves) {
-    const p = porVersion.find(m => m.has(k))!.get(k)!;
+    const p = porVersion.find(m => m.has(k))!.get(k)!.muestra;
     const g = `${p.dept_code}\u0000${p.dept_name}`;
     (grupos.get(g) ?? grupos.set(g, []).get(g)!).push(k);
   }
@@ -664,9 +696,13 @@ export function cuadroPosiciones(
                  es_seccion: true, meses: null });
     const desde = filas.length;
     for (const k of ks) {
-      const p = porVersion.find(m => m.has(k))!.get(k)!;
+      const z = porVersion.find(m => m.has(k))!.get(k)!;
+      const p = z.muestra;
       filas.push({
-        label: `${p.position_name || "(sin nombre)"} · `
+        // Dos «ROOM ATTENDANT · VACANTE» son dos plazas, no una fila repetida:
+        // se juntan con el conteo delante, que es como se lee una planilla.
+        label: `${p.position_name || "(sin nombre)"}`
+               + `${z.n > 1 ? ` x${z.n}` : ""} · `
                + `${p.employee_name || "VACANTE"}`
                + salarioEnRotulo(p.salary_amount, p.salary_currency),
         nivel: 1,
@@ -767,6 +803,23 @@ export function cuadroReparto(
   const rotulo = (k: string) => (deptos[k] ? `${k} · ${deptos[k]}` : k);
   const filas: FilaPlanning[] = [];
 
+  // ⚠️ Una hoja en blanco se lee como «esto está roto». Si el escenario no
+  // tiene el reparto calculado, la hoja lo dice: es un dato del presupuesto
+  // —falta correrlo— y no un hueco del reporte.
+  if (!claves.length) {
+    return armarCuadro({
+      titulo: `Planning · Reparto de ${meta.rotulo} · sin calcular`,
+      subtitulo: `${nombre(0)} — este escenario no tiene reparto de `
+        + `${meta.rotulo} calculado. Se corre desde Planning → Allocation `
+        + `Cafetería y Laundry; hasta entonces su gasto queda donde está.`,
+      hoja: `Reparto ${meta.rotulo}`,
+      anchoRotulo: 40,
+    }, datos.versiones.length, nombre, par, [{
+      label: `Sin reparto de ${meta.rotulo} calculado en este escenario`,
+      es_seccion: true, meses: null,
+    }]);
+  }
+
   // ── Bloque 1: lo repartido, en dólares ────────────────────────────────
   filas.push({ label: `Reparto de ${meta.rotulo} (USD)`, es_seccion: true,
                meses: null });
@@ -778,8 +831,14 @@ export function cuadroReparto(
       anios: datos.versiones.map((_v, vi) => total12(plata(vi, k))),
     });
   }
+  // ⚠️ Este total tiene que dar CERO, y por eso lo dice el rótulo.
+  //
+  // El departamento que reparte entra con el crédito en negativo —0161
+  // Lavandería, −9.838,52— y los que consumen, en positivo. Que la suma dé cero
+  // ES la regla: «Cafetería y Lavandería siempre neto $0». Un rótulo que dijera
+  // «TOTAL REPARTIDO» sobre un cero se leería como que no se repartió nada.
   filas.push({
-    label: "TOTAL REPARTIDO", es_total: true,
+    label: "TOTAL (el reparto tiene que dar cero)", es_total: true,
     suma_de: claves.map((_k, i) => desde + i),
     meses: DOCE.map(i => claves.reduce((t, k) => t + (plata(0, k)?.[i] ?? 0), 0)),
     anios: datos.versiones.map((_v, vi) =>
@@ -815,7 +874,9 @@ export function cuadroReparto(
   return armarCuadro({
     titulo: `Planning · Reparto de ${meta.rotulo} · ${meta.fuente}`,
     subtitulo: `${nombre(0)} — cuánto recibió cada departamento y con qué peso `
-      + `se repartió. El peso es el que usó el motor, no uno recalculado acá.`,
+      + `se repartió. La fila en NEGATIVO es el departamento que reparte: su `
+      + `crédito contra los que consumen, y por eso el total da cero. El peso `
+      + `es el que usó el motor, no uno recalculado acá.`,
     hoja: `Reparto ${meta.rotulo}`,
     anchoRotulo: 40,
   }, datos.versiones.length, nombre, par, filas);

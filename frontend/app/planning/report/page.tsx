@@ -52,7 +52,7 @@ import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import { HOTEL_ID } from "@/lib/hotel";
 import {
   APERTURAS, cuadroApertura, cuadroCheckbook, cuadroEstadisticas, cuadroPlanning,
-  cuadroPosiciones, cuadroReparto, METRICAS_POSICION, REPARTOS,
+  cuadroPosiciones, cuadroReparto, METRICAS_POSICION, REPARTOS, seAbre,
   type ClaseApertura, type MetricaPosicion,
 } from "@/lib/planningReport";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
@@ -252,7 +252,10 @@ export default function PlanningReportPage() {
       for (const a of APERTURAS) {
         const d = libro[llaveLibro(a.clase, abrir)]
           ?? await getDetalleDeCelda(ids, a.clase, "", 0, abrir).catch(() => null);
-        if (d) out.push(cuadroCheckbook(d, escenarios, op));
+        // ⚠️ La clase que no tiene nada debajo de la cuenta NO baja dos veces.
+        // Su hoja «con detalle» saldría idéntica a la normal, y dos hojas
+        // iguales con nombres distintos hacen dudar de las dos.
+        if (d && (!abrir || seAbre(d))) out.push(cuadroCheckbook(d, escenarios, op));
       }
     } else if (v === "plantilla") {
       const ps = plantilla ?? (await getPosiciones(ids)).escenarios;
