@@ -300,6 +300,81 @@ def test_la_columna_ANIO_salteada_sale_como_suma_de_terminos():
     assert ws.cell(5, 5).value == "=B5+D5"
 
 
+def test_en_una_columna_de_PORCENTAJE_la_suma_tiene_que_dar_EXACTA():
+    """\u26a0\ufe0f Medio centavo en dolares es ruido; medio PUNTO en un porcentaje es
+    una cifra.
+
+    0,005 es la tolerancia de una columna de dinero. En una de porcentaje, tres
+    variaciones pueden caer dentro de medio punto por pura casualidad — y
+    entonces el archivo bajaria `=E8+E9+E10` en una celda que es un COCIENTE:
+    una formula que se ve bien y esta mal, que es lo que esta comprobacion
+    existe para impedir. Un costo del periodo no es la suma de tres costos
+    porcentuales.
+    """
+    cu = {
+        "titulo": "Costo A&B", "hoja": "Costo",
+        "columnas": [
+            {"label": "Concepto", "formato": "texto"},
+            {"label": "Costo %", "formato": "pct"},
+        ],
+        # 0,10 + 0,20 + 0,31 = 0,61 contra un 0,609 que el motor rederivo sobre
+        # los totales. Entran en 0,005 y NO son la misma cifra.
+        "filas": [
+            {"label": "Comida", "valores": [0.10]},
+            {"label": "Bebida", "valores": [0.20]},
+            {"label": "Varios", "valores": [0.31]},
+            {"label": "Costo total", "es_total": True, "suma_de": [0, 1, 2],
+             "valores": [0.609]},
+        ],
+    }
+    wb, ws = _hoja([cu])
+    assert ws.cell(8, 2).value == 0.609, "escribio una suma de porcentajes"
+
+
+def test_una_participacion_que_SI_es_aditiva_sigue_bajando_como_formula():
+    """El reves de lo anterior: el aporte de cada departamento al ingreso SI
+    suma, y tiene que seguir siendo formula."""
+    cu = {
+        "titulo": "Mix", "hoja": "Mix",
+        "columnas": [
+            {"label": "Depto", "formato": "texto"},
+            {"label": "% del ingreso", "formato": "pct"},
+        ],
+        "filas": [
+            {"label": "Rooms", "valores": [0.60]},
+            {"label": "A y B", "valores": [0.25]},
+            {"label": "Otros", "valores": [0.15]},
+            {"label": "Total", "es_total": True, "suma_de": [0, 1, 2],
+             "valores": [0.60 + 0.25 + 0.15]},
+        ],
+    }
+    wb, ws = _hoja([cu])
+    assert ws.cell(8, 2).value == "=B5+B6+B7"
+
+
+def test_si_la_columna_ANIO_no_cuadra_todavia_puede_cuadrar_la_FILA():
+    """\u26a0\ufe0f La esquina de un cuadro de doce meses es fila-total y columna-suma a
+    la vez. Que falle una no tiene por que costarle la formula a la otra: basta
+    con que UNA de las dos sea cierta."""
+    cu = _con_anio()
+    # La columna «Año» de esta fila es un promedio, no una suma: por ahi no va.
+    cu["filas"][2]["valores"] = [11.0, 22.0, 33.0, 22.0]
+    cu["filas"][0]["valores"] = [10.0, 20.0, 30.0, 20.0]
+    cu["filas"][1]["valores"] = [1.0, 2.0, 3.0, 2.0]
+    wb, ws = _hoja([cu])
+    assert ws.cell(7, 5).value == "=E5+E6", "se perdio la suma por filas"
+
+
+def test_un_mes_VACIO_no_le_quita_el_total_a_su_fila():
+    """\u26a0\ufe0f Un blanco vale cero en `SUM(B5:D5)`, igual que el `?? 0` de la
+    pantalla. Descartar la formula por un mes sin cargar le sacaria el total
+    justo a las filas incompletas, que son las que hay que revisar."""
+    cu = _con_anio()
+    cu["filas"][0]["valores"] = [10.0, None, 30.0, 40.0]
+    wb, ws = _hoja([cu])
+    assert ws.cell(5, 5).value == "=SUM(B5:D5)"
+
+
 def test_sin_resta_ni_suma_de_la_celda_sigue_siendo_EL_NUMERO():
     """La mayoria de los cuadros no declaran nada, y tienen que salir igual que
     siempre."""

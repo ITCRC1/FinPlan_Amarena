@@ -93,6 +93,21 @@ export interface FilaCuadro {
    */
   suma_de?: number[];
   /**
+   * Esta fila es una COMBINACIÓN con signo de otras: `[[ordinal, signo], …]`.
+   * Excel: `=X45-X53`.
+   *
+   * ⚠️ **Es lo único que alcanza para la cascada.** GOP es Operating Profit
+   * MENOS Overhead; el EBITDA le resta los no operativos; el EBT, lo
+   * financiero y la depreciación; el Net Profit, el impuesto. Son las cinco
+   * líneas que todo el mundo mira, y con `suma_de` —que sólo suma— quedaban
+   * como número pegado mientras el detalle de arriba ya llevaba fórmula.
+   *
+   * ⚠️ Mismo resguardo que `suma_de`: se escribe sólo si da lo mismo que el
+   * número que vino. Si el cuadro no muestra todos los operandos, manda el
+   * motor.
+   */
+  combina_filas?: [number, number][];
+  /**
    * `null` deja la celda vacía — no es lo mismo que un cero.
    *
    * Se admite `string` para lo que es texto de verdad (nombre de cuenta,

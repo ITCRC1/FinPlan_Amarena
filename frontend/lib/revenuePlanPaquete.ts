@@ -153,6 +153,18 @@ export function filasDelArmado(
   }));
   const pie: FilaCuadro = {
     label: "TOTAL", es_total: true,
+    // ⚠️ El TOTAL baja como `=B8+B9+B10` (owner, 2026-09-30: «revisar los
+    // subtotales con los totales y que todo lleve fórmula»). Los ordinales son
+    // los del arreglo que se EMITE —`[...cuerpo, pie]`, sin espaciadores— así
+    // que salen de `cuerpo` y no de `base`: si algún día se filtra alguna fila,
+    // `base` dejaría de corresponder.
+    //
+    // ⚠️ En «Ocupación» y en «Net rate» NO cuadra, y no debe: el total es
+    // Σocupadas ÷ Σdisponibles, no la suma de las razones por categoría —un
+    // tipo con dos villas pesaría igual que uno con ocho—. El exportador lo
+    // comprueba y deja el número. Declararlo de más no mueve ninguna cifra;
+    // declararlo de menos pierde las cuatro vistas que sí se suman.
+    suma_de: cuerpo.map((_f, i) => i),
     valores: celdas((vi, ms) => {
       const fu = a.fuentes[sidDe(vi)];
       return fu ? totalDeIngresos(cual, fu, base, mesesDe(ms)) : null;
@@ -173,6 +185,19 @@ export function cuadroDelArmado(
   const { todas, vista } = vistaDelArmado(a);
   const idDe = (col: number, ci: number) =>
     todas[vista.vi(col, ci)]?.scenario_id ?? "";
+  /** En qué columna del Excel está A LA VISTA la versión `vi` dentro del corte
+   *  `ci`, o `null` si ninguna la muestra.
+   *
+   *  ⚠️ Se apunta a la columna que MUESTRA cada operando, no a su índice en
+   *  `versiones`. En el año completo la primera columna muestra el Forecast
+   *  Current, y `=C-D` restaría dos columnas que no son las del cálculo. Es el
+   *  mismo `colDe` de `checkbookCortes` y de `tresCortes`: si el operando no
+   *  está a la vista no hay fórmula y queda el número — una celda sin fórmula
+   *  se puede revisar; una fórmula que resta lo que no es, no. */
+  const colDe = (vi: number, ci: number, desde: number) => {
+    const j = vista.columnas.findIndex((_c, col) => vista.vi(col, ci) === vi);
+    return j < 0 ? null : desde + j;
+  };
   /** El rótulo corto de cada versión: «Actual», «Budget», «Forecast». */
   const corto = rotulosDeVersion(todas, a.escenarios);
   return {
@@ -190,16 +215,34 @@ export function cuadroDelArmado(
     columnas: [
       { label: cual === "canales" ? "Canal" : "Tipo de habitación",
         ancho: 34, formato: "texto" },
-      ...cortes.flatMap((c, ci) => [
+      ...cortes.flatMap((c, ci) => {
+        // La primera columna de este corte, base 0 sobre `columnas` (la 0 es el
+        // rótulo de la fila).
+        const desde = 1 + cortes.slice(0, ci).reduce(
+          (acc, x) => acc + vista.columnas.length
+                      + (parDe(x, todas, a.escenarios, vista) ? 1 : 0), 0);
+        const par = parDe(c, todas, a.escenarios, vista);
+        return [
         // ⚠️ DOS líneas y la raya gruesa que abre el bloque: la misma cabecera
         // del P&L y de los checkbooks (owner, 2026-09-30).
         ...vista.columnas.map((_c, col) => ({
           label: corto(idDe(col, ci)), sub: c.titulo,
           ...(col === 0 ? { abre_grupo: true } : {}),
           ancho: 15, formato: fmt })),
-        ...(parDe(c, todas, a.escenarios, vista)
-          ? [{ label: ROTULO_VAR, ancho: 15, formato: fmt }] : []),
-      ]),
+        // ⚠️ La variación va como FÓRMULA, no como número. El par lo da
+        // `parDe`, que en el año completo devuelve Forecast contra Budget y no
+        // Actual contra Budget: escribir `=Actual-Budget` a mano ahí pondría en
+        // el archivo una resta que el sistema no hace.
+        ...(par
+          ? [{ label: ROTULO_VAR, ancho: 15, formato: fmt,
+               ...(colDe(par[0], ci, desde) !== null
+                   && colDe(par[1], ci, desde) !== null
+                 ? { resta: [colDe(par[0], ci, desde)!,
+                             colDe(par[1], ci, desde)!] as [number, number] }
+                 : {}) }]
+          : []),
+        ];
+      }),
     ],
     filas,
   };

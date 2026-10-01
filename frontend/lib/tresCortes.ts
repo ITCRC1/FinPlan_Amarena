@@ -369,6 +369,121 @@ export function celdasDe(
 export const rotuloAmbito = (clave: string) =>
   AMBITOS.find(a => a.clave === clave)?.rotulo ?? clave;
 
+/* ═══════════ Qué suma cada subtotal de la cascada del P&L ════════════════ */
+
+/** Los totales que son la SUMA del detalle que tienen justo arriba.
+ *
+ *  ⚠️ **No están todos los totales, y faltan a propósito.** `TOTAL GROSS
+ *  OPERATING PROFIT`, los dos EBITDA, el EBT y el `NET PROFIT` son RESTAS: la
+ *  utilidad es ingreso menos gasto, y el contrato sólo sabe sumar filas.
+ *  Declararlos acá no rompería nada —el exportador comprueba antes de
+ *  escribir— pero diría que son algo que no son. */
+const SUMA_DEL_DETALLE = new Set([
+  "TOTAL REVENUES", "Total Operating expenses", "OPERATING PROFIT",
+  "TOTAL OVERHEAD EXPENSES", "TOTAL RENT AND MANAGEMENT FEES",
+  "PROPERTY INSURANCE", "TOTAL OTHER EXPENSES", "CAPITAL EXPENSE",
+  "FINANCIAL EXPENSES", "TOTAL DEPRECIATIONS",
+  // La hoja del Club tiene su propia cascada. «Total Operating Expenses» con E
+  // mayúscula es la del Club; la del Consolidado va con e minúscula, tal como
+  // la escribió el owner (ver `CONSOLIDADO` en `pl_detail_api.py`).
+  "Total Salary and Benefits", "Total Operating Expenses",
+]);
+
+/** Los totales que suman SUBTOTALES, no detalle: el detalle ya está contado
+ *  dentro de cada subtotal y sumar los dos niveles contaría todo dos veces. */
+const SUMA_DE_SUBTOTALES = new Set([
+  "TOTAL NON OP EXPENSES",   // renta y fees, seguro y otros
+  "Total Gastos",            // Club: planilla más opex
+]);
+
+/** La cascada: qué le RESTA cada resultado a cuál.
+ *
+ *  La clave es el rótulo del resultado; el valor, los rótulos que entran con
+ *  signo `+` y los que entran con `−`.
+ *
+ *  ⚠️ **Acá está la mitad que `suma_de` no puede decir.** Un GOP no es la suma
+ *  de nada: es Operating Profit menos Overhead. Son las cinco líneas que todo
+ *  el mundo mira, y sin esto quedaban como número pegado mientras el detalle
+ *  de arriba ya bajaba con fórmula. */
+const RESULTADOS: Record<string, { mas: string[]; menos: string[] }> = {
+  "TOTAL GROSS OPERATING PROFIT": {
+    mas: ["OPERATING PROFIT"], menos: ["TOTAL OVERHEAD EXPENSES"] },
+  "EBITDA BEFORE CAPITAL": {
+    mas: ["TOTAL GROSS OPERATING PROFIT"], menos: ["TOTAL NON OP EXPENSES"] },
+  "EBITDA AFTER CAPITAL": {
+    mas: ["EBITDA BEFORE CAPITAL"], menos: ["CAPITAL EXPENSE"] },
+  "EARNINGS BEFORE INCOME TAXES": {
+    mas: ["EBITDA AFTER CAPITAL"],
+    menos: ["FINANCIAL EXPENSES", "TOTAL DEPRECIATIONS"] },
+  "NET PROFIT": {
+    mas: ["EARNINGS BEFORE INCOME TAXES"], menos: ["Income Taxes (30%)"] },
+};
+
+/**
+ * Qué filas suma cada subtotal y cada total, en ORDINALES del arreglo que se
+ * EMITE.
+ *
+ * ⚠️ **Se cuenta sobre lo emitido y no sobre la plantilla.** El cuadro saca los
+ * espaciadores siempre, los `det` en cero cuando va compacto, y las tres filas
+ * del Club cuando el ámbito es Hotel: un índice escrito a mano queda bien el
+ * día que se escribe y apunta a otra fila en cuanto cambian los datos — y
+ * `suma_de` degrada EN SILENCIO, así que nadie se entera.
+ *
+ * ⚠️ Lo que devuelve es una PROPUESTA. El exportador la comprueba contra el
+ * número que ya venía y sólo entonces escribe la fórmula: si la cascada del
+ * ámbito no muestra todos los componentes —pasa en el Hotel, donde el subtotal
+ * de renta no queda neto del Club y sus dos renglones sí— queda el número del
+ * motor, que es el lado correcto en el que equivocarse.
+ */
+export function componentesDelPL(
+  emitidas: { tipo: "sec" | "det" | "sub" | "tot" | "esp"; rotulo: string }[],
+): (number[] | undefined)[] {
+  return emitidas.map((f, i) => {
+    if (f.tipo !== "sub" && f.tipo !== "tot") return undefined;
+    const comp: number[] = [];
+    if (SUMA_DEL_DETALLE.has(f.rotulo)) {
+      // El bloque de detalle contiguo que tiene arriba. Se corta solo en el
+      // encabezado de sección o en el subtotal anterior.
+      for (let k = i - 1; k >= 0 && emitidas[k].tipo === "det"; k--) comp.unshift(k);
+    } else if (SUMA_DE_SUBTOTALES.has(f.rotulo)) {
+      // Los subtotales que hay desde el total anterior. Las filas de detalle
+      // del medio NO entran: ya están contadas dentro de su subtotal.
+      for (let k = i - 1; k >= 0 && emitidas[k].tipo !== "tot"; k--) {
+        if (emitidas[k].tipo === "sub") comp.unshift(k);
+      }
+    }
+    return comp.length ? comp : undefined;
+  });
+}
+
+/**
+ * Qué filas RESTA cada resultado de la cascada, con su signo, en ordinales del
+ * arreglo que se EMITE.
+ *
+ * ⚠️ Se buscan por rótulo sobre lo emitido, y sólo se declara cuando están
+ * TODOS los operandos: en el modo compacto una línea puede no haberse
+ * dibujado, y una fórmula a la que le falta un término da otra cifra. Si falta
+ * alguno, no se declara y queda el número del motor.
+ */
+export function resultadosDelPL(
+  emitidas: { tipo: "sec" | "det" | "sub" | "tot" | "esp"; rotulo: string }[],
+): ([number, number][] | undefined)[] {
+  const donde = (rot: string) => emitidas.findIndex(f => f.rotulo === rot);
+  return emitidas.map(f => {
+    const r = RESULTADOS[f.rotulo];
+    if (!r) return undefined;
+    const partes: [number, number][] = [];
+    for (const [lista, signo] of [[r.mas, 1], [r.menos, -1]] as const) {
+      for (const rot of lista) {
+        const k = donde(rot);
+        if (k < 0) return undefined;
+        partes.push([k, signo] as [number, number]);
+      }
+    }
+    return partes.length ? partes : undefined;
+  });
+}
+
 export function cuadroTresCortes(
   datos: PLDetail, mes: number, escenarios: Scenario[], ambito: string,
   compacto = true,
@@ -475,7 +590,12 @@ export function cuadroTresCortes(
   })).filter((f, i) => !esDelClub(KPIS[i].rotulo)
                        || f.valores.some(v => v !== null));
 
-  const cuerpo: FilaCuadro[] = filas.filter(f => f.tipo !== "esp").map(f => ({
+  // ⚠️ El arreglo EMITIDO, aparte: es sobre él que se cuentan los ordinales de
+  // `suma_de`. `filas` ya sacó los `det` en cero cuando el cuadro va compacto, y
+  // el ámbito Hotel viene sin las tres filas del Club, así que un ordinal
+  // contado sobre la plantilla apunta a otra fila en cuanto cambia el dato.
+  const emitidas = filas.filter(f => f.tipo !== "esp");
+  const cuerpo: FilaCuadro[] = emitidas.map(f => ({
     label: f.rotulo,
     // ⚠️ Sección y total no son lo mismo: el total lleva recuadro negro y la
     // sección sólo su banda. Ver `es_seccion` en `exportCuadro`.
@@ -489,6 +609,21 @@ export function cuadroTresCortes(
       : celdasDe(cortes, versiones, escenarios,
                  (vi, meses) => valorDe(f, vi, meses), vista),
   }));
+  // ⚠️ Los subtotales y totales, como SUMA de las filas que se ven (owner,
+  // 2026-09-30: «revisar los subtotales con los totales y que todo lleve
+  // fórmula»). La varianza ya bajaba como `resta`; esto es la otra mitad.
+  //
+  // Lo que se declara es una propuesta: el exportador la comprueba contra el
+  // número que calculó el motor y sólo escribe `=X12+X13+…` cuando da lo mismo.
+  componentesDelPL(emitidas).forEach((comp, i) => {
+    if (comp) cuerpo[i].suma_de = comp;
+  });
+  // ⚠️ Y la cascada, que NO se suma: el GOP es Operating Profit menos
+  // Overhead. Sin esto, las cinco líneas que todo el mundo mira quedaban como
+  // número pegado mientras el detalle de arriba ya bajaba con fórmula.
+  resultadosDelPL(emitidas).forEach((comb, i) => {
+    if (comb) cuerpo[i].combina_filas = comb;
+  });
 
   return {
     // ⚠️ El ámbito va en el TÍTULO y en el nombre de la pestaña. Tres hojas

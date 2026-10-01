@@ -700,7 +700,12 @@ def test_el_EXCEL_y_el_WORD_bajan_lo_que_se_esta_viendo():
     """
     pagina = (CIERRE / "page.tsx").read_text(encoding="utf-8")
     i = pagina.index("function cuadroEstado")
-    bloque = pagina[i:i + 3500]
+    # ⚠️ Hasta donde TERMINA la funcion, no una ventana de N caracteres.
+    # Con 3.500 fijos, agregarle comentarios a `cuadroEstado` empujaba el
+    # desglose afuera y el test fallaba por una razon que no tiene nada que ver
+    # con lo que defiende: que el Excel baje lo que se esta viendo.
+    j = pagina.index(chr(10) + "  function ", i + 10)
+    bloque = pagina[i:j]
     assert "conDepto ? desglose(f.code) : []" in bloque, (
         "el cuadro del P&L Statement dejó de incluir el desglose departamental "
         "que se ve en pantalla")

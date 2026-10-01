@@ -125,6 +125,16 @@ export function cuadroDelAnio(anio: MembresiasAnio): Cuadro {
   });
   filas.push({
     label: "Total general", es_total: true, formato: "num",
+    // ⚠️ El total del mes baja como `=B5+B6+B7+B8+B9`. Acá SÍ es la suma de lo
+    // que se ve: son los estados del padrón —activas, condicionados,
+    // pendientes, plan de pago, excepción— y el backend lo calcula igual. Que
+    // se mueva solo cuando alguien corrige un renglón en la hoja es justo lo
+    // que se pidió, y es lo que evita que el archivo que se vuelve a subir diga
+    // dos cosas.
+    //
+    // ⚠️ Los ordinales son los de `claves`, el mismo arreglo que generó las
+    // filas de arriba — sin filtro ni espaciadores en el medio.
+    suma_de: claves.map((_c, i) => i),
     valores: [...anio.meses.map(m => (m.cargado ? m.total : null)),
               anio.meses.reduce((a, m) => a + (m.cargado ? m.total : 0), 0)],
   });
@@ -137,7 +147,11 @@ export function cuadroDelAnio(anio: MembresiasAnio): Cuadro {
       { label: "Concepto", ancho: 42, formato: "texto" },
       ...anio.meses.map(m => ({ label: `${MES3[m.month - 1]} ${anio.year}`,
                                 ancho: 13, formato: "num" as const })),
-      { label: "Acumulado", ancho: 15, formato: "num" },
+      // ⚠️ «Acumulado» es la suma de los doce meses: baja como `=SUM(B5:M5)`.
+      // Un mes sin cargar va vacío y en Excel un blanco vale cero, igual que el
+      // `?? 0` con el que la pantalla lo totaliza.
+      { label: "Acumulado", ancho: 15, formato: "num",
+        suma_cols: anio.meses.map((_m, k) => 1 + k) },
     ],
     filas,
   };

@@ -43,9 +43,11 @@ import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
 import TresCortes from "./TresCortes";
 import {
-  AMBITOS, KPIS, celdasDe, cortesDe, cuadroTresCortes, esDelClub,
-  estadisticasDeLosCortes, parDe, vistaDe,
+  AMBITOS, KPIS, celdasDe, componentesDelPL, cortesDe, cuadroTresCortes,
+  esDelClub, estadisticasDeLosCortes, parDe, vistaDe,
 } from "@/lib/tresCortes";
+import { colDeRanuraPartida as colPartida,
+         colDeRanuraAlFinal as colAlFinal } from "@/lib/columnasDeRanura";
 import { compararDetalle, indiceDe, sumaContra } from "@/lib/auditoriaCompara";
 import Auditoria from "./Auditoria";
 // El Profit by Department del owner, tal como ya está construido bajo Cierre de
@@ -311,6 +313,24 @@ const ESTADO: {
  *    · `usd`   dinero
  *    · `saldo` dinero, pero es un SALDO: el YTD no se suma, es el mismo número
  */
+/** Qué renglones del Estado de Resultados son la SUMA de otros, por código.
+ *
+ *  ⚠️ Sólo estos dos, y lo son **por construcción**, no por casualidad:
+ *  `dato()` calcula `X_OTHER` como el RESTO —Total menos Rooms menos F&B— y
+ *  `X_TOTEXP` como `payroll + cost + opex`, así que las dos sumas dan al
+ *  centavo aunque mañana aparezca una línea de ingreso nueva.
+ *
+ *  ⚠️ **GOP, EBITDA y Net Profit NO entran.** GOP es `Total Revenue − Total
+ *  Expenses` y EBITDA le resta además Property: son RESTAS, y el contrato sólo
+ *  sabe sumar filas. Net Profit lo calcula el motor y este cuadro no muestra
+ *  todos sus componentes. Declararlas sería una fórmula que el exportador
+ *  descartaría —o, peor, una que cuadra por casualidad un mes y no el
+ *  siguiente. */
+const COMPONENTES_ESTADO: Record<string, string[]> = {
+  TOTAL_REVENUES: ["X_ROOMS", "X_FB", "X_OTHER"],
+  X_TOTEXP: ["C_PAYROLL", "C_COST", "C_OPEX"],
+};
+
 const SUMMARY: {
   code: string; label: string; tipo: "num" | "pct" | "usd" | "saldo";
   gasto?: boolean; fuerte?: boolean; separaAntes?: boolean;
@@ -911,6 +931,23 @@ export default function MonthEndPLPage() {
     return pos < 0 ? usadas.length : pos + 1;
   }, [usadas, varA, varB]);
 
+  /** En qué columna del Excel cae la ranura `i`, base 0 sobre `columnas`.
+   *
+   *  ⚠️ **Las dos columnas de variación parten la lista en el medio**
+   *  (`trasVariacion`): hasta ahí la posición es `1 + p`, y después `3 + p`.
+   *  Apuntar al índice de `usadas` daría una fórmula que resta otras dos
+   *  columnas en cuanto el par comparado no sean las dos primeras ranuras —y la
+   *  fórmula equivocada se ve igual de confiable que la correcta.
+   *
+   *  `null` = esa ranura no tiene columna; entonces no se declara la fórmula y
+   *  queda el número, que al menos se puede revisar.
+   *
+   *  Lo usan los cuadros cuya cabecera arma `enOrden`: el P&L completo y el
+   *  Estado de Resultados. */
+  const colDeRanuraPartida = useCallback(
+    (i: number) => colPartida(usadas, trasVariacion, i),
+    [usadas, trasVariacion]);
+
   const etiqueta = useCallback((id: string) => {
     const s = escenarios.find(x => x.id === id);
     return s ? `${s.type} ${s.version} ${s.year}` : "—";
@@ -1144,23 +1181,64 @@ export default function MonthEndPLPage() {
       // proyecto ya pagó una vez por un Excel que no era lo que se veía
       // (owner, 2026-08-27: «el excel no baja lo que está viendo»), y dejar
       // acá el par fijo mientras la pantalla dibuja tres sería repetirlo.
-      ...bloques.flatMap(bl => ([
+      ...bloques.flatMap((bl, bi) => {
+        // ⚠️ Este cuadro repite el bloque de columnas DOS veces —el mes y el
+        // acumulado— así que la fórmula del segundo NO es la del primero: hay
+        // que correrla el ancho de un bloque entero (una columna por ranura más
+        // las dos de variación).
+        const ancho = usadas.length + 2;
+        const cA = colDeRanuraPartida(varA), cB = colDeRanuraPartida(varB);
+        return [
     ...usadas.slice(0, trasVariacion).map(u => (
       { label: `${etiqueta(u.id)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const })),
-    { label: "Var $", ancho: 15, formato: "usd2" as const },
+    // ⚠️ La variación baja como FÓRMULA `=Xn-Yn`, no como número (owner,
+    // 2026-09-30). `d` es exactamente `dato(vA) - dato(vB)`: las dos columnas
+    // que se ven, en este mismo bloque.
+    //
+    // ⚠️ Vale igual en las filas de gasto. «Menos es favorable» acá es sólo
+    // cómo se LEE el número: `d` se calcula `a - b` en todas las filas y en
+    // todas las sub-filas, sin invertir el signo en ningún lado.
+    { label: "Var $", ancho: 15, formato: "usd2" as const,
+      ...(cA !== null && cB !== null
+        ? { resta: [cA + bi * ancho, cB + bi * ancho] as [number, number] }
+        : {}) },
+    // ⚠️ `Var %` NO lleva `resta`: es `d / |b|`, un cociente, y el contrato
+    // sólo sabe restar. Con `resta` saldría la diferencia en dólares dentro de
+    // una celda con formato de porcentaje.
     { label: "Var %", ancho: 10, formato: "pct" as const },
     ...usadas.slice(trasVariacion).map(u => (
       { label: `${etiqueta(u.id)} · ${bl.titulo}`, ancho: 17, formato: "usd2" as const })),
-      ])),
+        ];
+      }),
       { label: prevScn ? `% Rev ${prevScn.year}` : `% Rev ${t("anioAnt")}`, ancho: 12, formato: "pct" as const },
       { label: "Commentary", ancho: 34, formato: "texto" as const },
     ];
     // ⚠️ El Excel baja lo que se ESTA VIENDO, sub-filas incluidas. Este
     // proyecto ya pago una vez por un Excel que no era la pantalla
     // (owner, 2026-08-27: «el excel no baja lo que esta viendo»).
-    const filas: FilaCuadro[] = ESTADO.flatMap(f => [
-      {
+    const filas: FilaCuadro[] = [];
+    /** Dónde quedó cada concepto en el arreglo QUE SE EMITE, por código.
+     *
+     *  ⚠️ **No es su índice en `ESTADO`.** En la vista departamental cada
+     *  concepto arrastra sus sub-filas, y cuántas son depende de los datos:
+     *  `desglose` filtra los departamentos sin movimiento. Un índice escrito a
+     *  mano apunta al renglón de al lado en cuanto un departamento entra o
+     *  sale — y el exportador lo descarta EN SILENCIO dejando el número, así
+     *  que la fórmula simplemente no aparecería y nadie se enteraría.
+     *
+     *  Se anota al empujar, que es el único momento en que la posición es un
+     *  hecho y no una predicción. */
+    const ordinal: Record<string, number> = {};
+    for (const f of ESTADO) {
+      ordinal[f.code] = filas.length;
+      // Los componentes van SIEMPRE arriba del total en esta plantilla, así que
+      // sus ordinales ya están anotados. Si alguna vez no lo estuvieran, no se
+      // declara: mejor sin fórmula que con una que apunte a `undefined`.
+      const partes = (COMPONENTES_ESTADO[f.code] ?? []).map(c => ordinal[c]);
+      filas.push({
     label: f.label, es_total: !!f.fuerte,
+    ...(partes.length && partes.every(k => k !== undefined)
+      ? { suma_de: partes } : {}),
     valores: [
       ...bloques.flatMap(bl => {
         const a = dato(vA, gA, f.code, bl.h);
@@ -1180,8 +1258,9 @@ export default function MonthEndPLPage() {
       // viendo» (2026-08-27).
       comentarios[f.code] ?? null,
     ],
-      },
-      ...(conDepto ? desglose(f.code) : []).map(sub => ({
+      });
+      for (const sub of (conDepto ? desglose(f.code) : [])) {
+        filas.push({
     label: "    " + sub.label, es_total: false,
     valores: [
       ...bloques.flatMap(bl => {
@@ -1197,8 +1276,9 @@ export default function MonthEndPLPage() {
       null,
       null,
     ],
-      })),
-    ]);
+        });
+      }
+    }
     return {
       titulo: `Profit & Loss Statement YTD ${MESES[mes - 1].toUpperCase()} ${year}`
         + (conDepto ? " — Departamental" : " — Totales"),
@@ -1277,12 +1357,23 @@ export default function MonthEndPLPage() {
 
     const columnas: ColumnaCuadro[] = [
       { label: "Metric", ancho: 30, formato: "texto" },
-      ...bloques.flatMap(bl => ([
+      ...bloques.flatMap((bl, bi) => {
+        // La primera columna de ESTE bloque, base 0 sobre `columnas`: la 0 es
+        // «Metric» y cada bloque ocupa cuatro —A, B, Var $, Var %—. Se calcula
+        // y no se escribe a mano: el día que entre un tercer corte, las
+        // fórmulas del segundo tienen que correrse con él.
+        const base = 1 + bi * 4;
+        return [
     { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
     { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
-    { label: "Var $", ancho: 15, formato: "usd2" as const },
+    // ⚠️ `parSummary` hace `d = a - b` sobre estas DOS celdas, así que la
+    // variación baja como FÓRMULA y se mueve si alguien corrige un actual en la
+    // reunión (owner, 2026-09-30).
+    { label: "Var $", ancho: 15, formato: "usd2" as const,
+      resta: [base, base + 1] as [number, number] },
     { label: "Var %", ancho: 11, formato: "pct" as const },
-      ])),
+        ];
+      }),
       { label: "Notes", ancho: 30, formato: "texto" as const },
     ];
     const filas: FilaCuadro[] = SUMMARY.map(f => ({
@@ -1297,6 +1388,26 @@ export default function MonthEndPLPage() {
     null,
       ],
     }));
+    // ── «Total Revenue» ES la suma de sus tres renglones ────────────────────
+    //
+    // Y lo es por construcción, no por casualidad: `X_OTHER` se calcula como el
+    // RESTO —Total − Rooms − F&B— en `datoSummary`, así que los tres suman el
+    // total al centavo aunque mañana aparezca una línea de ingreso nueva.
+    //
+    // ⚠️ Es la ÚNICA fila de este cuadro que cuadra. GOP, EBITDA, Net Profit y
+    // la caja los calcula el motor y el cuadro no muestra sus componentes: ahí
+    // una suma diría algo que el sistema no dice.
+    //
+    // ⚠️ Los ordinales se buscan por código sobre `SUMMARY` —que es 1 a 1 con
+    // `filas`, sin filtros ni espaciadoras— y sólo se declara si están los
+    // cuatro. Un índice a mano se rompe en cuanto se reordene la lista, y el
+    // exportador lo descartaría sin avisar.
+    const iSummary = (code: string) => SUMMARY.findIndex(x => x.code === code);
+    const iTotalRev = iSummary("TOTAL_REVENUES");
+    const partesRev = ["X_ROOMS", "X_FB", "X_OTHER"].map(iSummary);
+    if (iTotalRev >= 0 && partesRev.every(i => i >= 0)) {
+      filas[iTotalRev].suma_de = partesRev;
+    }
     return {
       titulo: `${MESES[mes - 1].toUpperCase()} ${year} Summary`,
       subtitulo: `${etiqueta(idASum)} vs ${etiqueta(idBSum)} · USD`,
@@ -1306,10 +1417,16 @@ export default function MonthEndPLPage() {
   }
 
   function cuadroPL(): Cuadro {
+    const cA = colDeRanuraPartida(varA), cB = colDeRanuraPartida(varB);
     const columnas: ColumnaCuadro[] = [
       { label: "ACCOUNT DESCRIPTION", ancho: 38, formato: "texto" },
       ...usadas.slice(0, trasVariacion).map(u => ({ label: etiqueta(u.id), ancho: 17, formato: "usd2" as const })),
-      { label: t("variacionD"), ancho: 16, formato: "usd2" as const },
+      // ⚠️ La variación baja como FÓRMULA `=Xn-Yn`, no como número (owner,
+      // 2026-09-30). `variacion()` resta exactamente las dos columnas que se
+      // ven: `valor(cols[varA]) - valor(cols[varB])`.
+      { label: t("variacionD"), ancho: 16, formato: "usd2" as const,
+        ...(cA !== null && cB !== null
+          ? { resta: [cA, cB] as [number, number] } : {}) },
       { label: t("variacionP"), ancho: 12, formato: "pct" as const },
       ...usadas.slice(trasVariacion).map(u => ({ label: etiqueta(u.id), ancho: 17, formato: "usd2" as const })),
     ];
@@ -1363,6 +1480,16 @@ export default function MonthEndPLPage() {
         valores: enOrden(j => CLASES.reduce((s2, c) => s2 + gastoClase(j, c.key), 0), null, null),
       },
     ];
+    // ⚠️ Este total SÍ es la suma de lo que se ve: las cuatro filas de CLASES
+    // que lo preceden, con el mismo `gastoClase` en cada columna.
+    //
+    // El ordinal se calcula sobre el arreglo YA ARMADO y nunca a mano: arriba
+    // hay dos espaciadoras y la franja de estadísticas, que pasa de seis a ocho
+    // renglones cuando la propiedad tiene Club. Un índice fijo se corre solo el
+    // día que aparezca un KPI más, y el exportador lo rechazaría en silencio
+    // dejando el número.
+    filas[filas.length - 1].suma_de =
+      CLASES.map((_c, k) => filas.length - 1 - CLASES.length + k);
     return {
       titulo: t("xlTitulo", { periodo, year: String(year) }),
       subtitulo: sinDatoVar ? t("xlSinVariacion")
@@ -1442,11 +1569,20 @@ export default function MonthEndPLPage() {
   function cuadroClase(clase: string): Cuadro {
     const { claves, valor: v } = apertura(clase);
     const esGasto = clase !== "revenue";
+    // Acá las dos columnas de variación van AL FINAL, así que la posición de
+    // una ranura es `1 + p` y nada más — no hay corte en el medio como en el
+    // P&L. `null` = esa ranura no tiene columna, y entonces no hay fórmula.
+    const cA = colAlFinal(usadas, varA), cB = colAlFinal(usadas, varB);
     const columnas: ColumnaCuadro[] = [
       { label: "DEPARTAMENTO", ancho: 38, formato: "texto" },
       ...usadas.map(u => ({ label: etiqueta(u.id), ancho: 17,
                             formato: "usd2" as const })),
-      { label: t("variacionD"), ancho: 16, formato: "usd2" as const },
+      // ⚠️ `d` es exactamente `val(varA) - val(varB)`, las dos columnas que se
+      // ven: baja como FÓRMULA. Vale también en la fila TOTAL, donde `val` suma
+      // todas las claves de esas MISMAS dos columnas.
+      { label: t("variacionD"), ancho: 16, formato: "usd2" as const,
+        ...(cA !== null && cB !== null
+          ? { resta: [cA, cB] as [number, number] } : {}) },
       { label: t("variacionP"), ancho: 12, formato: "pct" as const },
     ];
     const orden = claves
@@ -1464,10 +1600,23 @@ export default function MonthEndPLPage() {
                   d === null || b === 0 ? null : d / Math.abs(b)],
       };
     };
+    const filas: FilaCuadro[] = [...orden.map(k => linea(k)), linea(null)];
+    // ⚠️ El TOTAL baja como `=X5+X6+X7…`: los ordinales son las filas de `orden`
+    // DENTRO DEL ARREGLO QUE SE EMITE —0 a N-1—, no las claves del endpoint.
+    // `orden` está filtrado y ordenado por monto, así que su largo cambia con
+    // los datos: escribir los índices a mano se rompe en cuanto una cuenta
+    // entra o sale.
+    //
+    // ⚠️ `linea(null)` suma TODAS las claves, también las que el filtro sacó por
+    // estar bajo 0,005 en todas las columnas. Se declara igual: el exportador
+    // comprueba la suma contra el número antes de escribir la fórmula, así que
+    // si alguna vez ese residuo pesa, deja el número del motor en vez de
+    // afirmar otra cosa.
+    filas[filas.length - 1].suma_de = orden.map((_k, i) => i);
     return {
       titulo: t(`tab_${clase}`),
       subtitulo: `${periodo} ${year} · ${esGasto ? "gasto" : "ingreso"} por departamento`,
-      columnas, filas: [...orden.map(k => linea(k)), linea(null)],
+      columnas, filas,
     };
   }
 
@@ -1545,6 +1694,37 @@ export default function MonthEndPLPage() {
       // Los tres contestan preguntas distintas: si CUADRA, de QUÉ está hecho, y
       // CÓMO se reparte. Juntarlos en una sola hoja mezclaría tres tablas con
       // columnas que no tienen nada que ver.
+      // ── Qué renglones suma cada total del cuadre ────────────────────────
+      //
+      // ⚠️ Los ordinales son posiciones en el arreglo QUE SE EMITE, y el
+      // emitido ya no lleva los blancos. Por eso se filtra UNA sola vez acá y
+      // se mapea sobre el resultado: calcular los índices sobre `a.cuadre` y
+      // escribirlos contra la lista filtrada apuntaría N filas más abajo, con
+      // N = cuántos blancos quedaron atrás.
+      //
+      // ⚠️ La regla es ESTRUCTURAL y no una lista de códigos: un total es la
+      // suma de la corrida de renglones de detalle que tiene justo encima. La
+      // plantilla del P&L vive en el backend y además se mueve con los datos
+      // —el endpoint omite los renglones en cero de los dos lados—. Copiarla
+      // acá sería una segunda verdad que se desactualiza sin que nada falle.
+      //
+      // ⚠️ Se piden DOS componentes como mínimo. Con uno, el único caso que la
+      // regla encuentra es «NET PROFIT» encima de «Income Taxes», que no es su
+      // suma sino su RESTA; y un total de un solo renglón no gana nada con un
+      // `=B30`.
+      const cuadreVisible = a.cuadre.filter(
+        (f: AuditoriaCuadre) => f.tipo !== "esp");
+      const componentesDelCuadre = (i: number): number[] | undefined => {
+        const t = cuadreVisible[i].tipo;
+        if (t !== "tot" && t !== "sub") return undefined;
+        const ks: number[] = [];
+        for (let k = i - 1; k >= 0; k--) {
+          const tk = cuadreVisible[k].tipo;
+          if (tk !== "det" && tk !== "der") break;
+          ks.unshift(k);
+        }
+        return ks.length >= 2 ? ks : undefined;
+      };
       const cuadres: Cuadro[] = [{
         titulo: `${t("tab_auditoria")} · Cuadre`,
         subtitulo: cab,
@@ -1553,18 +1733,30 @@ export default function MonthEndPLPage() {
           { label: "Renglón", ancho: 38, formato: "texto" as const },
           { label: "P&L (motor)", ancho: 17, formato: "usd2" as const },
           { label: "Suma del detalle", ancho: 17, formato: "usd2" as const },
-          { label: "Dif.", ancho: 14, formato: "usd2" as const },
+          // ⚠️ «Dif.» es `P&L (motor) − Suma del detalle`, y lo es en el
+          // backend: `auditoria_api` escribe `dif = motor - det`. Baja como
+          // FÓRMULA `=B{n}-C{n}` (índices 1 y 2, base 0 sobre `columnas`: la 0
+          // es el rótulo). En las secciones y los totales `dif` viene vacío, y
+          // una celda vacía se queda vacía — un descuadre de cero inventado
+          // sería justo lo que esta hoja existe para no decir.
+          { label: "Dif.", ancho: 14, formato: "usd2" as const,
+            resta: [1, 2] as [number, number] },
           ...(ix ? [
             { label: rotB, ancho: 17, formato: "usd2" as const },
-            { label: `Var vs ${rotB}`, ancho: 17, formato: "usd2" as const },
+            // ⚠️ La variación contra la otra versión es MOTOR contra MOTOR
+            // —columna 1 contra columna 4—, no contra la suma de su detalle: el
+            // cuadre de allá es problema de allá, y mezclarlos haría que un
+            // descuadre suyo se leyera como variación.
+            { label: `Var vs ${rotB}`, ancho: 17, formato: "usd2" as const,
+              resta: [1, 4] as [number, number] },
           ] : []),
         ],
         // Las filas en blanco del P&L no viajan: en una hoja impresa una fila
         // vacía se lee como un dato que falta.
-        filas: a.cuadre.filter((f: AuditoriaCuadre) => f.tipo !== "esp")
-                       .map((f: AuditoriaCuadre) => ({
+        filas: cuadreVisible.map((f: AuditoriaCuadre, i: number) => ({
           label: (f.tipo === "det" || f.tipo === "der") ? "    " + f.nombre : f.nombre,
           es_total: f.tipo === "sec" || f.tipo === "tot" || f.tipo === "sub",
+          ...(componentesDelCuadre(i) ? { suma_de: componentesDelCuadre(i) } : {}),
           valores: [f.motor, f.detalle, f.dif,
                     ...(ix ? (() => {
                       // El MOTOR de la otra versión, no la suma de su detalle:
@@ -1730,7 +1922,12 @@ export default function MonthEndPLPage() {
           { label: "Line Item", ancho: 30, formato: "texto" as const },
           ...vivos.map(m => ({ label: MESES[m.month - 1].slice(0, 3), ancho: 14,
                                formato: "usd2" as const })),
-          { label: "Total", ancho: 16, formato: "usd2" as const },
+          // ⚠️ El Total baja como FÓRMULA, y sobre los meses que SE VEN —no
+          // sobre los doce—: `vivos` deja afuera los meses sin una sola línea
+          // cargada, y un `SUM(B:M)` apuntaría a columnas que esta hoja no
+          // tiene. Por eso los índices se cuentan en tiempo de ejecución.
+          { label: "Total", ancho: 16, formato: "usd2" as const,
+            suma_cols: vivos.map((_m, k) => 1 + k) },
         ],
         filas: codigos
           .filter(c => vivos.some(m => Math.abs(val(c, m.month) ?? 0) >= 0.005))
@@ -1884,26 +2081,43 @@ export default function MonthEndPLPage() {
       const vivos = Array.from({ length: 12 }, (_, i) => i).filter(i =>
         d.filas.some(f => Math.abs(serie(f)?.[i] ?? 0) >= 0.005));
       const cols = vivos.length ? vivos : Array.from({ length: 12 }, (_, i) => i);
+      // Los espacios no viajan: en una hoja impresa una fila vacía se lee como
+      // un dato que falta.
+      //
+      // ⚠️ El arreglo emitido va aparte: los ordinales de `suma_de` se cuentan
+      // sobre ÉL, no sobre la plantilla del backend —que se edita seguido— ni
+      // sobre `d.filas`, que todavía trae los espaciadores.
+      const emitidas = d.filas.filter(f => f.tipo !== "esp");
+      const formatoFilas: FilaCuadro[] = emitidas.map(f => {
+        const v = serie(f);
+        return {
+          label: f.tipo === "det" ? "    " + f.rotulo : f.rotulo,
+          es_total: f.tipo !== "det",
+          valores: v
+            ? [...cols.map(i => v[i] ?? 0), cols.reduce((a, i) => a + (v[i] ?? 0), 0)]
+            : cols.map(() => null).concat([null]),
+        };
+      });
+      // ⚠️ Los subtotales de la cascada, como SUMA de las filas que se ven. Es
+      // la MISMA regla que el P&L de tres cortes (`componentesDelPL`) porque es
+      // la misma cascada: dos tablas de componentes se separan en el primer
+      // renglón que alguien agregue de un lado.
+      componentesDelPL(emitidas).forEach((comp, i) => {
+        if (comp) formatoFilas[i].suma_de = comp;
+      });
       return [{
         titulo: t("tab_formato"),
         subtitulo: etiqueta(id) + " · " + year + " · USD",
         columnas: [
           { label: "Line Item", ancho: 32, formato: "texto" as const },
           ...cols.map(i => ({ label: MES3[i], ancho: 14, formato: "usd2" as const })),
-          { label: "Total", ancho: 16, formato: "usd2" as const },
+          // ⚠️ El Total baja como `=SUM(B9:I9)` sobre los meses que SE VEN:
+          // `cols` esconde los meses sin movimiento, y una fórmula sobre los
+          // doce apuntaría a columnas que esta hoja no tiene.
+          { label: "Total", ancho: 16, formato: "usd2" as const,
+            suma_cols: cols.map((_m, k) => 1 + k) },
         ],
-        // Los espacios no viajan: en una hoja impresa una fila vacía se lee
-        // como un dato que falta.
-        filas: d.filas.filter(f => f.tipo !== "esp").map(f => {
-          const v = serie(f);
-          return {
-            label: f.tipo === "det" ? "    " + f.rotulo : f.rotulo,
-            es_total: f.tipo !== "det",
-            valores: v
-              ? [...cols.map(i => v[i] ?? 0), cols.reduce((a, i) => a + (v[i] ?? 0), 0)]
-              : cols.map(() => null).concat([null]),
-          };
-        }),
+        filas: formatoFilas,
       }];
     },
     revdet: async () => {
@@ -1970,9 +2184,25 @@ export default function MonthEndPLPage() {
             label: `${etiqueta(id)} · ${c.rotulo}`, ancho: 18,
             formato: "usd2" as const }))),
         ],
-        filas: FB_FILAS.filter(f => !f.hueco).map(f => ({
+        // ⚠️ Los ordinales se cuentan sobre el arreglo YA filtrado: los dos
+        // huecos de `FB_FILAS` no viajan, así que «Total Revenue» es la fila 3
+        // del archivo y la 4 de la constante.
+        filas: FB_FILAS.filter(f => !f.hueco).map((f, i, vivas) => ({
           label: f.label,
           es_total: !!f.fuerte,
+          // ⚠️ El % de costo es un COCIENTE y la columna es de dólares: sin
+          // esto, 0,32 baja formateado como $0,32.
+          formato: (f.pctDe !== undefined ? "pct" : undefined) as
+            "pct" | undefined,
+          // ⚠️ Los dos totales bajan como FÓRMULA, y acá cuadran por
+          // construcción: `/reports/fb-detalle/` define `ing_total` y
+          // `cos_total` como la suma de comida más bebida más misceláneos, mes
+          // a mes, y el cuadro suma los mismos meses. Lo que NO baja como
+          // fórmula son las tres filas de %: un costo porcentual es un cociente
+          // del período, no la suma de tres cocientes.
+          ...(f.campo === "ing_total" || f.campo === "cos_total"
+            ? { suma_de: [i - 3, i - 2, i - 1].filter(k => k >= 0 && k < vivas.length) }
+            : {}),
           valores: ids.flatMap(id => cortes.map(k => f.pctDe
             ? pctCosto(id, f.pctDe, k.meses)
             : f.campo ? suma(id, f.campo, k.meses) : null)),
@@ -2831,16 +3061,36 @@ export default function MonthEndPLPage() {
         function bajarFb() {
           const columnas: ColumnaCuadro[] = [
             { label: "Department", ancho: 28, formato: "texto" },
-            ...bloques.flatMap(bl => ([
+            ...bloques.flatMap((bl, bi) => {
+              // La primera columna de ESTE bloque, base 0 sobre `columnas`: la
+              // 0 es la del rótulo y cada bloque ocupa cuatro.
+              const base = 1 + bi * 4;
+              return [
               { label: `${etiqueta(idA)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
               { label: `${etiqueta(idB)} · ${bl.titulo}`, ancho: 18, formato: "usd2" as const },
-              { label: "Var $", ancho: 15, formato: "usd2" as const },
+              // ⚠️ La variación baja como FÓRMULA: es exactamente la resta de
+              // las dos columnas de al lado, y en un Excel de junta alguien
+              // corrige un actual y espera que se mueva con él (owner,
+              // 2026-09-30).
+              //
+              // ⚠️ `Var %` NO lleva fórmula: es `d / |b|`, un cociente con
+              // valor absoluto abajo, y el contrato sólo sabe restar columnas.
+              { label: "Var $", ancho: 15, formato: "usd2" as const,
+                resta: [base, base + 1] as [number, number] },
               { label: "Var %", ancho: 10, formato: "pct" as const },
-            ])),
+              ];
+            }),
           ];
-          const filas: FilaCuadro[] = FB_FILAS.filter(f => !f.hueco).map(f => ({
+          const filas: FilaCuadro[] = FB_FILAS.filter(f => !f.hueco)
+            .map((f, i, vivas) => ({
             label: f.label, es_total: !!f.fuerte,
             formato: f.pctDe !== undefined ? "pct" : undefined,
+            // ⚠️ Los dos totales, como suma de sus tres grupos. Cuadra por
+            // construcción: el endpoint define `ing_total` y `cos_total` como
+            // esa misma suma, mes a mes.
+            ...(f.campo === "ing_total" || f.campo === "cos_total"
+              ? { suma_de: [i - 3, i - 2, i - 1].filter(k => k >= 0 && k < vivas.length) }
+              : {}),
             valores: bloques.flatMap(bl => {
               const c = celdas(f, bl.h);
               return [c.a, c.b, c.d, c.p];
@@ -3057,12 +3307,23 @@ export default function MonthEndPLPage() {
         function bajarDetalle() {
           const columnas: ColumnaCuadro[] = [
             { label: "Department", ancho: 28, formato: "texto" },
-            ...bloques.flatMap(bl => ([
+            ...bloques.flatMap((bl, bi) => {
+              const base = 1 + bi * 4;
+              return [
               { label: etiqueta(idA) + " · " + bl.titulo, ancho: 18, formato: "usd2" as const },
               { label: etiqueta(idB) + " · " + bl.titulo, ancho: 18, formato: "usd2" as const },
-              { label: "Var $", ancho: 15, formato: "usd2" as const },
+              // ⚠️ La variación baja como FÓRMULA: es exactamente la resta de
+              // las dos columnas de al lado, y en un Excel de junta alguien
+              // corrige un actual y espera que se mueva con él (owner,
+              // 2026-09-30).
+              //
+              // ⚠️ `Var %` NO lleva fórmula: es `d / |b|`, un cociente con
+              // valor absoluto abajo, y el contrato sólo sabe restar columnas.
+              { label: "Var $", ancho: 15, formato: "usd2" as const,
+                resta: [base, base + 1] as [number, number] },
               { label: "Var %", ancho: 10, formato: "pct" as const },
-            ])),
+              ];
+            }),
             { label: "Notes", ancho: 30, formato: "texto" as const },
           ];
           const fila = (code: string | null, label: string, total: boolean,

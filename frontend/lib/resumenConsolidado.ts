@@ -51,6 +51,13 @@ export interface Renglon {
   banda?: boolean;      // subtotal o separador
   tenue?: boolean;      // contexto, no cifra principal
   espacioAntes?: boolean;
+  /** Este renglón es la SUMA de otros, **por CLAVE**.
+   *
+   *  ⚠️ Por clave y no por ordinal: el ordinal se escribe una vez y se
+   *  equivoca el día que alguien mete un renglón en el medio — y se equivoca
+   *  en silencio, porque el exportador descarta la fórmula que no cuadra y
+   *  deja el número. La clave no se puede mover de lugar. */
+  suma_de?: string[];
 }
 
 export interface Ctx { unidades: number }
@@ -99,6 +106,7 @@ export const RENGLONES: Renglon[] = [
   { clave: "otros", rotulo: "Ingreso Otros", formato: "usd",
     valor: ms => sum(ms, m => porCat(m, "ingreso_otros")) },
   { clave: "totIng", rotulo: "Total Ingresos", formato: "usd", banda: true,
+    suma_de: ["hosp", "ayb", "otros"],
     valor: ms => sum(ms, m => porCat(m, "revenue") + porCat(m, "ingreso_ayb")
                             + porCat(m, "ingreso_otros")) },
 
@@ -118,6 +126,10 @@ export const RENGLONES: Renglon[] = [
     valor: ms => sum(ms, nochesFuera) },
   { clave: "habEst", rotulo: "Total noches ocupadas con cortesías — no entra a los indicadores",
     formato: "num", tenue: true,
+    // ⚠️ La identidad que el encabezado promete: el tercero es la suma de los
+    // dos primeros. Vale cuando la apertura por canal reconcilia con las
+    // categorías; cuando no, el exportador deja el número y no la fórmula.
+    suma_de: ["pagadas", "cortesias"],
     valor: ms => sum(ms, m => porCat(m, "nights_occupied")) },
   { clave: "cliEnt", rotulo: "Clientes — Entradas", formato: "num",
     valor: ms => sum(ms, m => porCat(m, "cli_entradas")) },
@@ -208,10 +220,18 @@ export function cuadroResumenConsolidado(anio: AnioRoomStats): Cuadro {
   const ctx: Ctx = {
     unidades: (anio.room_types ?? []).reduce((a, r) => a + r.units, 0),
   };
+  // De clave a ordinal, sobre el arreglo que se EMITE. `RENGLONES` va 1 a 1
+  // con `filas`, pero el índice se busca igual: una constante que se reordena
+  // no avisa.
+  const ordinal = (clave: string) => RENGLONES.findIndex(x => x.clave === clave);
   const filas: FilaCuadro[] = RENGLONES.map(r => ({
     label: r.rotulo,
     es_total: !!r.banda,
     formato: r.formato === "usd" ? "usd2" : r.formato === "pct" ? "pct" : "num",
+    // ⚠️ Sólo los renglones que declaran de qué están hechos, y sólo si todas
+    // sus partes siguen en la lista.
+    ...(r.suma_de && r.suma_de.every(k => ordinal(k) >= 0)
+      ? { suma_de: r.suma_de.map(ordinal) } : {}),
     // ⚠️ Un mes sin cargar va en `null` y NO en cero: una columna en cero dice
     // que ese mes no tuvo movimiento, que es una afirmación distinta.
     valores: [...anio.meses.map(m => (m.cargado ? r.valor([m], ctx) : null)),
@@ -227,7 +247,13 @@ export function cuadroResumenConsolidado(anio: AnioRoomStats): Cuadro {
       { label: "Indicador", ancho: 44, formato: "texto" },
       ...anio.meses.map(m => ({ label: `${MES3[m.month - 1]} ${anio.year}`,
                                 ancho: 14, formato: "num" as const })),
-      { label: "Total / Prom.", ancho: 16, formato: "num" },
+      // ⚠️ «Total / Prom.» es una columna MIXTA: para un ingreso es la suma de
+      // los meses, para una ocupación o un ADR es la razón rederivada sobre el
+      // período. Se declara la suma igual, porque el exportador la comprueba
+      // celda por celda: los renglones aditivos bajan como `=SUM(B5:M5)` y las
+      // razones se quedan con su número, que es exactamente lo que se quiere.
+      { label: "Total / Prom.", ancho: 16, formato: "num",
+        suma_cols: anio.meses.map((_m, k) => 1 + k) },
     ],
     filas,
   };
@@ -279,13 +305,17 @@ export function cuadroCanalesDelPms(anio: AnioRoomStats): Cuadro {
       acc.set(clave, d);
     }
   }
-  const filas: FilaCuadro[] = [...acc.values()]
-    .sort((a, b) => b.rev - a.rev || b.noches - a.noches)
-    .map(d => ({
-      label: d.rotulo,
-      valores: [d.cuenta ? "Sí" : "No", d.noches, d.pax, d.rev,
-                d.noches ? d.rev / d.noches : null],
-    }));
+  // ⚠️ El arreglo ordenado se GUARDA. Los ordinales de `suma_de` son posiciones
+  // dentro de las filas que se emiten, así que hace falta el mismo arreglo que
+  // alimentó el `.map()`: con el `.sort()` encadenado se pierde y no hay forma
+  // de saber qué fila es cuál.
+  const ordenados = [...acc.values()]
+    .sort((a, b) => b.rev - a.rev || b.noches - a.noches);
+  const filas: FilaCuadro[] = ordenados.map(d => ({
+    label: d.rotulo,
+    valores: [d.cuenta ? "Sí" : "No", d.noches, d.pax, d.rev,
+              d.noches ? d.rev / d.noches : null],
+  }));
   // ⚠️ El TOTAL es el de las noches que CUENTAN, que es la base de todos los
   // indicadores del cierre. La fila de abajo trae el archivo entero para poder
   // cuadrar contra el PDF sin abrir la aplicación.
@@ -298,11 +328,19 @@ export function cuadroCanalesDelPms(anio: AnioRoomStats): Cuadro {
   const rt = suma(d => d.rev);
   filas.push({
     label: "TOTAL", es_total: true,
+    // ⚠️ SÓLO los canales que CUENTAN, que es de lo que está hecho este número.
+    // Con todas las filas la suma incluiría las cortesías, daría otra cifra y
+    // el exportador tiraría la fórmula sin decir nada: un índice de más no da
+    // error, da una hoja sin fórmulas.
+    suma_de: ordenados.map((d, i) => (d.cuenta ? i : -1)).filter(i => i >= 0),
     valores: ["", nb, suma(d => d.pax, true), rb, nb ? rb / nb : null],
   });
   if (Math.abs(nt - nb) > 0.005) {
     filas.push({
       label: "Con todos los canales (PDF)",
+      // Acá sí van TODOS: esta fila existe justamente para cuadrar contra el
+      // PDF del PMS, cortesías incluidas.
+      suma_de: ordenados.map((_d, i) => i),
       valores: ["", nt, suma(d => d.pax), rt, nt ? rt / nt : null],
     });
   }

@@ -178,6 +178,8 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
     * `columnas[n].suma_cols = [...]` → `=SUMA(D5:O5)`. La columna «Año» de un
       cuadro de doce meses.
     * `filas[n].suma_de = [...]` → `=X7+X9+X12`.
+    * `filas[n].combina_filas = [[7, 1], [9, -1]]` → `=X7-X9`. La cascada: GOP
+      es Operating Profit menos Overhead, y eso no es una suma.
 
     ⚠️ **La suma se escribe SÓLO si da lo mismo que el número que venía.** El
     total del P&L lo calcula el motor, no la pantalla: si el cuadro no muestra
@@ -200,6 +202,21 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
 
     vals = f.get("valores") or []
 
+    # ⚠️ **La tolerancia depende de la UNIDAD de la celda.**
+    #
+    # Medio centavo en una columna de dólares es ruido de redondeo. En una de
+    # PORCENTAJE, 0,005 es medio punto: tres variaciones porcentuales pueden
+    # caer ahí por pura casualidad y entonces se escribiría `=E8+E9+E10` en una
+    # celda que es un cociente — una fórmula que se ve bien y está mal, que es
+    # justo lo que esta comprobación existe para impedir.
+    #
+    # Un cociente no se suma: el costo de A&B del período no es la suma de tres
+    # porcentajes. Donde la cifra es una razón, la suma tiene que dar exacta o
+    # no se escribe. Una participación sobre el ingreso —que sí es aditiva—
+    # cuadra al bit y sigue bajando como fórmula.
+    razon = (f.get("formato") or col.get("formato") or "usd") == "pct"
+    tol = 1e-9 if razon else CENTAVO
+
     def cuadra(valor, partes) -> bool:
         """⚠️ La fórmula se escribe SÓLO si da lo mismo que el número que vino.
 
@@ -207,36 +224,98 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
         muestra todos sus componentes— daría otra cifra, y una fórmula se ve
         más confiable que un número: nadie la revisaría.
         """
-        return abs(sum(partes) - valor) <= 0.005
+        return abs(sum(partes) - valor) <= tol
 
     # ── La columna que suma otras columnas ────────────────────────────────
+    #
+    # ⚠️ Si no cuadra NO se devuelve `None`: se sigue con `suma_de`. En la
+    # esquina de un cuadro de doce meses la celda es fila-total y columna-suma a
+    # la vez, y basta con que una de las dos sea cierta para que valga la pena
+    # escribirla.
     cols = col.get("suma_cols")
     if cols:
+        partes, texto = [], False
+        for k in cols:
+            # ⚠️ Un mes VACÍO no invalida la suma: en Excel un blanco vale cero
+            # tanto en `SUM(B5:M5)` como en `B5+C5`, que es lo mismo que hace la
+            # pantalla al totalizar con `?? 0`. Descartar la fórmula por un mes
+            # sin cargar le quitaría el total justo a las filas incompletas, que
+            # son las que hay que revisar.
+            v = vals[k - 1] if 0 < k <= len(vals) else None
+            if v is None:
+                continue
+            if isinstance(v, str):
+                texto = True
+                break
+            partes.append(float(v))
+        if not texto:
+            try:
+                valor = float(vals[i - 2])
+            except (IndexError, TypeError, ValueError):
+                valor = None
+            if valor is not None and cuadra(valor, partes):
+                letras = [get_column_letter(k + 1) for k in cols]
+                # Doce meses seguidos se leen mejor como rango que como doce
+                # sumandos.
+                if list(cols) == list(range(cols[0], cols[-1] + 1)):
+                    return f"=SUM({letras[0]}{fila}:{letras[-1]}{fila})"
+                return "=" + "+".join(f"{x}{fila}" for x in letras)
+
+    suma = f.get("suma_de")
+    if suma:
         try:
             valor = float(vals[i - 2])
-            partes = [float(vals[k - 1]) for k in cols]
+            partes = [float((filas[k].get("valores") or [])[i - 2]) for k in suma]
         except (IndexError, TypeError, ValueError):
             return None
         if not cuadra(valor, partes):
-            return None
-        letras = [get_column_letter(k + 1) for k in cols]
-        # Doce meses seguidos se leen mejor como rango que como doce sumandos.
-        if list(cols) == list(range(cols[0], cols[-1] + 1)):
-            return f"=SUM({letras[0]}{fila}:{letras[-1]}{fila})"
-        return "=" + "+".join(f"{x}{fila}" for x in letras)
+            return None      # el motor dice otra cosa: manda el motor
+        return "=" + "+".join(f"{letra}{primera + k}" for k in suma)
 
-    suma = f.get("suma_de")
-    if not suma:
+    # ── La fila que COMBINA otras con signo ───────────────────────────────
+    #
+    # La cascada del P&L no se suma: el GOP es Operating Profit MENOS Overhead,
+    # el EBITDA le resta los no operativos, el EBT lo financiero y la
+    # depreciación, y el Net Profit el impuesto. Son las cinco líneas que todo
+    # el mundo mira, y sin esto quedaban como número pegado mientras el detalle
+    # de arriba ya bajaba con fórmula.
+    combina = f.get("combina_filas")
+    if not combina:
         return None
     try:
         valor = float(vals[i - 2])
-        partes = [float((filas[k].get("valores") or [])[i - 2]) for k in suma]
+        partes = [signo * float((filas[k].get("valores") or [])[i - 2])
+                  for k, signo in combina]
     except (IndexError, TypeError, ValueError):
         return None
     if not cuadra(valor, partes):
-        return None          # el motor dice otra cosa: manda el motor
-    return "=" + "+".join(f"{letra}{primera + k}" for k in suma)
+        return None
+    texto = ""
+    for k, signo in combina:
+        pieza = f"{letra}{primera + k}"
+        texto += (pieza if not texto and signo > 0
+                  else ("+" if signo > 0 else "-") + pieza)
+    return "=" + texto
 
+
+#: Hasta dónde puede diferir la suma de lo que se ve del número del motor, en
+#: una columna de dinero.
+#:
+#: ⚠️ **Es un centavo, y no medio.** La comprobación existe para atrapar una
+#: composición EQUIVOCADA —un total al que le faltan componentes, o que los
+#: muestra netos de un reparto—, y eso aparece en dólares, no en centavos.
+#:
+#: Medido sobre la cascada real de Amarena, los tres ámbitos por los tres
+#: cortes por las tres versiones: de 468 celdas candidatas, 76 pasaban de medio
+#: centavo y sólo 12 pasaban de uno. Las 64 del medio son el redondeo de sumar
+#: doce meses en otro orden que el motor; las 12 son descuadres de verdad —el
+#: mayor, 5.942,28, es el Owners Fee del Club que el ámbito Hotel le resta al
+#: detalle y no al subtotal—. Con medio centavo se perdía una de cada seis
+#: fórmulas para no dejar pasar nada que ya se rechazaba igual.
+#:
+#: El precio es que la celda recalculada puede moverse un centavo respecto del
+#: número que el motor dejó en caché. A cambio, la columna suma.
+CENTAVO = 0.011
 
 #: El grosor de la raya que separa un bloque de columnas del siguiente.
 #:
