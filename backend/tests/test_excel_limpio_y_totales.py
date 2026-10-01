@@ -229,6 +229,77 @@ def test_un_TOTAL_que_NO_cuadra_se_queda_con_SU_NUMERO():
     assert ws.cell(7, 2).value == 999.0, "la formula piso el numero del motor"
 
 
+# ═════════ La columna «Año», 2026-09-30 ══════════════════════════════════════
+#
+# Owner: *«necesito que todos los tabs que bajan en ese archivo esten
+# formulados. Cada uno de ellos. Revisar los subtotales con los totales y que
+# todo lleve formula»*.
+#
+# `suma_de` suma FILAS. El cuadro de doce meses necesita lo otro: la columna
+# «Año» es la suma de enero a diciembre. Sin esto, esa columna —la que mas se
+# mira— era la unica que quedaba como numero pegado.
+
+def _con_anio():
+    """Tres meses y una columna Año que los suma."""
+    return {
+        "titulo": "Doce meses", "hoja": "Doce meses",
+        "columnas": [
+            {"label": "INDICADOR", "formato": "texto"},
+            {"label": "Ene", "formato": "usd2"},
+            {"label": "Feb", "formato": "usd2"},
+            {"label": "Mar", "formato": "usd2"},
+            {"label": "Año", "formato": "usd2", "suma_cols": [1, 2, 3]},
+        ],
+        "filas": [
+            {"label": "Rooms", "valores": [10.0, 20.0, 30.0, 60.0]},
+            {"label": "F&B", "valores": [1.0, 2.0, 3.0, 6.0]},
+            {"label": "TOTAL", "es_total": True, "suma_de": [0, 1],
+             "valores": [11.0, 22.0, 33.0, 66.0]},
+        ],
+    }
+
+
+def test_la_columna_ANIO_baja_como_suma_de_sus_meses():
+    wb, ws = _hoja([_con_anio()])
+    # Doce meses seguidos se leen mejor como rango que como doce sumandos.
+    assert ws.cell(5, 5).value == "=SUM(B5:D5)"
+    assert ws.cell(6, 5).value == "=SUM(B6:D6)"
+
+
+def test_la_esquina_cuadra_por_LOS_DOS_LADOS():
+    """⚠️ La celda del TOTAL del AÑO es fila-total y columna-suma a la vez.
+
+    Gana la columna —es la mas corta y la mas obvia de revisar— pero el numero
+    tiene que ser el mismo por los dos caminos, y por eso el test mira las dos
+    sumas en la misma hoja."""
+    wb, ws = _hoja([_con_anio()])
+    assert ws.cell(7, 5).value == "=SUM(B7:D7)"     # por la columna
+    assert ws.cell(7, 2).value == "=B5+B6"          # por la fila
+
+
+def test_una_columna_ANIO_que_NO_cuadra_se_queda_con_SU_NUMERO():
+    """El mismo resguardo que `suma_de`: si el motor dice otra cosa, manda el
+    motor. Pasa cuando la columna «Año» es un promedio o una tarifa, no una
+    suma — y una formula se ve mas confiable que un numero, asi que nadie la
+    revisaria."""
+    cu = _con_anio()
+    cu["filas"][0]["valores"] = [10.0, 20.0, 30.0, 999.0]
+    wb, ws = _hoja([cu])
+    assert ws.cell(5, 5).value == 999.0, "la formula piso el numero del motor"
+
+
+def test_la_columna_ANIO_salteada_sale_como_suma_de_terminos():
+    """Si los meses no son contiguos —hay una columna de variacion en medio— no
+    hay rango posible y se escriben los sumandos."""
+    cu = _con_anio()
+    cu["columnas"][4]["suma_cols"] = [1, 3]
+    for f in cu["filas"]:
+        f["valores"][3] = f["valores"][0] + f["valores"][2]
+    cu["filas"][2].pop("suma_de")
+    wb, ws = _hoja([cu])
+    assert ws.cell(5, 5).value == "=B5+D5"
+
+
 def test_sin_resta_ni_suma_de_la_celda_sigue_siendo_EL_NUMERO():
     """La mayoria de los cuadros no declaran nada, y tienen que salir igual que
     siempre."""

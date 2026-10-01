@@ -51,6 +51,19 @@ export interface ColumnaCuadro {
    * y la hoja queda diciendo dos cosas distintas sin que nada avise.
    */
   resta?: [number, number];
+  /**
+   * Esta columna es la SUMA de otras: índices base 0 sobre `columnas`.
+   *
+   * Es la columna «Año» de un cuadro de doce meses, o el «Total» de uno por
+   * canal. `suma_de` suma FILAS; esto suma COLUMNAS, y son dos cosas
+   * distintas: el cuadro de doce meses necesita las dos a la vez —la fila
+   * TOTAL suma sus renglones y la columna Año suma sus meses— y la celda de la
+   * esquina tiene que seguir cuadrando por los dos lados.
+   *
+   * ⚠️ Vale la MISMA regla que `suma_de`: se escribe sólo si da lo mismo que
+   * el número que ya venía. Si el motor dice otra cosa, manda el motor.
+   */
+  suma_cols?: number[];
 }
 
 export interface FilaCuadro {

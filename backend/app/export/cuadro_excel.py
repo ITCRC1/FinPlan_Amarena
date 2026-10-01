@@ -175,6 +175,8 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
 
     * `columnas[n].resta = [a, b]` → `=Xn-Yn`. Una variación es exactamente eso
       y no hay margen de error.
+    * `columnas[n].suma_cols = [...]` → `=SUMA(D5:O5)`. La columna «Año» de un
+      cuadro de doce meses.
     * `filas[n].suma_de = [...]` → `=X7+X9+X12`.
 
     ⚠️ **La suma se escribe SÓLO si da lo mismo que el número que venía.** El
@@ -196,15 +198,42 @@ def _formula(col: dict, f: dict, filas: list[dict], i: int, fila: int,
         a, b = (get_column_letter(x + 1) for x in resta)
         return f"={a}{fila}-{b}{fila}"
 
+    vals = f.get("valores") or []
+
+    def cuadra(valor, partes) -> bool:
+        """⚠️ La fórmula se escribe SÓLO si da lo mismo que el número que vino.
+
+        Vale para las dos sumas. Un índice mal puesto —o un cuadro que no
+        muestra todos sus componentes— daría otra cifra, y una fórmula se ve
+        más confiable que un número: nadie la revisaría.
+        """
+        return abs(sum(partes) - valor) <= 0.005
+
+    # ── La columna que suma otras columnas ────────────────────────────────
+    cols = col.get("suma_cols")
+    if cols:
+        try:
+            valor = float(vals[i - 2])
+            partes = [float(vals[k - 1]) for k in cols]
+        except (IndexError, TypeError, ValueError):
+            return None
+        if not cuadra(valor, partes):
+            return None
+        letras = [get_column_letter(k + 1) for k in cols]
+        # Doce meses seguidos se leen mejor como rango que como doce sumandos.
+        if list(cols) == list(range(cols[0], cols[-1] + 1)):
+            return f"=SUM({letras[0]}{fila}:{letras[-1]}{fila})"
+        return "=" + "+".join(f"{x}{fila}" for x in letras)
+
     suma = f.get("suma_de")
     if not suma:
         return None
     try:
-        valor = float((f.get("valores") or [])[i - 2])
+        valor = float(vals[i - 2])
         partes = [float((filas[k].get("valores") or [])[i - 2]) for k in suma]
     except (IndexError, TypeError, ValueError):
         return None
-    if abs(sum(partes) - valor) > 0.005:
+    if not cuadra(valor, partes):
         return None          # el motor dice otra cosa: manda el motor
     return "=" + "+".join(f"{letra}{primera + k}" for k in suma)
 
