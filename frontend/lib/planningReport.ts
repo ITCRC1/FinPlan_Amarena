@@ -1,6 +1,6 @@
 import type {
-  DetalleCelda, EstadisticasCierre, GastoEscenario,
-  PLDetail, PLDetailFila, Scenario,
+  AllocationSummary, DetalleCelda, EstadisticasCierre, GastoEscenario,
+  PLDetail, PLDetailFila, PosicionesVersion, Scenario,
 } from "@/lib/api";
 import type { Cuadro, ColumnaCuadro, FilaCuadro, FormatoCol } from "@/lib/exportCuadro";
 import {
@@ -425,20 +425,46 @@ export function cuadroCheckbook(
                            || a.cuenta.localeCompare(b.cuenta));
     filas.push({ label: `${code} · ${name || "(sin departamento)"}`,
                  es_seccion: true, meses: null });
-    const desde = filas.length;
+    /** Los ordinales de las filas de CUENTA, que son las que suma el subtotal
+     *  del departamento. Con sub-líneas en el medio, `desde + i` ya no alcanza:
+     *  apuntaría a una sub-línea y el subtotal saldría mal. */
+    const deCuenta: number[] = [];
     for (const f of cuentas) {
+      deCuenta.push(filas.length);
+      const subs = (f.subs ?? []).filter(x =>
+        !compacto || Object.values(x.series).some(
+          sr => Math.abs(suma(sr, DOCE)) >= CENTAVO));
       filas.push({
         label: `${f.cuenta} · ${f.nombre || ""}`.trim().replace(/ ·\s*$/, ""),
         nivel: 1,
+        // ⚠️ La cuenta suma sus sub-líneas SÓLO si las tiene. Donde la versión
+        // lee del mayor no hay sub-líneas, la suma no da la celda y el
+        // exportador deja el número del motor — que es lo correcto.
+        es_total: subs.length > 0,
+        suma_de: subs.length
+          ? subs.map((_x, k) => filas.length + 1 + k) : undefined,
         meses: DOCE.map(i => serie(f, 0)[i] ?? 0),
         anios: versiones.map((_v, vi) => anio(f, vi)),
       });
+      for (const x of subs) {
+        filas.push({
+          label: `${x.code ? `${x.code} · ` : ""}${x.nombre || "(sin descripción)"}`,
+          nivel: 2,
+          // ⚠️ La versión que NO abrió no va en cero: va vacía. Un cero diría
+          // «esta sub-línea existe y vale nada», y lo que pasa es otra cosa.
+          meses: DOCE.map(i => x.series[versiones[0]?.scenario_id ?? ""]?.[i] ?? null),
+          anios: versiones.map(v => {
+            const sr = x.series[v.scenario_id ?? ""];
+            return sr ? suma(sr, DOCE) : null;
+          }),
+        });
+      }
     }
     subtotales.push(filas.length);
     filas.push({
       label: `Total ${code}`,
       es_total: true,
-      suma_de: cuentas.map((_c, i) => desde + i),
+      suma_de: deCuenta,
       meses: DOCE.map(i => cuentas.reduce((t, f) => t + (serie(f, 0)[i] ?? 0), 0)),
       anios: versiones.map((_v, vi) => cuentas.reduce((t, f) => t + anio(f, vi), 0)),
     });
@@ -455,12 +481,18 @@ export function cuadroCheckbook(
   });
 
   const fuente = versiones[0]?.fuente ? ` · ${versiones[0].fuente}` : "";
+  // ⚠️ El nombre de la hoja dice si está abierta o no. Las dos versiones del
+  // mismo checkbook conviven en el Budget Package, y dos hojas que se llaman
+  // igual obligan al escritor a inventarle un sufijo a una de las dos.
+  const abierto = (det.filas ?? []).some(f => (f.subs ?? []).length > 0);
   return armarCuadro({
-    titulo: `Planning · Checkbook ${meta?.rotulo ?? det.clase} · cuenta por cuenta`,
+    titulo: `Planning · Checkbook ${meta?.rotulo ?? det.clase}`
+            + (abierto ? " · abierto en sub-líneas" : " · cuenta por cuenta"),
     subtitulo: `${nombre(0)}${fuente} — los doce meses son de esta versión; el `
-      + `año, de todas. Cada fila lleva su departamento.`,
-    hoja: `Checkbook ${meta?.rotulo ?? det.clase}`,
-    anchoRotulo: 46,
+      + `año, de todas. Cada fila lleva su departamento.`
+      + (abierto ? " Debajo de cada cuenta, de qué está hecha." : ""),
+    hoja: `${abierto ? "Detalle" : "Checkbook"} ${meta?.rotulo ?? det.clase}`,
+    anchoRotulo: abierto ? 52 : 46,
   }, versiones.length, nombre, par, filas);
 }
 
@@ -540,5 +572,251 @@ export function cuadroEstadisticas(
       + `la suma de los meses: se piden con el período completo.`,
     hoja: `Estadísticas`,
     anchoRotulo: 30,
+  }, datos.versiones.length, nombre, par, filas);
+}
+
+/* ═════════════ 5 · La plantilla: posiciones, salario y FTE ═══════════════ */
+
+/** Qué se mira de cada posición. Son dos cifras distintas y no se mezclan. */
+export const METRICAS_POSICION = [
+  { id: "fte", rotulo: "FTE", formato: "num1" as FormatoCol,
+    ayuda: "0.00 a 1.00 por mes · el año es la suma, como en el Reporte FTE" },
+  { id: "sw", rotulo: "Sueldo USD", formato: "usd2" as FormatoCol,
+    ayuda: "salario × FTE ÷ TC del mes, calculado por el motor (cuenta 6000)" },
+] as const;
+
+export type MetricaPosicion = (typeof METRICAS_POSICION)[number]["id"];
+
+/** El salario contratado, con su moneda, para el rótulo de la fila. */
+const salarioEnRotulo = (monto: number, moneda: string) => {
+  if (!monto) return "";
+  const simbolo = moneda === "USD" ? "$" : moneda === "CRC" ? "₡" : "";
+  return ` · ${simbolo}${monto.toLocaleString("en-US",
+    { maximumFractionDigits: 0 })}${simbolo ? "" : ` ${moneda}`}`;
+};
+
+/**
+ * La plantilla completa: cada posición con su salario y sus doce FTE.
+ *
+ * Owner, 2026-10-01: *«quisiera también bajar las posiciones por departamento
+ * con salario y FTE»* · *«este FTE report también en el tab»*.
+ *
+ * Es el Reporte FTE que ya está en Planning —departamento, posición, empleado,
+ * doce meses y total— pero comparando versiones, que es lo que no se podía
+ * hacer ahí.
+ *
+ * ⚠️ **El salario va en el rótulo y la métrica en las celdas.** El salario
+ * contratado está en colones o en dólares según la posición: ponerlo en una
+ * columna de números haría una suma de dos monedas, que no es ninguna cifra.
+ * Lo que sí se suma —y cuadra contra la 6000 del P&L— es el sueldo del mes en
+ * dólares, que es la otra métrica.
+ *
+ * ⚠️ **Una posición que no existe en una versión va VACÍA, no en cero.** Un
+ * cero diría «esta plaza está presupuestada sin carga»; lo que pasa es que esa
+ * versión no la tiene. Se emparejan por departamento + posición + empleado,
+ * porque el `id` cambia al clonar un escenario.
+ */
+export function cuadroPosiciones(
+  versiones: PosicionesVersion[], escenarios: Scenario[],
+  opciones: OpcionesPlanning & { metrica?: MetricaPosicion },
+): Cuadro {
+  const { compacto = false, metrica = "fte" } = opciones;
+  const nombre = nombradorDeVersiones(versiones, escenarios);
+  const par = parPorDefecto(versiones.length, opciones.par);
+  const meta = METRICAS_POSICION.find(m => m.id === metrica)!;
+
+  /** ⚠️ Por departamento + posición + empleado, NO por `id`: al clonar un
+   *  escenario las posiciones nacen con id nuevo, y emparejar por id dejaría
+   *  cada versión en su propia fila — el cuadro entero en diagonal. */
+  const llaveDe = (p: { dept_code: string; position_name: string;
+                        employee_name: string }) =>
+    `${p.dept_code}\u0000${p.position_name}\u0000${p.employee_name}`;
+
+  const porVersion = versiones.map(v => {
+    const m = new Map<string, PosicionesVersion["posiciones"][number]>();
+    for (const p of v.posiciones ?? []) m.set(llaveDe(p), p);
+    return m;
+  });
+  const serie = (vi: number, k: string) => porVersion[vi]?.get(k)?.[metrica] ?? null;
+  const anioPos = (vi: number, k: string) => {
+    const s = serie(vi, k);
+    return s ? suma(s, DOCE) : null;
+  };
+
+  const llaves = Array.from(new Set(porVersion.flatMap(m => Array.from(m.keys()))))
+    .filter(k => !compacto
+                 || versiones.some((_v, vi) => Math.abs(anioPos(vi, k) ?? 0) >= CENTAVO));
+
+  const grupos = new Map<string, string[]>();
+  for (const k of llaves) {
+    const p = porVersion.find(m => m.has(k))!.get(k)!;
+    const g = `${p.dept_code}\u0000${p.dept_name}`;
+    (grupos.get(g) ?? grupos.set(g, []).get(g)!).push(k);
+  }
+
+  const filas: FilaPlanning[] = [];
+  const subtotales: number[] = [];
+  for (const [g, ks] of Array.from(grupos.entries()).sort((a, b) =>
+         a[0].localeCompare(b[0]))) {
+    const [code, name] = g.split("\u0000");
+    ks.sort((a, b) => (anioPos(0, b) ?? 0) - (anioPos(0, a) ?? 0) || a.localeCompare(b));
+    filas.push({ label: `${code} · ${name || "(sin departamento)"}`,
+                 es_seccion: true, meses: null });
+    const desde = filas.length;
+    for (const k of ks) {
+      const p = porVersion.find(m => m.has(k))!.get(k)!;
+      filas.push({
+        label: `${p.position_name || "(sin nombre)"} · `
+               + `${p.employee_name || "VACANTE"}`
+               + salarioEnRotulo(p.salary_amount, p.salary_currency),
+        nivel: 1,
+        formato: meta.formato,
+        meses: DOCE.map(i => serie(0, k)?.[i] ?? null),
+        anios: versiones.map((_v, vi) => anioPos(vi, k)),
+      });
+    }
+    subtotales.push(filas.length);
+    filas.push({
+      label: `Total ${code}`,
+      es_total: true, formato: meta.formato,
+      suma_de: ks.map((_k, i) => desde + i),
+      meses: DOCE.map(i => ks.reduce((t, k) => t + (serie(0, k)?.[i] ?? 0), 0)),
+      anios: versiones.map((_v, vi) =>
+        ks.reduce((t, k) => t + (anioPos(vi, k) ?? 0), 0)),
+    });
+  }
+  filas.push({
+    label: `TOTAL ${meta.rotulo.toUpperCase()}`,
+    es_total: true, formato: meta.formato,
+    suma_de: subtotales,
+    meses: DOCE.map(i => llaves.reduce((t, k) => t + (serie(0, k)?.[i] ?? 0), 0)),
+    anios: versiones.map((_v, vi) =>
+      llaves.reduce((t, k) => t + (anioPos(vi, k) ?? 0), 0)),
+  });
+
+  return armarCuadro({
+    titulo: `Planning · Plantilla · ${meta.rotulo} por departamento y posición`,
+    subtitulo: `${nombre(0)} — ${meta.ayuda}. El salario contratado va al lado `
+      + `del nombre, en su moneda: sumarlo mezclaría colones con dólares.`,
+    hoja: `Plantilla ${meta.rotulo}`,
+    anchoRotulo: 52,
+  }, versiones.length, nombre, par, filas);
+}
+
+/* ═══════ 6 · El reparto de Cafetería y Lavandería, y con qué se hizo ═════ */
+
+export const REPARTOS = [
+  { id: "CAFETERIA", rotulo: "Cafetería", base: "FTE",
+    fuente: "0220 · se reparte por el FTE de los departamentos que comen en la propiedad" },
+  { id: "LAUNDRY", rotulo: "Lavandería", base: "Kilos",
+    fuente: "0161 · se reparte por los kilos lavados de cada departamento" },
+] as const;
+
+export type TipoReparto = (typeof REPARTOS)[number]["id"];
+
+export interface RepartoPlanning {
+  versiones: VersionPlanning[];
+  /** El resumen del motor, por versión. */
+  resumen: (AllocationSummary | null)[];
+  deptos?: Record<string, string>;
+}
+
+/**
+ * Cuánto recibió cada departamento del reparto, y CON QUÉ peso.
+ *
+ * Owner, 2026-10-01: *«el tab de allocation de laundry y cafetería, con todos
+ * los parámetros y distribución, kilos FTE para distribuir»*.
+ *
+ * Dos bloques: lo repartido en dólares y el peso con el que se repartió —el FTE
+ * en cafetería, los kilos en lavandería—. Con el reparto solo, «Habitaciones
+ * $7.023» no se puede discutir; con el peso al lado, sí.
+ *
+ * ⚠️ **El peso es `basis_value`: el número que el motor USÓ.** Volver a sumar
+ * el FTE de la plantilla o los kilos de la configuración daría una segunda
+ * definición del mismo reparto — coincidiría casi siempre, y el día que no, el
+ * cuadro explicaría un reparto que no ocurrió.
+ *
+ * ⚠️ **El departamento que reparte queda en CERO y por eso no está.** Cafetería
+ * y Lavandería se vacían contra los que las consumen; lo que se ve acá es el
+ * lado que recibe. Si alguna quedara con saldo, sale en overhead — que es la
+ * regla del 2026-08-28 y no un hueco de este cuadro.
+ */
+export function cuadroReparto(
+  tipo: TipoReparto, datos: RepartoPlanning, escenarios: Scenario[],
+  opciones: OpcionesPlanning,
+): Cuadro {
+  const { compacto = false } = opciones;
+  const nombre = nombradorDeVersiones(datos.versiones, escenarios);
+  const par = parPorDefecto(datos.versiones.length, opciones.par);
+  const meta = REPARTOS.find(r => r.id === tipo)!;
+  const deptos = datos.deptos ?? {};
+
+  const plata = (vi: number, k: string) => datos.resumen[vi]?.[tipo]?.[k] ?? null;
+  const peso = (vi: number, k: string) =>
+    datos.resumen[vi]?.BASES?.[tipo]?.[k] ?? null;
+  const total12 = (s: number[] | null) => (s ? suma(s, DOCE) : null);
+
+  const claves = Array.from(new Set(datos.resumen.flatMap(r =>
+    Object.keys(r?.[tipo] ?? {}))))
+    .filter(k => !compacto
+                 || datos.resumen.some((_r, vi) =>
+                      Math.abs(total12(plata(vi, k)) ?? 0) >= CENTAVO))
+    .sort((a, b) => Math.abs(total12(plata(0, b)) ?? 0)
+                    - Math.abs(total12(plata(0, a)) ?? 0) || a.localeCompare(b));
+
+  const rotulo = (k: string) => (deptos[k] ? `${k} · ${deptos[k]}` : k);
+  const filas: FilaPlanning[] = [];
+
+  // ── Bloque 1: lo repartido, en dólares ────────────────────────────────
+  filas.push({ label: `Reparto de ${meta.rotulo} (USD)`, es_seccion: true,
+               meses: null });
+  const desde = filas.length;
+  for (const k of claves) {
+    filas.push({
+      label: rotulo(k), nivel: 1,
+      meses: DOCE.map(i => plata(0, k)?.[i] ?? null),
+      anios: datos.versiones.map((_v, vi) => total12(plata(vi, k))),
+    });
+  }
+  filas.push({
+    label: "TOTAL REPARTIDO", es_total: true,
+    suma_de: claves.map((_k, i) => desde + i),
+    meses: DOCE.map(i => claves.reduce((t, k) => t + (plata(0, k)?.[i] ?? 0), 0)),
+    anios: datos.versiones.map((_v, vi) =>
+      claves.reduce((t, k) => t + (total12(plata(vi, k)) ?? 0), 0)),
+  });
+
+  // ── Bloque 2: con qué se repartió ─────────────────────────────────────
+  //
+  // ⚠️ Es el PESO, no plata: su formato es otro y su total es la base del
+  // reparto, no un monto. Mezclarlos en una sola columna de dólares haría una
+  // suma de kilos con dinero.
+  const conPeso = claves.filter(k => datos.resumen.some((_r, vi) => peso(vi, k)));
+  if (conPeso.length) {
+    filas.push({ label: `Base del reparto · ${meta.base}`, es_seccion: true,
+                 meses: null });
+    const d2 = filas.length;
+    for (const k of conPeso) {
+      filas.push({
+        label: rotulo(k), nivel: 1, formato: "num1",
+        meses: DOCE.map(i => peso(0, k)?.[i] ?? null),
+        anios: datos.versiones.map((_v, vi) => total12(peso(vi, k))),
+      });
+    }
+    filas.push({
+      label: `TOTAL ${meta.base.toUpperCase()}`, es_total: true, formato: "num1",
+      suma_de: conPeso.map((_k, i) => d2 + i),
+      meses: DOCE.map(i => conPeso.reduce((t, k) => t + (peso(0, k)?.[i] ?? 0), 0)),
+      anios: datos.versiones.map((_v, vi) =>
+        conPeso.reduce((t, k) => t + (total12(peso(vi, k)) ?? 0), 0)),
+    });
+  }
+
+  return armarCuadro({
+    titulo: `Planning · Reparto de ${meta.rotulo} · ${meta.fuente}`,
+    subtitulo: `${nombre(0)} — cuánto recibió cada departamento y con qué peso `
+      + `se repartió. El peso es el que usó el motor, no uno recalculado acá.`,
+    hoja: `Reparto ${meta.rotulo}`,
+    anchoRotulo: 40,
   }, datos.versiones.length, nombre, par, filas);
 }

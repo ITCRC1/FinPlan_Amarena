@@ -1,13 +1,14 @@
 "use client";
 /**
- * Planning Report — los doce meses de una versión y el año de todas.
+ * Budget Package — todo el presupuesto en un libro, para revisión rápida.
  *
  * Owner, 2026-10-01: *«necesito crear esta vista de cierre para Budget 2027…
  * por qué no creás un tab llamado Planning Report»* · *«quiero 12 meses, y full
- * year para comparar con otras versiones»* · *«quizás acá no necesitamos
- * revisar mes, YTD o Full Year»* · *«ajustado todos los reportes para que se
- * pueda generar reportes para comparar todos. desde los reportes, hasta los
- * checkbooks»*.
+ * year para comparar con otras versiones»* · *«por qué los checkbooks no tienen
+ * los detalles. todos deben tener detalle»* · *«quisiera también bajar las
+ * posiciones por departamento con salario y FTE»* · *«el tab de allocation de
+ * laundry y cafetería, con todos los parámetros y distribución, kilos FTE para
+ * distribuir»* · **«esto debe ser un Budget Package para revisión rápida»**.
  *
  * ## Por qué no alcanzaba con la pantalla del cierre
  *
@@ -17,38 +18,42 @@
  * mes y el total contra la versión anterior. Por eso acá no hay selector de mes
  * ni de corte: son los doce meses, siempre.
  *
- * ## Los cuatro niveles, con las MISMAS columnas
+ * ## Los siete niveles, con las MISMAS columnas
  *
  * | vista | de dónde sale | qué abre |
  * |---|---|---|
  * | P&L | `/reports/pl-detail/` | la cascada completa, por ámbito |
  * | Aperturas | `/gasto-por-clase/?detalle=true` | depto · línea · cuenta |
  * | Checkbooks | `/gasto-por-clase/detalle-de-celda/` | cuenta del mayor |
+ * | Con detalle | el mismo, con `abrir` | la sub-línea: `800 · Coral` |
+ * | Plantilla | `/payroll/posiciones/` | posición, salario y FTE |
+ * | Reparto | `/allocations/{id}/summary/` | cafetería y lavandería, y su base |
  * | Estadísticas | `/pl/{id}/estadisticas/` | noches, ocupación, ADR, Club |
  *
- * Las cuatro pasan por `armarCuadro`, así que la columna «Full Year» es la misma
- * celda en todas: se puede bajar el libro entero y comparar hoja contra hoja.
+ * Las siete pasan por `armarCuadro`, así que la columna «Full Year» es la misma
+ * celda en todas: el libro se baja entero y se compara hoja contra hoja.
  *
  * ## ⚠️ La tabla que se ve es el MISMO objeto que baja al Excel
  *
- * `cuadroPlanning` y sus hermanas devuelven un `Cuadro`, y `Tabla` lo dibuja. No
- * hay una tabla en JSX y otra en el exportador: no pueden decir cosas distintas,
- * que es el defecto que este proyecto ya pagó una vez (owner, 2026-08-27: «el
- * excel no baja lo que está viendo»).
+ * Los constructores devuelven un `Cuadro` y `Tabla` lo dibuja. No hay una tabla
+ * en JSX y otra en el exportador: no pueden decir cosas distintas, que es el
+ * defecto que este proyecto ya pagó una vez (owner, 2026-08-27: «el excel no
+ * baja lo que está viendo»).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  getDetalleDeCelda, getEstadisticasCierre, getGastoPorClase, getPLDetail,
-  getScenarios,
-  type DetalleCelda, type EstadisticasCierre, type GastoEscenario,
-  type PLDetail, type Scenario,
+  getAllocationSummary, getDetalleDeCelda, getEstadisticasCierre,
+  getGastoPorClase, getPLDetail, getPosiciones, getScenarios,
+  type AllocationSummary, type DetalleCelda, type EstadisticasCierre,
+  type GastoEscenario, type PLDetail, type PosicionesVersion, type Scenario,
 } from "@/lib/api";
 import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import { HOTEL_ID } from "@/lib/hotel";
 import {
   APERTURAS, cuadroApertura, cuadroCheckbook, cuadroEstadisticas, cuadroPlanning,
-  type ClaseApertura,
+  cuadroPosiciones, cuadroReparto, METRICAS_POSICION, REPARTOS,
+  type ClaseApertura, type MetricaPosicion,
 } from "@/lib/planningReport";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
@@ -64,6 +69,12 @@ const VISTAS = [
   { id: "pl", rotulo: "P&L", ayuda: "La cascada completa, por ámbito" },
   { id: "aperturas", rotulo: "Aperturas", ayuda: "Por departamento, línea y cuenta" },
   { id: "checkbooks", rotulo: "Checkbooks", ayuda: "Cuenta por cuenta del mayor" },
+  { id: "detalle", rotulo: "Checkbooks con detalle",
+    ayuda: "Cada cuenta abierta en sus sub-líneas: 800 · Coral, 801 · Fumigación…" },
+  { id: "plantilla", rotulo: "Plantilla",
+    ayuda: "Posiciones por departamento, con salario y FTE" },
+  { id: "reparto", rotulo: "Reparto",
+    ayuda: "Cafetería y lavandería: cuánto se repartió y con qué base" },
   { id: "estadisticas", rotulo: "Estadísticas", ayuda: "Noches, ocupación, ADR, Club" },
 ] as const;
 
@@ -87,18 +98,23 @@ export default function PlanningReportPage() {
   const [vista, setVista] = useState<string>("pl");
   const [ambito, setAmbito] = useState<string>("consolidado");
   const [clase, setClase] = useState<ClaseApertura>("opex");
+  const [metrica, setMetrica] = useState<MetricaPosicion>("fte");
+  const [tipoReparto, setTipoReparto] = useState<string>("CAFETERIA");
   const [compacto, setCompacto] = useState(true);
 
   const [pl, setPl] = useState<PLDetail | null>(null);
   const [gastos, setGastos] = useState<
     { escenarios: GastoEscenario[]; departamentos: Record<string, string> } | null>(null);
   const [libro, setLibro] = useState<Record<string, DetalleCelda>>({});
+  const [plantilla, setPlantilla] = useState<PosicionesVersion[] | null>(null);
+  const [reparto, setReparto] = useState<
+    { resumen: (AllocationSummary | null)[]; deptos: Record<string, string> } | null>(null);
   const [stats, setStats] = useState<
     { meses: (EstadisticasCierre | null)[]; anios: (EstadisticasCierre | null)[] } | null>(null);
 
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bajando, setBajando] = useState(false);
+  const [bajando, setBajando] = useState("");
 
   useEffect(() => {
     getScenarios(HOTEL_ID)
@@ -110,8 +126,13 @@ export default function PlanningReportPage() {
   const ids = useMemo(
     () => (principal ? [principal, ...otros] : []), [principal, otros]);
 
-  /** Las estadísticas: los doce meses de la principal, uno por llamada, y el año
-   *  de cada versión con el período completo.
+  /** La misma llave con la que se guarda un checkbook: la clase y si está
+   *  abierto. Sin el `abrir` en la llave, pedir el detalle devolvía el cuadro
+   *  sin abrir que ya estaba en memoria. */
+  const llaveLibro = (c: string, abrir: boolean) => `${c}${abrir ? ":abierto" : ""}`;
+
+  /** Las estadísticas: los doce meses de la versión principal, uno por llamada,
+   *  y el año de cada versión con el período completo.
    *
    *  ⚠️ El año NO se suma acá. La ocupación, el ADR y el promedio de socios del
    *  año no son la suma de los doce meses, y el servidor ya sabe calcularlos
@@ -127,6 +148,16 @@ export default function PlanningReportPage() {
     return { meses, anios };
   }, [ids]);
 
+  /** El reparto de las dos: el resumen del motor por versión, más los nombres de
+   *  departamento, que viven en el endpoint de gasto. */
+  const cargarReparto = useCallback(async () => {
+    const [resumen, deptos] = await Promise.all([
+      Promise.all(ids.map(id => getAllocationSummary(id).catch(() => null))),
+      getGastoPorClase(ids, false).then(r => r.departamentos ?? {}).catch(() => ({})),
+    ]);
+    return { resumen, deptos };
+  }, [ids]);
+
   const cargar = useCallback(async () => {
     if (!principal) return;
     setCargando(true);
@@ -136,8 +167,14 @@ export default function PlanningReportPage() {
       else if (vista === "aperturas") {
         const g = await getGastoPorClase(ids, true);
         setGastos({ escenarios: g.escenarios, departamentos: g.departamentos ?? {} });
-      } else if (vista === "checkbooks") {
-        setLibro({ [clase]: await getDetalleDeCelda(ids, clase, "", 0) });
+      } else if (vista === "checkbooks" || vista === "detalle") {
+        const abrir = vista === "detalle";
+        setLibro({ [llaveLibro(clase, abrir)]:
+          await getDetalleDeCelda(ids, clase, "", 0, abrir) });
+      } else if (vista === "plantilla") {
+        setPlantilla((await getPosiciones(ids)).escenarios);
+      } else if (vista === "reparto") {
+        setReparto(await cargarReparto());
       } else {
         setStats(await cargarStats());
       }
@@ -146,9 +183,16 @@ export default function PlanningReportPage() {
     } finally {
       setCargando(false);
     }
-  }, [vista, ambito, clase, principal, otros, ids, cargarStats]);
+  }, [vista, ambito, clase, principal, otros, ids, cargarStats, cargarReparto]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const statsACuadro = useCallback(
+    (s: { meses: (EstadisticasCierre | null)[]; anios: (EstadisticasCierre | null)[] },
+     op: { ambito: string; compacto: boolean }) =>
+      cuadroEstadisticas({ ...s, versiones: s.anios.map((a, i) => ({
+        scenario_id: ids[i], escenario: a?.escenario })) }, escenarios, op),
+    [ids, escenarios]);
 
   const cuadro: Cuadro | null = useMemo(() => {
     const op = { ambito, compacto };
@@ -160,71 +204,132 @@ export default function PlanningReportPage() {
                            escenarios, op)
           : null;
       }
-      if (vista === "checkbooks") {
-        const d = libro[clase];
+      if (vista === "checkbooks" || vista === "detalle") {
+        const d = libro[llaveLibro(clase, vista === "detalle")];
         return d ? cuadroCheckbook(d, escenarios, op) : null;
       }
-      return stats
-        ? cuadroEstadisticas({ ...stats, versiones: stats.anios.map((a, i) => ({
-            scenario_id: ids[i], escenario: a?.escenario })) }, escenarios, op)
-        : null;
+      if (vista === "plantilla") {
+        return plantilla
+          ? cuadroPosiciones(plantilla, escenarios, { ...op, metrica }) : null;
+      }
+      if (vista === "reparto") {
+        return reparto
+          ? cuadroReparto(tipoReparto as "CAFETERIA" | "LAUNDRY",
+              { versiones: reparto.resumen.map((r, i) => ({
+                  scenario_id: ids[i] })), ...reparto }, escenarios, op)
+          : null;
+      }
+      return stats ? statsACuadro(stats, op) : null;
     } catch {
       return null;
     }
-  }, [vista, pl, gastos, libro, stats, clase, escenarios, ambito, compacto, ids]);
+  }, [vista, pl, gastos, libro, plantilla, reparto, stats, clase, metrica,
+      tipoReparto, escenarios, ambito, compacto, ids, statsACuadro]);
 
-  /**
-   * El Excel de la vista que se está mirando, COMPLETA.
-   *
-   * En la pantalla se mira un ámbito —o una clase— por vez; en un libro que se
-   * manda, todos juntos son la comparación que el owner hace igual, y pedirle
-   * que baje cinco archivos es pedirle que uno se olvide.
-   */
+  /** Todas las hojas de una vista. Las usa tanto el botón de la vista como el
+   *  del paquete completo, para que las dos bajen exactamente lo mismo. */
+  const hojasDe = useCallback(async (v: string): Promise<Cuadro[]> => {
+    const op = { compacto, ambito };
+    const out: Cuadro[] = [];
+    if (v === "pl") {
+      for (const a of AMBITOS) {
+        const d = a.id === ambito && pl ? pl
+          : await getPLDetail(a.id, principal, otros).catch(() => null);
+        if (d) out.push(cuadroPlanning(d, escenarios, { ...op, ambito: a.id }));
+      }
+    } else if (v === "aperturas") {
+      let g = gastos;
+      if (!g) {
+        const r = await getGastoPorClase(ids, true);
+        g = { escenarios: r.escenarios, departamentos: r.departamentos ?? {} };
+      }
+      for (const a of APERTURAS) {
+        out.push(cuadroApertura(a.clase, g.escenarios, g.departamentos,
+                                escenarios, op));
+      }
+    } else if (v === "checkbooks" || v === "detalle") {
+      const abrir = v === "detalle";
+      for (const a of APERTURAS) {
+        const d = libro[llaveLibro(a.clase, abrir)]
+          ?? await getDetalleDeCelda(ids, a.clase, "", 0, abrir).catch(() => null);
+        if (d) out.push(cuadroCheckbook(d, escenarios, op));
+      }
+    } else if (v === "plantilla") {
+      const ps = plantilla ?? (await getPosiciones(ids)).escenarios;
+      // Las DOS métricas: el FTE dice cuánta gente y el sueldo cuánto cuesta.
+      // Quien revisa un presupuesto mira las dos, y una sola obliga a volver.
+      for (const m of METRICAS_POSICION) {
+        out.push(cuadroPosiciones(ps, escenarios, { ...op, metrica: m.id }));
+      }
+    } else if (v === "reparto") {
+      const r = reparto ?? await cargarReparto();
+      for (const t of REPARTOS) {
+        out.push(cuadroReparto(t.id,
+          { versiones: r.resumen.map((_x, i) => ({ scenario_id: ids[i] })), ...r },
+          escenarios, op));
+      }
+    } else {
+      out.push(statsACuadro(stats ?? await cargarStats(), op));
+    }
+    return out;
+  }, [compacto, ambito, pl, gastos, libro, plantilla, reparto, stats, principal,
+      otros, ids, escenarios, cargarReparto, cargarStats, statsACuadro]);
+
+  const nombreDelArchivo = (sufijo: string) => {
+    const e = escenarios.find(s => s.id === principal);
+    return `${sufijo}_${e?.year ?? ""}_${e?.type ?? ""}_${e?.version ?? ""}`;
+  };
+
+  /** Sólo la vista que se está mirando, con todas sus hojas. */
   async function bajar() {
     if (!principal) return;
-    setBajando(true);
+    setBajando("vista");
     setError(null);
     try {
-      const cuadros: Cuadro[] = [];
-      const op = { compacto };
-      if (vista === "pl") {
-        for (const a of AMBITOS) {
-          const d = a.id === ambito ? pl
-            : await getPLDetail(a.id, principal, otros).catch(() => null);
-          if (d) cuadros.push(cuadroPlanning(d, escenarios, { ...op, ambito: a.id }));
-        }
-      } else if (vista === "aperturas") {
-        let g = gastos;
-        if (!g) {
-          const r = await getGastoPorClase(ids, true);
-          g = { escenarios: r.escenarios, departamentos: r.departamentos ?? {} };
-        }
-        for (const a of APERTURAS) {
-          cuadros.push(cuadroApertura(a.clase, g.escenarios, g.departamentos,
-                                      escenarios, { ...op, ambito }));
-        }
-      } else if (vista === "checkbooks") {
-        for (const a of APERTURAS) {
-          const d = libro[a.clase]
-            ?? await getDetalleDeCelda(ids, a.clase, "", 0).catch(() => null);
-          if (d) cuadros.push(cuadroCheckbook(d, escenarios, { ...op, ambito }));
-        }
-      } else {
-        const s = stats ?? await cargarStats();
-        cuadros.push(cuadroEstadisticas(
-          { ...s, versiones: s.anios.map((a, i) => ({ scenario_id: ids[i],
-                                                      escenario: a?.escenario })) },
-          escenarios, { ...op, ambito }));
-      }
-      const e = escenarios.find(s => s.id === principal);
       const v = VISTAS.find(x => x.id === vista)?.rotulo ?? vista;
-      await bajarCuadros(
-        `Planning_${v}_${e?.year ?? ""}_${e?.type ?? ""}_${e?.version ?? ""}`,
-        cuadros);
+      await bajarCuadros(nombreDelArchivo(`Planning_${v}`), await hojasDe(vista));
     } catch (e) {
       setError(e instanceof Error ? e.message : "no se pudo bajar el Excel");
     } finally {
-      setBajando(false);
+      setBajando("");
+    }
+  }
+
+  /**
+   * El BUDGET PACKAGE: las siete vistas en un solo libro.
+   *
+   * Owner, 2026-10-01: *«esto debe ser un Budget Package para revisión
+   * rápida»*. Veintitrés hojas —P&L por ámbito, las cinco aperturas, los cinco
+   * checkbooks, los cinco abiertos en sub-líneas, la plantilla en FTE y en
+   * sueldo, los dos repartos y las estadísticas— con el índice adelante.
+   *
+   * ⚠️ Se arma con `hojasDe`, el MISMO armador del botón de cada vista. Un
+   * paquete que junte las hojas por su cuenta sería una segunda definición de
+   * cada una, y la que se manda a revisión es justamente ésta.
+   */
+  async function bajarPaquete() {
+    if (!principal) return;
+    setBajando("paquete");
+    setError(null);
+    try {
+      const cuadros: Cuadro[] = [];
+      for (const v of VISTAS) {
+        try {
+          cuadros.push(...await hojasDe(v.id));
+        } catch {
+          // Una vista que falla no se lleva el paquete entero: se avisa al
+          // final y las demás bajan. Un libro de veintitrés hojas que no baja
+          // por una es peor que uno de veintidós que sí.
+          setError(e => (e ? `${e} · ` : "")
+            + `no se pudo armar «${v.rotulo}»; el resto del paquete sí bajó`);
+        }
+      }
+      if (!cuadros.length) throw new Error("no se pudo armar ninguna hoja");
+      await bajarCuadros(nombreDelArchivo("Budget_Package"), cuadros);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "no se pudo bajar el paquete");
+    } finally {
+      setBajando("");
     }
   }
 
@@ -236,7 +341,7 @@ export default function PlanningReportPage() {
   });
   const grupo: React.CSSProperties = {
     display: "inline-flex", borderRadius: 6, overflow: "hidden",
-    border: "1px solid var(--border-medium)",
+    border: "1px solid var(--border-medium)", flexWrap: "wrap",
   };
 
   return (
@@ -245,31 +350,36 @@ export default function PlanningReportPage() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
                     marginBottom: 12 }}>
-        <h1 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>Planning Report</h1>
+        <h1 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>Budget Package</h1>
         <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
           doce meses de una versión · el año, de todas
         </span>
 
-        <nav aria-label="Nivel" style={grupo}>
-          {VISTAS.map((v, i) => (
-            <button key={v.id} onClick={() => setVista(v.id)} title={v.ayuda}
-              style={{ ...btn(v.id === vista),
-                       borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
-              {v.rotulo}
-            </button>
-          ))}
-        </nav>
-
-        <button onClick={bajar} disabled={!cuadro || bajando}
+        <button onClick={bajarPaquete} disabled={!principal || !!bajando}
+          style={{ padding: "6px 14px", fontSize: 12.5, borderRadius: 4,
+                   fontWeight: 700, border: "none",
+                   cursor: principal ? "pointer" : "not-allowed",
+                   background: "var(--brand)", color: "#fff" }}>
+          {bajando === "paquete" ? "Armando el paquete…"
+            : "⬇ Budget Package (todo en un libro)"}
+        </button>
+        <button onClick={bajar} disabled={!cuadro || !!bajando}
           style={{ padding: "5px 12px", fontSize: 12, borderRadius: 4, fontWeight: 600,
                    border: "none", cursor: cuadro ? "pointer" : "not-allowed",
                    background: "var(--accent-excel)", color: "#fff" }}>
-          {bajando ? "Bajando…"
-            : vista === "pl" ? "⬇ Excel (los tres ámbitos)"
-              : vista === "estadisticas" ? "⬇ Excel"
-                : "⬇ Excel (las cinco clases)"}
+          {bajando === "vista" ? "Bajando…" : "⬇ Sólo esta vista"}
         </button>
       </div>
+
+      <nav aria-label="Nivel" style={{ ...grupo, marginBottom: 12 }}>
+        {VISTAS.map((v, i) => (
+          <button key={v.id} onClick={() => setVista(v.id)} title={v.ayuda}
+            style={{ ...btn(v.id === vista),
+                     borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+            {v.rotulo}
+          </button>
+        ))}
+      </nav>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                     marginBottom: 14 }}>
@@ -301,9 +411,7 @@ export default function PlanningReportPage() {
         </label>
       </div>
 
-      {/* El segundo eje depende del nivel: el P&L se mira por ámbito y las
-          aperturas y los checkbooks, por clase de cuenta. Las estadísticas no
-          tienen segundo eje. */}
+      {/* El segundo eje depende del nivel. Las estadísticas no tienen. */}
       {vista === "pl" && (
         <nav aria-label="Ámbito" style={{ ...grupo, marginBottom: 12 }}>
           {AMBITOS.map((a, i) => (
@@ -315,7 +423,7 @@ export default function PlanningReportPage() {
           ))}
         </nav>
       )}
-      {(vista === "aperturas" || vista === "checkbooks") && (
+      {(vista === "aperturas" || vista === "checkbooks" || vista === "detalle") && (
         <nav aria-label="Clase" style={{ ...grupo, marginBottom: 12 }}>
           {APERTURAS.map((a, i) => (
             <button key={a.clase} onClick={() => setClase(a.clase)} title={a.eje}
@@ -325,6 +433,45 @@ export default function PlanningReportPage() {
             </button>
           ))}
         </nav>
+      )}
+      {vista === "plantilla" && (
+        <nav aria-label="Métrica" style={{ ...grupo, marginBottom: 12 }}>
+          {METRICAS_POSICION.map((m, i) => (
+            <button key={m.id} onClick={() => setMetrica(m.id)} title={m.ayuda}
+              style={{ ...btn(m.id === metrica),
+                       borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+              {m.rotulo}
+            </button>
+          ))}
+        </nav>
+      )}
+      {vista === "reparto" && (
+        <nav aria-label="Reparto" style={{ ...grupo, marginBottom: 12 }}>
+          {REPARTOS.map((r, i) => (
+            <button key={r.id} onClick={() => setTipoReparto(r.id)} title={r.fuente}
+              style={{ ...btn(r.id === tipoReparto),
+                       borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+              {r.rotulo}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {/* ⚠️ Las clases que NO tienen un nivel debajo de la cuenta se dicen, no
+          se dejan en blanco: una hoja vacía se lee como «falta el dato». */}
+      {vista === "detalle" && (clase === "cost" || clase === "revenue") && (
+        <div style={{ padding: 10, borderRadius: 5, fontSize: 12.5, marginBottom: 12,
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border-medium)" }}>
+          {clase === "cost"
+            ? "El costo de ventas no tiene sub-líneas en la base: lo que explica "
+              + "cada cuenta es su DRIVER («28% de FOOD»), que se ve en el "
+              + "checkbook de costos."
+            : "El ingreso ya está en su nivel más fino: la cuenta —o la línea— "
+              + "es el último nivel que el presupuesto guarda."}
+          {" "}Partirlas en sub-líneas que nadie presupuestó haría que el reporte
+          abra más de lo que se decidió.
+        </div>
       )}
 
       {error && (

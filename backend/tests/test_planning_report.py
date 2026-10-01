@@ -224,12 +224,20 @@ def test_la_pantalla_dibuja_EL_MISMO_cuadro_que_baja():
 def test_el_excel_trae_TODO_lo_que_la_vista_abre():
     """En la pantalla se mira un ambito —o una clase— por vez; en un libro que se
     manda, todos juntos son la comparacion que se hace igual, y pedir cinco
-    archivos es pedir que uno se olvide."""
+    archivos es pedir que uno se olvide.
+
+    Las siete vistas se arman en `hojasDe`, que es lo que usan tanto el boton de
+    la vista como el del paquete.
+    """
     pagina = _pagina()
-    bloque = pagina[pagina.index("async function bajar()"):]
+    bloque = pagina[pagina.index("const hojasDe = useCallback("):]
     assert "for (const a of AMBITOS)" in bloque, "el P&L dejo de traer los tres ambitos"
     assert bloque.count("for (const a of APERTURAS)") == 2, (
-        "las aperturas y los checkbooks tienen que bajar las CINCO clases")
+        "los checkbooks —con y sin detalle— y las aperturas bajan las CINCO clases")
+    assert "for (const m of METRICAS_POSICION)" in bloque, (
+        "la plantilla tiene que bajar el FTE Y el sueldo")
+    assert "for (const t of REPARTOS)" in bloque, (
+        "el reparto tiene que bajar cafeteria Y lavanderia")
 
 
 def test_abre_en_un_BUDGET_con_la_regla_COMPARTIDA():
@@ -252,6 +260,125 @@ def test_cada_columna_declara_su_version():
     lib = _lib()
     assert 'label: "Full Year", sub: nombre(0)' in lib
     assert 'label: "Full Year", sub: nombre(vi)' in lib
+
+
+def test_el_checkbook_se_ABRE_en_sub_lineas():
+    """Owner, 2026-10-01, con el checkbook de OPEX a la vista: *«por que los
+    checkbooks no tienen los detalles. todos deben tener detalle»*.
+
+    La celda decia «7105 Contract Services $1.447,83» y no decia que son Coral,
+    Fumigacion Hotel y Reservation Fee. Eso vive un nivel mas abajo, en el
+    auxiliar, y el endpoint lo trae con `abrir`.
+
+    ⚠️ **La sub-linea sale del AUXILIAR y de ningun otro lado.** El mayor trae
+    la cuenta y se acabo: la version que lee de ahi deja la celda VACIA, que no
+    es lo mismo que en cero.
+    """
+    api = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/api/detalle_celda_api.py").read_text(encoding="utf-8")
+    assert "async def _subs_del_auxiliar(" in api
+    assert "if abrir and not manda_el_mayor:" in api, (
+        "las sub-lineas se le estan pidiendo a una version donde manda el mayor")
+    assert "for sid in series if sid in subs_de" in api, (
+        "la version que no abrio esta yendo en CERO: un blanco no es un cero")
+    lib = _lib()
+    cuerpo = lib[lib.index("export function cuadroCheckbook("):]
+    assert "const deCuenta: number[] = [];" in cuerpo, (
+        "el subtotal de departamento volvio a contar `desde + i`, que con "
+        "sub-lineas en el medio apunta a una sub-linea")
+    assert "suma_de: deCuenta," in cuerpo
+
+
+def test_la_plantilla_trae_salario_y_FTE():
+    """Owner, 2026-10-01: *«quisiera tambien bajar las posiciones por
+    departamento con salario y FTE»* · *«este FTE report tambien en el tab»*.
+
+    ⚠️ **El salario contratado va en el ROTULO, no en una columna.** Esta en
+    colones o en dolares segun la posicion: sumarlo mezclaria dos monedas y el
+    total no seria ninguna cifra. Lo que si se suma es el sueldo del mes en
+    dolares, que es la otra metrica — y ese lo CALCULA EL MOTOR (`c6000_sw`),
+    no la pantalla: rehacer `salario x FTE / TC` daria una plantilla que no
+    cuadra con la 6000 del P&L.
+    """
+    lib = _lib()
+    assert "export function cuadroPosiciones(" in lib
+    assert "export const METRICAS_POSICION" in lib
+    assert "salarioEnRotulo(p.salary_amount, p.salary_currency)" in lib
+    api = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/api/payroll_api.py").read_text(encoding="utf-8")
+    assert "getattr(e, \"c6000_sw\", 0)" in api, (
+        "el sueldo en dolares se esta volviendo a calcular en vez de leerlo")
+
+
+def test_las_posiciones_se_emparejan_por_NOMBRE_no_por_id():
+    """⚠️ Al clonar un escenario las posiciones nacen con `id` nuevo.
+
+    Con el id como llave, la misma plaza aparece en una fila por version y el
+    cuadro entero sale en diagonal: cada fila con un solo numero y el resto
+    vacio. Se emparejan por departamento + posicion + empleado.
+    """
+    lib = _lib()
+    cuerpo = lib[lib.index("export function cuadroPosiciones("):]
+    for campo in ("p.dept_code", "p.position_name", "p.employee_name"):
+        assert campo in cuerpo, f"la llave de emparejar dejo de usar {campo}"
+    assert "porVersion.find(m => m.has(k))" in cuerpo
+
+
+def test_el_reparto_muestra_CON_QUE_se_repartio():
+    """Owner, 2026-10-01: *«el tab de allocation de laundry y cafeteria, con
+    todos los parametros y distribucion, kilos FTE para distribuir»*.
+
+    Con el reparto solo, «Habitaciones $7.023» no se puede discutir; con el peso
+    al lado, si.
+
+    ⚠️ **El peso es `basis_value`: el numero que el motor USO.** Volver a sumar
+    el FTE de la plantilla o los kilos de la configuracion daria una segunda
+    definicion del mismo reparto — coincidiria casi siempre, y el dia que no, el
+    cuadro explicaria un reparto que no ocurrio.
+    """
+    lib = _lib()
+    assert "export function cuadroReparto(" in lib
+    assert "datos.resumen[vi]?.BASES?.[tipo]?.[k]" in lib
+    assert 'formato: "num1"' in lib, (
+        "la base se esta mirando como dolares: son FTE y kilos")
+    api = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/api/allocation_api.py").read_text(encoding="utf-8")
+    assert "e.basis_value or 0" in api
+    assert 'in ("FTE", "KILOS")' in api, (
+        "el credito de la fuente esta entrando como peso: no es un destino")
+
+
+def test_el_BUDGET_PACKAGE_arma_con_el_MISMO_armador():
+    """Owner, 2026-10-01: *«esto debe ser un Budget Package para revision
+    rapida»*.
+
+    ⚠️ Un paquete que junte las hojas por su cuenta seria una segunda definicion
+    de cada una — y la que se manda a revision es justamente esa. `hojasDe` es
+    el armador del boton de cada vista Y del paquete.
+    """
+    pagina = _pagina()
+    assert "async function bajarPaquete()" in pagina
+    bloque = pagina[pagina.index("async function bajarPaquete()"):]
+    assert "for (const v of VISTAS)" in bloque
+    assert "await hojasDe(v.id)" in bloque, (
+        "el paquete arma las hojas por su cuenta en vez de usar `hojasDe`")
+    # Y el boton de la vista usa el mismo.
+    vista = pagina[pagina.index("async function bajar()"):
+                   pagina.index("async function bajarPaquete()")]
+    assert "await hojasDe(vista)" in vista
+
+
+def test_donde_NO_hay_sub_lineas_se_DICE():
+    """El costo de ventas y el ingreso no tienen un nivel debajo de la cuenta.
+
+    ⚠️ Una hoja vacia se lee como «falta el dato». Se dice que no hay, y por
+    que: el costo lo explica su DRIVER y el ingreso ya esta en su nivel mas
+    fino. Partirlos en sub-lineas que nadie presupuesto haria que el reporte
+    abra mas de lo que se decidio.
+    """
+    pagina = _pagina()
+    assert 'vista === "detalle" && (clase === "cost" || clase === "revenue")' in pagina
+    assert "DRIVER" in pagina
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="no hay node")

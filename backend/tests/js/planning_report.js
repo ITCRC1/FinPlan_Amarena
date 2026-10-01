@@ -98,6 +98,12 @@ function auditar(cuadro, etiqueta) {
   for (const f of cuadro.filas) {
     if (f.suma_de) {
       for (let j = 0; j < nCols; j++) {
+        // ⚠️ Una celda con algún sumando VACÍO no se audita, y no es una
+        // excusa: un blanco no es un cero. Pasa en el checkbook abierto, donde
+        // la versión que lee del mayor no tiene sub-líneas. El exportador
+        // comprueba celda por celda, ve que la suma no da y deja el número del
+        // motor — que es exactamente lo que corresponde ahí.
+        if (f.suma_de.some(i => cuadro.filas[i].valores[j] === null)) continue;
         const esperado = f.suma_de.reduce(
           (t, i) => t + (typeof cuadro.filas[i].valores[j] === "number"
             ? cuadro.filas[i].valores[j] : 0), 0);
@@ -265,6 +271,136 @@ const sinClub = { ...EST, anios: [{ ...EST.anios[0], club_pagando: null,
 const ceSin = P.cuadroEstadisticas(sinClub, ESCENARIOS, { ambito: "", compacto: true });
 ok(!ceSin.filas.some(f => f.label.startsWith("Club")),
    "sin Club, no hay filas de Club: `null` no es cero socios");
+
+
+/* ── 6 · El checkbook ABIERTO en sub-líneas ─────────────────────────────── */
+//
+// ⚠️ Es la aritmética más frágil del archivo. Las filas de cuenta y las de
+// sub-línea se intercalan, así que `desde + i` dejó de servir para el subtotal
+// del departamento: apunta a una sub-línea y el subtotal sale mal. Y si el
+// subtotal sumara cuentas Y sub-líneas, contaría cada peso dos veces.
+
+const DET_ABIERTO = {
+  clase: "opex", clave: "", rotulo: "Total Operating Expenses",
+  versiones: SID.slice(0, 2).map(id => ({ scenario_id: id, escenario: id, fuente: "Auxiliar" })),
+  filas: [
+    { dept_code: "0110", dept_name: "Habitaciones", cuenta: "7105", nombre: "CONTRACT",
+      series: { s0: sumaDe([serie(61), serie(62), serie(63)]), s1: serie(64) },
+      subs: [
+        { code: "800", nombre: "Coral", series: { s0: serie(61) } },
+        { code: "801", nombre: "Fumigación Hotel", series: { s0: serie(62) } },
+        { code: "802", nombre: "Reservation Fee", series: { s0: serie(63) } },
+      ] },
+    { dept_code: "0110", dept_name: "Habitaciones", cuenta: "7065", nombre: "CLEANING",
+      series: { s0: serie(65), s1: serie(66) },
+      subs: [{ code: "800", nombre: "General", series: { s0: serie(65) } }] },
+    { dept_code: "0260", dept_name: "Club", cuenta: "7065", nombre: "CLEANING",
+      series: { s0: serie(67), s1: serie(68) },
+      subs: [] },
+  ],
+};
+function sumaDe(series) {
+  return Array.from({ length: 12 }, (_, m) =>
+    series.reduce((t, s) => t + s[m], 0));
+}
+
+for (const compacto of [false, true]) {
+  const c = P.cuadroCheckbook(DET_ABIERTO, ESCENARIOS, { ambito: "", compacto });
+  auditar(c, `checkbook abierto compacto=${compacto}`);
+  const idx = (pre) => c.filas.findIndex(f => f.label.startsWith(pre));
+
+  // La cuenta suma sus sub-líneas…
+  const cuenta = c.filas[idx("7105 ")];
+  ok(cuenta.suma_de && cuenta.suma_de.length === 3,
+     `7105 suma sus TRES sub-líneas (${cuenta.suma_de && cuenta.suma_de.length})`);
+  ok(cuenta.suma_de.every(i => c.filas[i].label.match(/^(800|801|802) · /)),
+     "⚠️ y los ordinales apuntan a las SUB-LÍNEAS, no a otra cuenta: "
+     + (cuenta.suma_de || []).map(i => c.filas[i].label).join(" | "));
+
+  // …y el subtotal del departamento suma las CUENTAS, no las sub-líneas.
+  const sub0110 = c.filas[idx("Total 0110")];
+  ok(sub0110.suma_de.every(i => /^7\d{3} · /.test(c.filas[i].label)),
+     "⚠️ el subtotal de departamento suma CUENTAS, no sub-líneas: "
+     + sub0110.suma_de.map(i => c.filas[i].label).join(" | "));
+  ok(sub0110.suma_de.length === 2, "las dos cuentas del 0110");
+
+  // La cuenta sin sub-líneas no declara una suma vacía.
+  const club = c.filas.find(f => f.label.startsWith("7065 ")
+                                 && c.filas.indexOf(f) > idx("0260"));
+  ok(!club.suma_de, "una cuenta sin sub-líneas no declara `suma_de`");
+
+  // ⚠️ La versión que NO abrió deja la celda VACÍA, no en cero.
+  // valores: [0..11] los meses · [12] el año de v0 · [13] el de v1 · [14] la
+  // variación.
+  const coral = c.filas[idx("800 · Coral")];
+  ok(coral.valores[13] === null,
+     `la versión que no abrió va VACÍA, no en cero: ${coral.valores[13]}`);
+  ok(typeof coral.valores[12] === "number", "y la que sí abrió trae su año");
+}
+
+/* ── 7 · La plantilla ───────────────────────────────────────────────────── */
+
+const POS = (vi) => ({
+  scenario_id: SID[vi], escenario: SID[vi], year: 2027 - vi,
+  posiciones: [
+    { id: `p${vi}1`, dept_code: "0110", dept_name: "Habitaciones",
+      position_code: "500", position_name: "ROOM ATTENDANT", employee_name: "VACANTE",
+      employee_type: "1-Permanente", salary_amount: 520000, salary_currency: "CRC",
+      fte: Array(12).fill(1), sw: serie(70 + vi) },
+    { id: `p${vi}2`, dept_code: "0260", dept_name: "Club",
+      position_code: "501", position_name: "HOST", employee_name: "DELGADO MELISSA",
+      employee_type: "1-Permanente", salary_amount: 2500, salary_currency: "USD",
+      fte: Array(12).fill(0.5), sw: serie(80 + vi) },
+  ],
+});
+for (const metrica of ["fte", "sw"]) {
+  const c = P.cuadroPosiciones([POS(0), POS(1)], ESCENARIOS,
+                               { ambito: "", compacto: true, metrica });
+  auditar(c, `plantilla ${metrica}`);
+  const total = c.filas[c.filas.length - 1];
+  ok(total.suma_de.every(i => c.filas[i].label.startsWith("Total ")),
+     "el TOTAL de la plantilla suma los subtotales de departamento");
+  if (metrica === "fte") {
+    ok(Math.abs(total.valores[12] - 18) < CENT,
+       `12 meses × (1.0 + 0.5) = 18.0 FTE-mes, no ${total.valores[12]}`);
+  }
+  ok(c.filas.some(f => f.label.includes("₡520,000")),
+     "el salario CONTRATADO va en el rótulo, con su símbolo");
+  ok(c.filas.some(f => f.label.includes("$2,500")),
+     "y el que está en dólares, con el suyo");
+}
+// ⚠️ Emparejadas por depto+posición+empleado: al clonar un escenario el id
+// cambia, y con el id como llave el cuadro sale en diagonal.
+const clonada = P.cuadroPosiciones([POS(0), POS(1)], ESCENARIOS,
+                                   { ambito: "", compacto: true });
+ok(clonada.filas.filter(f => f.label.startsWith("ROOM ATTENDANT")).length === 1,
+   "la misma posición en dos versiones es UNA fila, aunque el id cambie");
+
+/* ── 8 · El reparto ─────────────────────────────────────────────────────── */
+
+const REP = {
+  versiones: SID.slice(0, 2).map(id => ({ scenario_id: id })),
+  deptos: { "0110": "Habitaciones", "0260": "Club" },
+  resumen: [
+    { CAFETERIA: { "0110": serie(91), "0260": serie(92) },
+      LAUNDRY: { "0110": serie(93) },
+      BASES: { CAFETERIA: { "0110": Array(12).fill(10), "0260": Array(12).fill(5) },
+               LAUNDRY: { "0110": Array(12).fill(200) } } },
+    { CAFETERIA: { "0110": serie(94), "0260": serie(95) },
+      LAUNDRY: { "0110": serie(96) }, BASES: { CAFETERIA: {}, LAUNDRY: {} } },
+  ],
+};
+const caf = P.cuadroReparto("CAFETERIA", REP, ESCENARIOS, { ambito: "", compacto: true });
+auditar(caf, "reparto cafetería");
+ok(caf.filas.some(f => f.label === "TOTAL REPARTIDO"), "el bloque de plata tiene su total");
+ok(caf.filas.some(f => f.label === "TOTAL FTE"), "y el de la base, el suyo");
+const baseFte = caf.filas.find(f => f.label === "TOTAL FTE");
+ok(Math.abs(baseFte.valores[12] - 180) < CENT,
+   `12 × (10 + 5) = 180 FTE-mes de base, no ${baseFte.valores[12]}`);
+ok(baseFte.formato === "num1", "⚠️ la base NO se mira como dólares: son FTE");
+const lav = P.cuadroReparto("LAUNDRY", REP, ESCENARIOS, { ambito: "", compacto: true });
+auditar(lav, "reparto lavandería");
+ok(lav.filas.some(f => f.label === "TOTAL KILOS"), "en lavandería la base son kilos");
 
 /* ── Cierre ─────────────────────────────────────────────────────────────── */
 
