@@ -427,3 +427,37 @@ def test_los_ordinales_de_cada_formula():
     r = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "0 fallos" in r.stdout, r.stdout
+
+
+def test_la_cascada_usa_EL_ROTULO_DE_ESTE_REPO():
+    """⚠️ La tabla de la cascada se indexa POR ROTULO, y el rotulo es el de la
+    plantilla del P&L de ESTA propiedad.
+
+    Amarena escribe «Total Operating expenses» y las otras tres «Total
+    Operationg expenses» —con la errata—. Con el rotulo equivocado el subtotal
+    no se encuentra, su formula no se declara y el Excel baja ese renglon como
+    numero pegado, sin que nada avise. Es el mismo modo de falla que persigue
+    todo este archivo, por la via mas tonta.
+
+    Se comprueban SOLO las tres tablas de la cascada —`SUMA_DEL_DETALLE`,
+    `SUMA_DE_SUBTOTALES` y `RESULTADOS`—, que son las que se indexan por rotulo.
+    El resto del archivo nombra otras cosas (las clases por naturaleza, los
+    ambitos) que no tienen por que estar en la plantilla.
+    """
+    import re
+    pl = (pathlib.Path(__file__).resolve().parents[1]
+          / "app/api/pl_detail_api.py").read_text(encoding="utf-8")
+    # ⚠️ Las DOS plantillas: la del consolidado y la del Club. La cascada cubre
+    # las dos —el Club tiene su propio `Total Gastos`— y mirar solo una deja
+    # fuera rotulos que si existen.
+    plantilla = set(re.findall(r'\("(?:tot|sub|det)",\s*"([^"]+)"', pl))
+    assert plantilla, "no se pudo leer la plantilla del P&L"
+
+    tres = (FRONT / "lib/tresCortes.ts").read_text(encoding="utf-8")
+    cascada = tres[tres.index("const SUMA_DEL_DETALLE"):
+                   tres.index("export function componentesDelPL")]
+    citados = set(re.findall(r'"([^"]+)"', cascada))
+    huerfanos = sorted(c for c in citados if c not in plantilla)
+    assert not huerfanos, (
+        f"la cascada cita rotulos que la plantilla de esta propiedad no tiene: "
+        f"{huerfanos}")
