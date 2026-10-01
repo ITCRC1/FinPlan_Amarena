@@ -5,7 +5,9 @@
  * Owner, 2026-10-01: *«necesito crear esta vista de cierre para Budget 2027…
  * por qué no creás un tab llamado Planning Report»* · *«quiero 12 meses, y full
  * year para comparar con otras versiones»* · *«quizás acá no necesitamos
- * revisar mes, YTD o Full Year»*.
+ * revisar mes, YTD o Full Year»* · *«ajustado todos los reportes para que se
+ * pueda generar reportes para comparar todos. desde los reportes, hasta los
+ * checkbooks»*.
  *
  * ## Por qué no alcanzaba con la pantalla del cierre
  *
@@ -15,21 +17,42 @@
  * mes y el total contra la versión anterior. Por eso acá no hay selector de mes
  * ni de corte: son los doce meses, siempre.
  *
+ * ## Los cuatro niveles, con las MISMAS columnas
+ *
+ * | vista | de dónde sale | qué abre |
+ * |---|---|---|
+ * | P&L | `/reports/pl-detail/` | la cascada completa, por ámbito |
+ * | Aperturas | `/gasto-por-clase/?detalle=true` | depto · línea · cuenta |
+ * | Checkbooks | `/gasto-por-clase/detalle-de-celda/` | cuenta del mayor |
+ * | Estadísticas | `/pl/{id}/estadisticas/` | noches, ocupación, ADR, Club |
+ *
+ * Las cuatro pasan por `armarCuadro`, así que la columna «Full Year» es la misma
+ * celda en todas: se puede bajar el libro entero y comparar hoja contra hoja.
+ *
  * ## ⚠️ La tabla que se ve es el MISMO objeto que baja al Excel
  *
- * `cuadroPlanning` devuelve un `Cuadro` y esta pantalla lo dibuja. No hay una
- * tabla en JSX y otra en el exportador: no pueden decir cosas distintas, que es
- * el defecto que este proyecto ya pagó una vez (owner, 2026-08-27: «el excel no
- * baja lo que está viendo»).
+ * `cuadroPlanning` y sus hermanas devuelven un `Cuadro`, y `Tabla` lo dibuja. No
+ * hay una tabla en JSX y otra en el exportador: no pueden decir cosas distintas,
+ * que es el defecto que este proyecto ya pagó una vez (owner, 2026-08-27: «el
+ * excel no baja lo que está viendo»).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getPLDetail, getScenarios, type PLDetail, type Scenario } from "@/lib/api";
+import {
+  getDetalleDeCelda, getEstadisticasCierre, getGastoPorClase, getPLDetail,
+  getScenarios,
+  type DetalleCelda, type EstadisticasCierre, type GastoEscenario,
+  type PLDetail, type Scenario,
+} from "@/lib/api";
 import { bajarCuadros, type Cuadro } from "@/lib/exportCuadro";
 import { HOTEL_ID } from "@/lib/hotel";
-import { cuadroPlanning, rotuloDeVersion } from "@/lib/planningReport";
+import {
+  APERTURAS, cuadroApertura, cuadroCheckbook, cuadroEstadisticas, cuadroPlanning,
+  type ClaseApertura,
+} from "@/lib/planningReport";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
 import IrA from "@/components/IrA";
+import Tabla from "./Tabla";
 
 const AMBITOS = [
   { id: "consolidado", rotulo: "Consolidado", ayuda: "Hotel + Club Madresal" },
@@ -37,21 +60,17 @@ const AMBITOS = [
   { id: "club", rotulo: "Club Madresal", ayuda: "Sólo el departamento 260" },
 ] as const;
 
+const VISTAS = [
+  { id: "pl", rotulo: "P&L", ayuda: "La cascada completa, por ámbito" },
+  { id: "aperturas", rotulo: "Aperturas", ayuda: "Por departamento, línea y cuenta" },
+  { id: "checkbooks", rotulo: "Checkbooks", ayuda: "Cuenta por cuenta del mayor" },
+  { id: "estadisticas", rotulo: "Estadísticas", ayuda: "Noches, ocupación, ADR, Club" },
+] as const;
+
 /** Cuántas versiones se pueden comparar contra la principal. */
 const COMPARAR = 3;
 
-const usd = (n: number | null | undefined) =>
-  n === null || n === undefined ? ""
-    : Math.abs(n) < 0.005 ? "—"
-      : (n < 0 ? "(" : "") + Math.abs(n).toLocaleString("en-US",
-          { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (n < 0 ? ")" : "");
-
-const TD: React.CSSProperties = {
-  padding: "4px 10px", textAlign: "right", fontSize: 12, whiteSpace: "nowrap",
-};
-const TDL: React.CSSProperties = {
-  padding: "4px 10px", fontSize: 12, whiteSpace: "nowrap", textAlign: "left",
-};
+const DOCE = Array.from({ length: 12 }, (_, i) => i + 1);
 
 export default function PlanningReportPage() {
   const [escenarios, setEscenarios] = useState<Scenario[]>([]);
@@ -65,9 +84,18 @@ export default function PlanningReportPage() {
   const [principal, setPrincipal] = useEscenarioDe(
     "planning/report:budget", escenarios, "budget", undefined, true);
   const [comparar, setComparar] = useState<string[]>(Array(COMPARAR).fill(""));
+  const [vista, setVista] = useState<string>("pl");
   const [ambito, setAmbito] = useState<string>("consolidado");
+  const [clase, setClase] = useState<ClaseApertura>("opex");
   const [compacto, setCompacto] = useState(true);
-  const [datos, setDatos] = useState<PLDetail | null>(null);
+
+  const [pl, setPl] = useState<PLDetail | null>(null);
+  const [gastos, setGastos] = useState<
+    { escenarios: GastoEscenario[]; departamentos: Record<string, string> } | null>(null);
+  const [libro, setLibro] = useState<Record<string, DetalleCelda>>({});
+  const [stats, setStats] = useState<
+    { meses: (EstadisticasCierre | null)[]; anios: (EstadisticasCierre | null)[] } | null>(null);
+
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState(false);
@@ -79,44 +107,119 @@ export default function PlanningReportPage() {
   }, []);
 
   const otros = useMemo(() => comparar.filter(Boolean), [comparar]);
+  const ids = useMemo(
+    () => (principal ? [principal, ...otros] : []), [principal, otros]);
+
+  /** Las estadísticas: los doce meses de la principal, uno por llamada, y el año
+   *  de cada versión con el período completo.
+   *
+   *  ⚠️ El año NO se suma acá. La ocupación, el ADR y el promedio de socios del
+   *  año no son la suma de los doce meses, y el servidor ya sabe calcularlos
+   *  sobre el período: rehacerlo del lado de la pantalla sería una segunda
+   *  definición de la misma cifra. */
+  const cargarStats = useCallback(async () => {
+    const unoNulo = async (id: string, d: number, h: number) =>
+      getEstadisticasCierre(id, d, h).catch(() => null);
+    const [meses, anios] = await Promise.all([
+      Promise.all(DOCE.map(m => unoNulo(ids[0], m, m))),
+      Promise.all(ids.map(id => unoNulo(id, 1, 12))),
+    ]);
+    return { meses, anios };
+  }, [ids]);
 
   const cargar = useCallback(async () => {
     if (!principal) return;
     setCargando(true);
     setError(null);
     try {
-      setDatos(await getPLDetail(ambito, principal, otros));
+      if (vista === "pl") setPl(await getPLDetail(ambito, principal, otros));
+      else if (vista === "aperturas") {
+        const g = await getGastoPorClase(ids, true);
+        setGastos({ escenarios: g.escenarios, departamentos: g.departamentos ?? {} });
+      } else if (vista === "checkbooks") {
+        setLibro({ [clase]: await getDetalleDeCelda(ids, clase, "", 0) });
+      } else {
+        setStats(await cargarStats());
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "no se pudo cargar");
-      setDatos(null);
     } finally {
       setCargando(false);
     }
-  }, [ambito, principal, otros]);
+  }, [vista, ambito, clase, principal, otros, ids, cargarStats]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  const cuadro: Cuadro | null = useMemo(
-    () => (datos ? cuadroPlanning(datos, escenarios, { ambito, compacto }) : null),
-    [datos, escenarios, ambito, compacto]);
+  const cuadro: Cuadro | null = useMemo(() => {
+    const op = { ambito, compacto };
+    try {
+      if (vista === "pl") return pl ? cuadroPlanning(pl, escenarios, op) : null;
+      if (vista === "aperturas") {
+        return gastos
+          ? cuadroApertura(clase, gastos.escenarios, gastos.departamentos,
+                           escenarios, op)
+          : null;
+      }
+      if (vista === "checkbooks") {
+        const d = libro[clase];
+        return d ? cuadroCheckbook(d, escenarios, op) : null;
+      }
+      return stats
+        ? cuadroEstadisticas({ ...stats, versiones: stats.anios.map((a, i) => ({
+            scenario_id: ids[i], escenario: a?.escenario })) }, escenarios, op)
+        : null;
+    } catch {
+      return null;
+    }
+  }, [vista, pl, gastos, libro, stats, clase, escenarios, ambito, compacto, ids]);
 
+  /**
+   * El Excel de la vista que se está mirando, COMPLETA.
+   *
+   * En la pantalla se mira un ámbito —o una clase— por vez; en un libro que se
+   * manda, todos juntos son la comparación que el owner hace igual, y pedirle
+   * que baje cinco archivos es pedirle que uno se olvide.
+   */
   async function bajar() {
     if (!principal) return;
     setBajando(true);
     setError(null);
     try {
-      // Las TRES vistas en un archivo. En la pantalla se mira una por vez; en un
-      // libro que se manda, las tres juntas son la comparación que el owner hace
-      // igual, y pedirle que baje tres archivos es pedirle que uno se olvide.
       const cuadros: Cuadro[] = [];
-      for (const a of AMBITOS) {
-        const d = a.id === ambito ? datos
-          : await getPLDetail(a.id, principal, otros).catch(() => null);
-        if (d) cuadros.push(cuadroPlanning(d, escenarios, { ambito: a.id, compacto }));
+      const op = { compacto };
+      if (vista === "pl") {
+        for (const a of AMBITOS) {
+          const d = a.id === ambito ? pl
+            : await getPLDetail(a.id, principal, otros).catch(() => null);
+          if (d) cuadros.push(cuadroPlanning(d, escenarios, { ...op, ambito: a.id }));
+        }
+      } else if (vista === "aperturas") {
+        let g = gastos;
+        if (!g) {
+          const r = await getGastoPorClase(ids, true);
+          g = { escenarios: r.escenarios, departamentos: r.departamentos ?? {} };
+        }
+        for (const a of APERTURAS) {
+          cuadros.push(cuadroApertura(a.clase, g.escenarios, g.departamentos,
+                                      escenarios, { ...op, ambito }));
+        }
+      } else if (vista === "checkbooks") {
+        for (const a of APERTURAS) {
+          const d = libro[a.clase]
+            ?? await getDetalleDeCelda(ids, a.clase, "", 0).catch(() => null);
+          if (d) cuadros.push(cuadroCheckbook(d, escenarios, { ...op, ambito }));
+        }
+      } else {
+        const s = stats ?? await cargarStats();
+        cuadros.push(cuadroEstadisticas(
+          { ...s, versiones: s.anios.map((a, i) => ({ scenario_id: ids[i],
+                                                      escenario: a?.escenario })) },
+          escenarios, { ...op, ambito }));
       }
       const e = escenarios.find(s => s.id === principal);
+      const v = VISTAS.find(x => x.id === vista)?.rotulo ?? vista;
       await bajarCuadros(
-        `Planning_Report_${e?.year ?? ""}_${e?.type ?? ""}_${e?.version ?? ""}`,
+        `Planning_${v}_${e?.year ?? ""}_${e?.type ?? ""}_${e?.version ?? ""}`,
         cuadros);
     } catch (e) {
       setError(e instanceof Error ? e.message : "no se pudo bajar el Excel");
@@ -131,6 +234,10 @@ export default function PlanningReportPage() {
     background: activo ? "var(--brand)" : "var(--bg-surface)",
     color: activo ? "#fff" : "var(--text-primary)",
   });
+  const grupo: React.CSSProperties = {
+    display: "inline-flex", borderRadius: 6, overflow: "hidden",
+    border: "1px solid var(--border-medium)",
+  };
 
   return (
     <div style={{ padding: "18px 22px" }}>
@@ -143,22 +250,24 @@ export default function PlanningReportPage() {
           doce meses de una versión · el año, de todas
         </span>
 
-        <nav aria-label="Ámbito" style={{ display: "inline-flex", borderRadius: 6,
-             overflow: "hidden", border: "1px solid var(--border-medium)" }}>
-          {AMBITOS.map((a, i) => (
-            <button key={a.id} onClick={() => setAmbito(a.id)} title={a.ayuda}
-              style={{ ...btn(a.id === ambito),
+        <nav aria-label="Nivel" style={grupo}>
+          {VISTAS.map((v, i) => (
+            <button key={v.id} onClick={() => setVista(v.id)} title={v.ayuda}
+              style={{ ...btn(v.id === vista),
                        borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
-              {a.rotulo}
+              {v.rotulo}
             </button>
           ))}
         </nav>
 
-        <button onClick={bajar} disabled={!datos || bajando}
+        <button onClick={bajar} disabled={!cuadro || bajando}
           style={{ padding: "5px 12px", fontSize: 12, borderRadius: 4, fontWeight: 600,
-                   border: "none", cursor: datos ? "pointer" : "not-allowed",
+                   border: "none", cursor: cuadro ? "pointer" : "not-allowed",
                    background: "var(--accent-excel)", color: "#fff" }}>
-          {bajando ? "Bajando…" : "⬇ Excel (los tres ámbitos)"}
+          {bajando ? "Bajando…"
+            : vista === "pl" ? "⬇ Excel (los tres ámbitos)"
+              : vista === "estadisticas" ? "⬇ Excel"
+                : "⬇ Excel (las cinco clases)"}
         </button>
       </div>
 
@@ -192,6 +301,32 @@ export default function PlanningReportPage() {
         </label>
       </div>
 
+      {/* El segundo eje depende del nivel: el P&L se mira por ámbito y las
+          aperturas y los checkbooks, por clase de cuenta. Las estadísticas no
+          tienen segundo eje. */}
+      {vista === "pl" && (
+        <nav aria-label="Ámbito" style={{ ...grupo, marginBottom: 12 }}>
+          {AMBITOS.map((a, i) => (
+            <button key={a.id} onClick={() => setAmbito(a.id)} title={a.ayuda}
+              style={{ ...btn(a.id === ambito),
+                       borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+              {a.rotulo}
+            </button>
+          ))}
+        </nav>
+      )}
+      {(vista === "aperturas" || vista === "checkbooks") && (
+        <nav aria-label="Clase" style={{ ...grupo, marginBottom: 12 }}>
+          {APERTURAS.map((a, i) => (
+            <button key={a.clase} onClick={() => setClase(a.clase)} title={a.eje}
+              style={{ ...btn(a.clase === clase),
+                       borderLeft: i ? "1px solid var(--border-medium)" : "none" }}>
+              {a.rotulo}
+            </button>
+          ))}
+        </nav>
+      )}
+
       {error && (
         <div style={{ padding: 10, borderRadius: 5, fontSize: 12.5, marginBottom: 12,
                       background: "var(--bg-warning)" }}>{error}</div>
@@ -205,53 +340,13 @@ export default function PlanningReportPage() {
           <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
             {cuadro.subtitulo}
           </div>
-          <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
-            <table className="fin-table"
-                   style={{ minWidth: 300 + cuadro.columnas.length * 92 }}>
-              <thead>
-                <tr>
-                  {cuadro.columnas.map((c, i) => (
-                    <th key={i}
-                        style={{ ...(i ? TD : TDL),
-                                 borderLeft: c.abre_grupo
-                                   ? "2px solid var(--border-medium)" : undefined }}>
-                      <div>{c.label}</div>
-                      {c.sub && (
-                        <div style={{ fontWeight: 400, fontSize: 10.5,
-                                      color: "var(--text-secondary)" }}>{c.sub}</div>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cuadro.filas.map((f, i) => (
-                  <tr key={i} style={{
-                    background: f.es_seccion ? "var(--bg-elevated)"
-                      : f.es_total ? "var(--bg-subtle)" : undefined,
-                  }}>
-                    <td style={{ ...TDL,
-                      fontWeight: f.es_seccion || f.es_total ? 700 : 400,
-                      paddingLeft: f.es_seccion || f.es_total ? 10 : 24 }}>
-                      {f.label}
-                    </td>
-                    {f.valores.map((v, j) => (
-                      <td key={j} className="mono" style={{ ...TD,
-                        fontWeight: f.es_total ? 700 : 400,
-                        borderLeft: cuadro.columnas[j + 1]?.abre_grupo
-                          ? "2px solid var(--border-medium)" : undefined,
-                        color: typeof v === "number" && v < 0
-                          ? "var(--negative)" : undefined,
-                      }}>
-                        {typeof v === "number" ? usd(v) : (v ?? "")}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Tabla cuadro={cuadro} />
         </>
+      )}
+      {!cargando && !cuadro && !error && (
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          Sin datos para esta vista.
+        </div>
       )}
     </div>
   );

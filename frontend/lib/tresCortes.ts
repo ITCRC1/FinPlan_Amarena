@@ -420,6 +420,25 @@ const RESULTADOS: Record<string, { mas: string[]; menos: string[] }> = {
 };
 
 /**
+ * Los rótulos que ALGÚN resultado de la cascada usa como operando.
+ *
+ * ⚠️ **Estas filas no las esconde «esconder las líneas en cero».** No son
+ * detalle: son el término de una resta. Si la fila no se dibuja, `resultadosDelPL`
+ * no encuentra el operando y no declara la fórmula — y el exportador deja el
+ * número del motor sin decir nada.
+ *
+ * Medido el 2026-10-01 en el Budget Working 2027 de Amarena, donde el impuesto
+ * da cero en las tres versiones: `Income Taxes (30%)` se escondía y **NET PROFIT
+ * bajaba como número pegado en las tres hojas del P&L** mientras todo el detalle
+ * de arriba llevaba fórmula. Es la línea que más se mira del reporte.
+ *
+ * Un «Income Taxes (30%) — 0.00» visible es, además, lo que corresponde: un P&L
+ * que salta del EBT al Net Profit sin mostrar el impuesto obliga a creerle.
+ */
+export const OPERANDOS_DE_LA_CASCADA = new Set(
+  Object.values(RESULTADOS).flatMap(r => [...r.mas, ...r.menos]));
+
+/**
  * Qué filas suma cada subtotal y cada total, en ORDINALES del arreglo que se
  * EMITE.
  *
@@ -515,7 +534,11 @@ export function cuadroTresCortes(
   const versiones = datos.versiones ?? [];
   const doce = Array.from({ length: 12 }, (_, i) => i);
   const filas = (datos.filas ?? []).filter(f =>
-    !compacto || f.tipo !== "det" || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
+    !compacto || f.tipo !== "det"
+    // ⚠️ El operando de una resta de la cascada NO se esconde por estar en cero:
+    // sin la fila, el resultado pierde su fórmula y baja como número pegado.
+    || OPERANDOS_DE_LA_CASCADA.has(f.rotulo)
+    || (f.series ?? []).some(x => x && suma(x, doce) !== 0));
   /** ⚠️ **Se declara ANTES de `columnas`, que es quien la usa.** La versión
    *  anterior de esto era un `const viDe` puesto DESPUÉS, y un `const` no
    *  existe hasta su línea: armar las columnas tiraba «Cannot access 'viDe'

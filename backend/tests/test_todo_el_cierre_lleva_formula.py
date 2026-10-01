@@ -172,3 +172,31 @@ def test_un_PORCENTAJE_no_se_suma():
            / "app/export/cuadro_excel.py").read_text(encoding="utf-8")
     assert 'tol = 1e-9 if razon else CENTAVO' in src
     assert '== "pct"' in src
+
+
+def test_el_OPERANDO_de_la_cascada_no_lo_esconde_el_modo_compacto():
+    """⚠️ Una linea en cero que ALGUNA resta usa no es detalle: es un termino.
+
+    `resultadosDelPL` solo declara la formula cuando encuentra TODOS los
+    operandos. Si el modo compacto escondio uno por estar en cero, no la declara
+    y el exportador deja el numero del motor **sin decir nada**.
+
+    Medido el 2026-10-01 en el Budget Working 2027 de Amarena, donde el impuesto
+    da cero en las tres versiones: `Income Taxes (30%)` se escondia y **NET
+    PROFIT bajaba como numero pegado en las tres hojas del P&L** mientras todo el
+    detalle de arriba llevaba formula. Es la linea que mas se mira del reporte.
+    Con la excepcion puesta, las celdas con formula del libro pasaron de 1.928 a
+    1.960 y las que faltaban, de 87 a 59.
+
+    Vale para los DOS reportes —el cierre y planning—, que es por lo que el
+    conjunto vive en `tresCortes` y no en cada uno.
+    """
+    tres = (FRONT / "lib/tresCortes.ts").read_text(encoding="utf-8")
+    assert "export const OPERANDOS_DE_LA_CASCADA = new Set(" in tres
+    assert "Object.values(RESULTADOS).flatMap(r => [...r.mas, ...r.menos])" in tres, (
+        "la lista de operandos se escribio a mano: se separa de RESULTADOS en el "
+        "primer resultado que alguien agregue")
+    for archivo in ("lib/tresCortes.ts", "lib/planningReport.ts"):
+        src = (FRONT / archivo).read_text(encoding="utf-8")
+        assert "OPERANDOS_DE_LA_CASCADA.has(f.rotulo)" in src, (
+            f"{archivo} vuelve a esconder los operandos en cero")

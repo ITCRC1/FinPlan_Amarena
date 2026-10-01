@@ -4,38 +4,60 @@
 Owner, 2026-10-01, mirando el cierre y pidiendolo para el Budget 2027: *«por que
 no creas un tab llamado Planning Report»* · *«quiero 12 meses, y full year para
 comparar con otras versiones»* · *«quizas aca no necesitamos revisar mes, YTD o
-Full Year»*.
+Full Year»* · *«ajustado todos los reportes para que se pueda generar reportes
+para comparar todos. desde los reportes, hasta los checkbooks»*.
 
 ## Que defiende este archivo
 
 1. **La FORMA.** Doce columnas de mes de la version principal, una de ano por
    version, y la variacion. Si alguien le agrega el selector de mes o de corte
    que tiene el cierre, deja de ser este reporte.
-2. **Que la columna del ano sea una FORMULA.** Es la celda que mas se mira, y la
+2. **Que los CUATRO niveles tengan las MISMAS columnas.** El P&L, las cinco
+   aperturas, los cinco checkbooks y las estadisticas salen todos de
+   `armarCuadro`. No es economia de lineas: la columna «Full Year» de la
+   apertura de opex tiene que ser la misma celda que la del P&L, o el dia que
+   alguien agregue una version comparada una de las dos hojas resta las
+   versiones cambiadas sin que nada falle.
+3. **Que la columna del ano sea una FORMULA.** Es la celda que mas se mira, y la
    unica del cuadro que se puede escribir como `=SUM(B5:M5)` sin inventar nada:
    sus doce sumandos estan en la misma fila.
-3. **Que la cascada use la MISMA tabla de componentes que el cierre.** Dos listas
+4. **Que la cascada use la MISMA tabla de componentes que el cierre.** Dos listas
    de que suma cada subtotal se separan en el primer renglon que alguien agregue
    de un lado, y el exportador descarta la formula que no cuadra EN SILENCIO:
    nadie se entera hasta que falta media hoja de formulas.
 
-## Lo que este archivo NO puede comprobar
+## Lo que este archivo NO puede comprobar leyendo el codigo
 
-Que los numeros esten bien. Eso lo comprueba el exportador celda por celda
-—`_formula` solo escribe la suma cuando da lo mismo que el motor— y se verifico
-aparte con los datos reales de produccion: 692 celdas con formula en las tres
-hojas, 692 coincidencias al abrir el libro en Excel y recalcularlo entero.
+Que los ORDINALES de cada formula apunten a la fila que suman. `suma_de` son
+indices sobre un arreglo que el modo compacto acorta, y el checkbook arma dos
+pisos —cada departamento suma sus cuentas y el TOTAL suma los departamentos—.
+Un corrimiento de uno no rompe nada que se vea.
+
+Eso lo comprueba `tests/js/planning_report.js`, que arma los cuadros de verdad
+con datos sinteticos y suma celda por celda; `test_los_ordinales_de_cada_formula`
+lo corre. Y los numeros se verificaron aparte contra produccion: el libro abierto
+en Excel y recalculado entero, celda con formula contra celda del motor.
 """
 import pathlib
-import re
+import shutil
+import subprocess
 
-FRONT = pathlib.Path(__file__).resolve().parents[2] / "frontend"
+import pytest
+
+RAIZ = pathlib.Path(__file__).resolve().parents[2]
+FRONT = RAIZ / "frontend"
 LIB = FRONT / "lib/planningReport.ts"
 PAGINA = FRONT / "app/planning/report/page.tsx"
+TABLA = FRONT / "app/planning/report/Tabla.tsx"
+HARNESS = pathlib.Path(__file__).parent / "js/planning_report.js"
 
 
 def _lib() -> str:
     return LIB.read_text(encoding="utf-8")
+
+
+def _pagina() -> str:
+    return PAGINA.read_text(encoding="utf-8")
 
 
 def test_la_pantalla_existe_y_esta_en_el_menu():
@@ -58,11 +80,36 @@ def test_son_DOCE_meses_y_el_ano_no_hay_corte():
     lib = _lib()
     assert 'const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",' in lib
     assert "DOCE.map" in lib
-    pagina = PAGINA.read_text(encoding="utf-8")
+    pagina = _pagina()
     for prohibido in ('"ytd"', "setMes(", "horizonte", "setHorizonte"):
         assert prohibido not in pagina, (
             f"la pantalla volvio a tener {prohibido}: es el reporte del cierre, "
             "no el de planning")
+
+
+def test_los_CUATRO_niveles_usan_LAS_MISMAS_columnas():
+    """⚠️ El P&L, las aperturas, los checkbooks y las estadisticas, por un solo
+    constructor.
+
+    La columna «Full Year» de la apertura de opex tiene que ser la MISMA celda
+    —mismo indice, misma formula, misma version— que la del P&L: el libro se baja
+    entero y se compara hoja contra hoja. Con dos constructores, el dia que
+    alguien agregue una version comparada una de las dos hojas apunta a la
+    columna de al lado y resta las versiones cambiadas sin que nada falle.
+    """
+    lib = _lib()
+    # Un solo lugar arma columnas, y los cuatro cuadros pasan por `armarCuadro`.
+    assert lib.count("export function columnasPlanning(") == 1
+    assert lib.count("columnasPlanning(") == 2, (
+        "columnasPlanning se llama desde mas de un lugar: tiene que ser "
+        "`armarCuadro` y nadie mas")
+    for constructor in ("cuadroPlanning", "cuadroApertura",
+                        "cuadroCheckbook", "cuadroEstadisticas"):
+        assert f"export function {constructor}(" in lib, f"falta {constructor}"
+        cuerpo = lib[lib.index(f"export function {constructor}("):]
+        cuerpo = cuerpo.split("export function ")[1]
+        assert "return armarCuadro({" in cuerpo, (
+            f"{constructor} arma su cuadro a mano en vez de pasar por armarCuadro")
 
 
 def test_la_columna_del_ANO_baja_como_formula():
@@ -71,11 +118,13 @@ def test_la_columna_del_ANO_baja_como_formula():
 
     ⚠️ Las otras columnas de ano —las de las versiones comparadas— NO la
     llevan, y es correcto: sus doce meses no estan en la hoja y la formula no
-    tendria a que apuntar."""
+    tendria a que apuntar. El exportador la tiraria igual, en silencio.
+    """
     lib = _lib()
     assert "suma_cols: DOCE.map((_m, i) => 1 + i)" in lib
     # La de las versiones comparadas se arma aparte y sin `suma_cols`.
-    comparadas = lib[lib.index("versiones.slice(1).map"):]
+    cols = lib[lib.index("export function columnasPlanning("):]
+    comparadas = cols[cols.index("...otras.map("):]
     assert "suma_cols" not in comparadas.split("...(par")[0]
 
 
@@ -112,25 +161,75 @@ def test_los_ordinales_se_cuentan_sobre_LO_QUE_SE_EMITE():
     assert "emitidas.map(f =>" in lib
 
 
+def test_el_checkbook_suma_los_SUBTOTALES_no_las_cuentas():
+    """⚠️ El TOTAL del checkbook tiene dos pisos debajo.
+
+    Cada departamento suma sus cuentas y el TOTAL suma los departamentos. Si el
+    TOTAL sumara las dos cosas, contaria cada peso dos veces; si sumara las
+    cuentas salteandose los subtotales, cuadraria igual pero la hoja tendria dos
+    maneras distintas de llegar al mismo numero.
+    """
+    lib = _lib()
+    cuerpo = lib[lib.index("export function cuadroCheckbook("):]
+    assert "suma_de: subtotales," in cuerpo
+    assert "subtotales.push(filas.length);" in cuerpo
+
+
+def test_cada_fila_del_checkbook_lleva_SU_departamento():
+    """Owner, 2026-09-03: *«los checkbooks deben estar por departamentos, si no
+    no se puede saber a que corresponde»*.
+
+    La 7065 de Habitaciones y la 7065 del Club son dos filas. Agrupadas por
+    cuenta a secas el resultado no es de nadie.
+    """
+    lib = _lib()
+    cuerpo = lib[lib.index("export function cuadroCheckbook("):]
+    assert "f.dept_code" in cuerpo and "f.dept_name" in cuerpo
+
+
+def test_el_ano_de_una_RAZON_no_se_suma():
+    """⚠️ La ocupacion, el ADR, el RevPAR y los socios del ano NO son la suma de
+    los doce meses.
+
+    El promedio de doce promedios no es el promedio del ano, y el promedio de
+    socios lo calcula el servidor sobre los meses CON socios (owner, 2026-09-02:
+    «quiero que me des un promedio de los meses y no que sume»). Por eso el ano
+    se le pide con el periodo completo en vez de sumarse en la pantalla.
+    """
+    lib = _lib()
+    assert "razon: true" in lib, "las filas de razon dejaron de estar marcadas"
+    pagina = _pagina()
+    assert "getEstadisticasCierre(id, d, h)" in pagina
+    assert "unoNulo(id, 1, 12)" in pagina, (
+        "el ano de las estadisticas se dejo de pedir con el periodo completo")
+
+
 def test_la_pantalla_dibuja_EL_MISMO_cuadro_que_baja():
     """⚠️ Owner, 2026-08-27: «el excel no baja lo que esta viendo».
 
-    `cuadroPlanning` devuelve un `Cuadro` y la pantalla lo dibuja. Con una tabla
-    en JSX y otra en el exportador, las dos pueden decir cosas distintas — y ya
-    paso una vez.
+    Los cuatro constructores devuelven un `Cuadro` y UN solo renderizador lo
+    dibuja. Con una tabla en JSX y otra en el exportador, las dos pueden decir
+    cosas distintas — y ya paso una vez.
     """
-    pagina = PAGINA.read_text(encoding="utf-8")
-    assert "cuadroPlanning(datos, escenarios," in pagina
-    assert "cuadro.columnas.map(" in pagina and "cuadro.filas.map(" in pagina
+    pagina = _pagina()
+    for constructor in ("cuadroPlanning(", "cuadroApertura(",
+                        "cuadroCheckbook(", "cuadroEstadisticas("):
+        assert constructor in pagina, f"la pantalla no dibuja {constructor}"
+    assert "<Tabla cuadro={cuadro} />" in pagina
     assert "bajarCuadros(" in pagina
+    tabla = TABLA.read_text(encoding="utf-8")
+    assert "cuadro.columnas.map(" in tabla and "cuadro.filas.map(" in tabla
 
 
-def test_el_excel_trae_los_TRES_ambitos():
-    """En la pantalla se mira uno por vez; en un libro que se manda, los tres
-    juntos son la comparacion que se hace igual."""
-    pagina = PAGINA.read_text(encoding="utf-8")
+def test_el_excel_trae_TODO_lo_que_la_vista_abre():
+    """En la pantalla se mira un ambito —o una clase— por vez; en un libro que se
+    manda, todos juntos son la comparacion que se hace igual, y pedir cinco
+    archivos es pedir que uno se olvide."""
+    pagina = _pagina()
     bloque = pagina[pagina.index("async function bajar()"):]
-    assert "for (const a of AMBITOS)" in bloque
+    assert "for (const a of AMBITOS)" in bloque, "el P&L dejo de traer los tres ambitos"
+    assert bloque.count("for (const a of APERTURAS)") == 2, (
+        "las aperturas y los checkbooks tienen que bajar las CINCO clases")
 
 
 def test_abre_en_un_BUDGET_con_la_regla_COMPARTIDA():
@@ -142,7 +241,7 @@ def test_abre_en_un_BUDGET_con_la_regla_COMPARTIDA():
     «el ano mas nuevo» copiado a mano, y el dia que nacieron los Working
     2028-2035 todos los reportes se fueron a 2035 sin que nada fallara.
     """
-    pagina = PAGINA.read_text(encoding="utf-8")
+    pagina = _pagina()
     assert "useEscenarioDe(" in pagina
     assert '"planning/report:budget", escenarios, "budget"' in pagina
 
@@ -151,5 +250,25 @@ def test_cada_columna_declara_su_version():
     """Tres columnas que dicen «Full Year» no se distinguen. La segunda linea de
     la cabecera lleva el nombre de la version."""
     lib = _lib()
-    assert re.search(r'label: "Full Year", sub: nombre\(0\)', lib)
-    assert re.search(r'label: "Full Year", sub: nombre\(i \+ 1\)', lib)
+    assert 'label: "Full Year", sub: nombre(0)' in lib
+    assert 'label: "Full Year", sub: nombre(vi)' in lib
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="no hay node")
+def test_los_ordinales_de_cada_formula():
+    """⚠️ Lo unico que no se puede comprobar leyendo el codigo.
+
+    `suma_de` son indices sobre un arreglo que el modo compacto acorta. Un
+    corrimiento de uno no rompe nada que se vea: el exportador comprueba la
+    formula contra el numero y, cuando no cuadra, **la descarta en silencio**. El
+    reporte baja con media hoja de numeros pegados y nadie se entera.
+
+    El arnes arma los cuadros de verdad y suma celda por celda, columna por
+    columna. Se midio que FALLA: corriendo en uno el ordinal del subtotal de
+    departamento, 45 de las 193 comprobaciones se caen.
+    """
+    if not (FRONT / "node_modules/typescript").exists():
+        pytest.skip("falta node_modules del frontend")
+    r = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "0 fallos" in r.stdout, r.stdout
