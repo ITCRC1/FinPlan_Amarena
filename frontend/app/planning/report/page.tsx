@@ -101,6 +101,10 @@ export default function PlanningReportPage() {
   const [metrica, setMetrica] = useState<MetricaPosicion>("fte");
   const [tipoReparto, setTipoReparto] = useState<string>("CAFETERIA");
   const [compacto, setCompacto] = useState(true);
+  /** De QUÉ versión son los doce meses. Owner, 2026-10-01: *«quiero que metas
+   *  la opción de generar un 12 meses de Forecast y Budget 2026»*. El año de
+   *  cada versión siempre está; esto elige de cuál se abre la estacionalidad. */
+  const [mesesDe, setMesesDe] = useState(0);
 
   const [pl, setPl] = useState<PLDetail | null>(null);
   const [gastos, setGastos] = useState<
@@ -142,11 +146,14 @@ export default function PlanningReportPage() {
     const unoNulo = async (id: string, d: number, h: number) =>
       getEstadisticasCierre(id, d, h).catch(() => null);
     const [meses, anios] = await Promise.all([
-      Promise.all(DOCE.map(m => unoNulo(ids[0], m, m))),
+      // ⚠️ Los doce meses son de la versión elegida, no siempre de la primera:
+      // si no, la hoja de estadísticas abriría un año distinto que las otras
+      // seis y nadie lo notaría — los totales de año seguirían estando bien.
+      Promise.all(DOCE.map(m => unoNulo(ids[Math.min(mesesDe, ids.length - 1)], m, m))),
       Promise.all(ids.map(id => unoNulo(id, 1, 12))),
     ]);
     return { meses, anios };
-  }, [ids]);
+  }, [ids, mesesDe]);
 
   /** El reparto de las dos: el resumen del motor por versión, más los nombres de
    *  departamento, que viven en el endpoint de gasto. */
@@ -187,6 +194,12 @@ export default function PlanningReportPage() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Sacar una versión de la comparación deja la elección apuntando a una que ya
+  // no está: los meses saldrían vacíos y el año no. Vuelve a la principal.
+  useEffect(() => {
+    if (mesesDe >= ids.length) setMesesDe(0);
+  }, [ids.length, mesesDe]);
+
   const statsACuadro = useCallback(
     (s: { meses: (EstadisticasCierre | null)[]; anios: (EstadisticasCierre | null)[] },
      op: { ambito: string; compacto: boolean }) =>
@@ -195,7 +208,7 @@ export default function PlanningReportPage() {
     [ids, escenarios]);
 
   const cuadro: Cuadro | null = useMemo(() => {
-    const op = { ambito, compacto };
+    const op = { ambito, compacto, mesesDe };
     try {
       if (vista === "pl") return pl ? cuadroPlanning(pl, escenarios, op) : null;
       if (vista === "aperturas") {
@@ -224,12 +237,12 @@ export default function PlanningReportPage() {
       return null;
     }
   }, [vista, pl, gastos, libro, plantilla, reparto, stats, clase, metrica,
-      tipoReparto, escenarios, ambito, compacto, ids, statsACuadro]);
+      tipoReparto, escenarios, ambito, compacto, mesesDe, ids, statsACuadro]);
 
   /** Todas las hojas de una vista. Las usa tanto el botón de la vista como el
    *  del paquete completo, para que las dos bajen exactamente lo mismo. */
   const hojasDe = useCallback(async (v: string): Promise<Cuadro[]> => {
-    const op = { compacto, ambito };
+    const op = { compacto, ambito, mesesDe };
     const out: Cuadro[] = [];
     if (v === "pl") {
       for (const a of AMBITOS) {
@@ -275,8 +288,8 @@ export default function PlanningReportPage() {
       out.push(statsACuadro(stats ?? await cargarStats(), op));
     }
     return out;
-  }, [compacto, ambito, pl, gastos, libro, plantilla, reparto, stats, principal,
-      otros, ids, escenarios, cargarReparto, cargarStats, statsACuadro]);
+  }, [compacto, ambito, mesesDe, pl, gastos, libro, plantilla, reparto, stats,
+      principal, otros, ids, escenarios, cargarReparto, cargarStats, statsACuadro]);
 
   const nombreDelArchivo = (sufijo: string) => {
     const e = escenarios.find(s => s.id === principal);
@@ -412,6 +425,29 @@ export default function PlanningReportPage() {
                  onChange={e => setCompacto(e.target.checked)} />
           Esconder las líneas en cero
         </label>
+
+        {/* ⚠️ Los doce meses son de UNA versión; el año, de todas. Esto elige
+            cuál abre su estacionalidad — el Forecast 2026 o el Budget 2026 en
+            vez del presupuesto que se está armando. La fórmula `=SUM(B:M)` se
+            muda con la elección: la columna de año que suma sus meses es la de
+            esta versión. */}
+        {ids.length > 1 && (
+          <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center",
+                          gap: 5, color: "var(--text-secondary)" }}>
+            Los doce meses, de
+            <select value={mesesDe} onChange={e => setMesesDe(Number(e.target.value))}
+              className="fin-input" style={{ fontSize: 12.5, padding: "4px 6px" }}>
+              {ids.map((id, i) => {
+                const e2 = escenarios.find(x => x.id === id);
+                return (
+                  <option key={id} value={i}>
+                    {e2 ? `${e2.year} · ${e2.type} ${e2.version}` : id.slice(0, 8)}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* El segundo eje depende del nivel. Las estadísticas no tienen. */}

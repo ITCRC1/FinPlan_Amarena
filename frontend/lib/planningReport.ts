@@ -110,24 +110,28 @@ export function parPorDefecto(
 export function columnasPlanning(
   cuantas: number, nombre: (vi: number) => string,
   par: [number, number] | undefined, anchoRotulo = 34,
+  /** De QUÉ versión son los doce meses. Owner, 2026-10-01: *«quiero que metas
+   *  la opción de generar un 12 meses de Forecast y Budget 2026»*. */
+  mv = 0,
 ): ColumnaCuadro[] {
-  const otras = Array.from({ length: Math.max(0, cuantas - 1) }, (_, i) => i + 1);
   return [
     { label: "Line Item", ancho: anchoRotulo, formato: "texto" },
     ...MESES.map((m, i) => ({
       label: m, sub: MES_LARGO[i], ancho: 13, formato: "usd2" as const,
       ...(i === 0 ? { abre_grupo: true } : {}),
     })),
-    // ⚠️ El año de la versión principal ES la suma de sus doce meses, y baja
+    // ⚠️ El año de la versión que puso los meses ES la suma de esos doce, y baja
     // como `=SUM(B5:M5)`: es la celda que alguien va a querer ver moverse
     // cuando corrija un mes en la reunión.
-    { label: "Full Year", sub: nombre(0), ancho: 16, formato: "usd2",
-      abre_grupo: true, suma_cols: DOCE.map((_m, i) => 1 + i) },
-    // ⚠️ Las demás versiones traen su año y NADA MÁS —sin `suma_cols`—: sus
-    // doce meses no están en la hoja, así que la fórmula no tendría a qué
-    // apuntar y el exportador la tiraría igual, en silencio.
-    ...otras.map(vi => ({
+    //
+    // ⚠️ Las DEMÁS versiones traen su año y NADA MÁS —sin `suma_cols`—: sus doce
+    // meses no están en la hoja, así que la fórmula no tendría a qué apuntar y
+    // el exportador la tiraría igual, en silencio. Por eso la fórmula sigue a
+    // `mv` y no se queda clavada en la primera columna de año.
+    ...Array.from({ length: cuantas }, (_, vi) => ({
       label: "Full Year", sub: nombre(vi), ancho: 16, formato: "usd2" as const,
+      ...(vi === 0 ? { abre_grupo: true } : {}),
+      ...(vi === mv ? { suma_cols: DOCE.map((_m, i) => 1 + i) } : {}),
     })),
     ...(par
       ? [{ label: "Variación", sub: `${nombre(par[0])} − ${nombre(par[1])}`,
@@ -160,6 +164,8 @@ export interface OpcionesCuadro {
   subtitulo: string;
   hoja: string;
   anchoRotulo?: number;
+  /** De qué versión son los doce meses. 0 = la principal. */
+  mesesDe?: number;
 }
 
 /**
@@ -173,7 +179,8 @@ export function armarCuadro(
   opciones: OpcionesCuadro, cuantas: number, nombre: (vi: number) => string,
   par: [number, number] | undefined, filas: FilaPlanning[],
 ): Cuadro {
-  const columnas = columnasPlanning(cuantas, nombre, par, opciones.anchoRotulo);
+  const columnas = columnasPlanning(cuantas, nombre, par, opciones.anchoRotulo,
+                                    opciones.mesesDe ?? 0);
   return {
     titulo: opciones.titulo,
     subtitulo: opciones.subtitulo,
@@ -227,7 +234,25 @@ export interface OpcionesPlanning {
   /** Esconde las filas de detalle que están en cero en TODAS las versiones.
    *  Un presupuesto en construcción tiene muchas. */
   compacto?: boolean;
+  /**
+   * De QUÉ versión son los doce meses. 0 = la principal.
+   *
+   * Owner, 2026-10-01: *«quiero que metas la opción de generar un 12 meses de
+   * Forecast y Budget 2026»*. El año de cada versión siempre está; lo que se
+   * elige acá es de cuál se abre la estacionalidad.
+   *
+   * ⚠️ La fórmula `=SUM(B5:M5)` se mueve con esto: la columna de año que suma
+   * sus meses es la de ESTA versión, no la primera. Dejarla clavada escribiría
+   * una suma en una columna cuyos sumandos no están en la hoja — y el
+   * exportador la descarta, así que la hoja pierde su fórmula más mirada sin
+   * que nada avise.
+   */
+  mesesDe?: number;
 }
+
+/** Cómo se rotula de quién son los doce meses, para el título y la hoja. */
+const deQuien = (nombre: (vi: number) => string, mv: number) =>
+  mv ? ` · meses de ${nombre(mv)}` : "";
 
 /**
  * El cuadro del P&L. `datos` viene de `/reports/pl-detail/{ambito}/`, que ya
@@ -240,6 +265,7 @@ export function cuadroPlanning(
   const { ambito, compacto = false } = opciones;
   const versiones = datos.versiones ?? [];
   const nombre = nombradorDeVersiones(versiones, escenarios);
+  const mv = Math.min(opciones.mesesDe ?? 0, Math.max(0, versiones.length - 1));
 
   // ⚠️ El arreglo EMITIDO, aparte: los ordinales de `suma_de` se cuentan sobre
   // él. El modo compacto saca filas, así que un índice contado sobre `datos`
@@ -263,7 +289,7 @@ export function cuadroPlanning(
     return {
       label: f.rotulo,
       es_total: f.tipo === "tot" || f.tipo === "sub",
-      meses: mesesDe(f, 0),
+      meses: mesesDe(f, mv),
       anios: versiones.map((_v, vi) => anioDe(f, vi)),
     };
   });
@@ -281,9 +307,10 @@ export function cuadroPlanning(
 
   return armarCuadro({
     titulo: `Planning Report ${datos.year} · ${rotuloAmbito(ambito)} · doce meses y año`,
-    subtitulo: `${nombre(0)} — los doce meses son de esta versión; el año, de `
-      + `todas. La columna Full Year es la suma de sus meses.`,
-    hoja: `Planning ${datos.year} ${rotuloAmbito(ambito)}`,
+    subtitulo: `Los doce meses son de ${nombre(mv)}; el año, de todas. Su `
+      + `columna Full Year es la suma de sus meses.`,
+    hoja: `Planning ${datos.year} ${rotuloAmbito(ambito)}${mv ? ` m${mv}` : ""}`,
+    mesesDe: mv,
   }, versiones.length, nombre, par, filas);
 }
 
@@ -334,6 +361,7 @@ export function cuadroApertura(
   const { compacto = false } = opciones;
   const nombre = nombradorDeVersiones(gastos, escenarios);
   const par = parPorDefecto(gastos.length, opciones.par);
+  const mv = Math.min(opciones.mesesDe ?? 0, Math.max(0, gastos.length - 1));
   const meta = APERTURAS.find(a => a.clase === clase)!;
 
   const serie = (vi: number, k: string): number[] =>
@@ -361,24 +389,25 @@ export function cuadroApertura(
 
   const filas: FilaPlanning[] = claves.map(k => ({
     label: rotulo(k),
-    meses: DOCE.map(i => serie(0, k)[i] ?? 0),
+    meses: DOCE.map(i => serie(mv, k)[i] ?? 0),
     anios: gastos.map((_g, vi) => anio(vi, k)),
   }));
   filas.push({
     label: `TOTAL ${meta.rotulo.toUpperCase()}`,
     es_total: true,
     suma_de: claves.map((_k, i) => i),
-    meses: DOCE.map(i => claves.reduce((t, k) => t + (serie(0, k)[i] ?? 0), 0)),
+    meses: DOCE.map(i => claves.reduce((t, k) => t + (serie(mv, k)[i] ?? 0), 0)),
     anios: gastos.map((_g, vi) => claves.reduce((t, k) => t + anio(vi, k), 0)),
   });
 
   const anio0 = gastos[0]?.year ?? "";
   return armarCuadro({
-    titulo: `Planning ${anio0} · ${meta.rotulo} · ${meta.eje}`,
-    subtitulo: `${nombre(0)} — los doce meses son de esta versión; el año, de `
-      + `todas. El total es la suma de las filas que se ven.`,
-    hoja: `Apertura ${meta.rotulo}`,
-    anchoRotulo: 40,
+    titulo: `Planning ${anio0} · ${meta.rotulo} · ${meta.eje}`
+            + deQuien(nombre, mv),
+    subtitulo: `Los doce meses son de ${nombre(mv)}; el año, de todas. El total `
+      + `es la suma de las filas que se ven.`,
+    hoja: `Apertura ${meta.rotulo}${mv ? ` m${mv}` : ""}`,
+    anchoRotulo: 40, mesesDe: mv,
   }, gastos.length, nombre, par, filas);
 }
 
@@ -404,6 +433,7 @@ export function cuadroCheckbook(
   const versiones = det.versiones ?? [];
   const nombre = nombradorDeVersiones(versiones, escenarios);
   const par = parPorDefecto(versiones.length, opciones.par);
+  const mv = Math.min(opciones.mesesDe ?? 0, Math.max(0, versiones.length - 1));
   const meta = APERTURAS.find(a => a.clase === det.clase);
 
   const serie = (f: { series: Record<string, number[]> }, vi: number): number[] =>
@@ -429,7 +459,7 @@ export function cuadroCheckbook(
   for (const [k, cuentas] of Array.from(grupos.entries())
          .sort((a, b) => a[0].localeCompare(b[0]))) {
     const [code, name] = k.split("\u0000");
-    cuentas.sort((a, b) => Math.abs(anio(b, 0)) - Math.abs(anio(a, 0))
+    cuentas.sort((a, b) => Math.abs(anio(b, mv)) - Math.abs(anio(a, mv))
                            || a.cuenta.localeCompare(b.cuenta));
     filas.push({ label: `${code} · ${name || "(sin departamento)"}`,
                  es_seccion: true, meses: null });
@@ -451,7 +481,7 @@ export function cuadroCheckbook(
         es_total: subs.length > 0,
         suma_de: subs.length
           ? subs.map((_x, k) => filas.length + 1 + k) : undefined,
-        meses: DOCE.map(i => serie(f, 0)[i] ?? 0),
+        meses: DOCE.map(i => serie(f, mv)[i] ?? 0),
         anios: versiones.map((_v, vi) => anio(f, vi)),
       });
       for (const x of subs) {
@@ -460,7 +490,7 @@ export function cuadroCheckbook(
           nivel: 2,
           // ⚠️ La versión que NO abrió no va en cero: va vacía. Un cero diría
           // «esta sub-línea existe y vale nada», y lo que pasa es otra cosa.
-          meses: DOCE.map(i => x.series[versiones[0]?.scenario_id ?? ""]?.[i] ?? null),
+          meses: DOCE.map(i => x.series[versiones[mv]?.scenario_id ?? ""]?.[i] ?? null),
           anios: versiones.map(v => {
             const sr = x.series[v.scenario_id ?? ""];
             return sr ? suma(sr, DOCE) : null;
@@ -473,7 +503,7 @@ export function cuadroCheckbook(
       label: `Total ${code}`,
       es_total: true,
       suma_de: deCuenta,
-      meses: DOCE.map(i => cuentas.reduce((t, f) => t + (serie(f, 0)[i] ?? 0), 0)),
+      meses: DOCE.map(i => cuentas.reduce((t, f) => t + (serie(f, mv)[i] ?? 0), 0)),
       anios: versiones.map((_v, vi) => cuentas.reduce((t, f) => t + anio(f, vi), 0)),
     });
   }
@@ -484,7 +514,7 @@ export function cuadroCheckbook(
     // ⚠️ Suma los SUBTOTALES, no las cuentas: sumar las dos cosas contaría cada
     // peso dos veces, y el exportador tiraría la fórmula por no cuadrar.
     suma_de: subtotales,
-    meses: DOCE.map(i => visibles.reduce((t, f) => t + (serie(f, 0)[i] ?? 0), 0)),
+    meses: DOCE.map(i => visibles.reduce((t, f) => t + (serie(f, mv)[i] ?? 0), 0)),
     anios: versiones.map((_v, vi) => visibles.reduce((t, f) => t + anio(f, vi), 0)),
   });
 
@@ -496,11 +526,12 @@ export function cuadroCheckbook(
   return armarCuadro({
     titulo: `Planning · Checkbook ${meta?.rotulo ?? det.clase}`
             + (abierto ? " · abierto en sub-líneas" : " · cuenta por cuenta"),
-    subtitulo: `${nombre(0)}${fuente} — los doce meses son de esta versión; el `
-      + `año, de todas. Cada fila lleva su departamento.`
+    subtitulo: `Los doce meses son de ${nombre(mv)}${fuente}; el año, de `
+      + `todas. Cada fila lleva su departamento.`
       + (abierto ? " Debajo de cada cuenta, de qué está hecha." : ""),
-    hoja: `${abierto ? "Detalle" : "Checkbook"} ${meta?.rotulo ?? det.clase}`,
-    anchoRotulo: abierto ? 52 : 46,
+    hoja: `${abierto ? "Detalle" : "Checkbook"} ${meta?.rotulo ?? det.clase}`
+          + (mv ? ` m${mv}` : ""),
+    anchoRotulo: abierto ? 52 : 46, mesesDe: mv,
   }, versiones.length, nombre, par, filas);
 }
 
@@ -631,6 +662,7 @@ export function cuadroPosiciones(
   const { compacto = false, metrica = "fte" } = opciones;
   const nombre = nombradorDeVersiones(versiones, escenarios);
   const par = parPorDefecto(versiones.length, opciones.par);
+  const mv = Math.min(opciones.mesesDe ?? 0, Math.max(0, versiones.length - 1));
   const meta = METRICAS_POSICION.find(m => m.id === metrica)!;
 
   /** ⚠️ Por departamento + posición + empleado, NO por `id`: al clonar un
@@ -691,7 +723,7 @@ export function cuadroPosiciones(
   for (const [g, ks] of Array.from(grupos.entries()).sort((a, b) =>
          a[0].localeCompare(b[0]))) {
     const [code, name] = g.split("\u0000");
-    ks.sort((a, b) => (anioPos(0, b) ?? 0) - (anioPos(0, a) ?? 0) || a.localeCompare(b));
+    ks.sort((a, b) => (anioPos(mv, b) ?? 0) - (anioPos(mv, a) ?? 0) || a.localeCompare(b));
     filas.push({ label: `${code} · ${name || "(sin departamento)"}`,
                  es_seccion: true, meses: null });
     const desde = filas.length;
@@ -707,7 +739,7 @@ export function cuadroPosiciones(
                + salarioEnRotulo(p.salary_amount, p.salary_currency),
         nivel: 1,
         formato: meta.formato,
-        meses: DOCE.map(i => serie(0, k)?.[i] ?? null),
+        meses: DOCE.map(i => serie(mv, k)?.[i] ?? null),
         anios: versiones.map((_v, vi) => anioPos(vi, k)),
       });
     }
@@ -716,7 +748,7 @@ export function cuadroPosiciones(
       label: `Total ${code}`,
       es_total: true, formato: meta.formato,
       suma_de: ks.map((_k, i) => desde + i),
-      meses: DOCE.map(i => ks.reduce((t, k) => t + (serie(0, k)?.[i] ?? 0), 0)),
+      meses: DOCE.map(i => ks.reduce((t, k) => t + (serie(mv, k)?.[i] ?? 0), 0)),
       anios: versiones.map((_v, vi) =>
         ks.reduce((t, k) => t + (anioPos(vi, k) ?? 0), 0)),
     });
@@ -725,17 +757,18 @@ export function cuadroPosiciones(
     label: `TOTAL ${meta.rotulo.toUpperCase()}`,
     es_total: true, formato: meta.formato,
     suma_de: subtotales,
-    meses: DOCE.map(i => llaves.reduce((t, k) => t + (serie(0, k)?.[i] ?? 0), 0)),
+    meses: DOCE.map(i => llaves.reduce((t, k) => t + (serie(mv, k)?.[i] ?? 0), 0)),
     anios: versiones.map((_v, vi) =>
       llaves.reduce((t, k) => t + (anioPos(vi, k) ?? 0), 0)),
   });
 
   return armarCuadro({
     titulo: `Planning · Plantilla · ${meta.rotulo} por departamento y posición`,
-    subtitulo: `${nombre(0)} — ${meta.ayuda}. El salario contratado va al lado `
-      + `del nombre, en su moneda: sumarlo mezclaría colones con dólares.`,
-    hoja: `Plantilla ${meta.rotulo}`,
-    anchoRotulo: 52,
+    subtitulo: `Los doce meses son de ${nombre(mv)} — ${meta.ayuda}. El `
+      + `salario contratado va al lado del nombre, en su moneda: sumarlo `
+      + `mezclaría colones con dólares.`,
+    hoja: `Plantilla ${meta.rotulo}${mv ? ` m${mv}` : ""}`,
+    anchoRotulo: 52, mesesDe: mv,
   }, versiones.length, nombre, par, filas);
 }
 
@@ -784,6 +817,8 @@ export function cuadroReparto(
   const { compacto = false } = opciones;
   const nombre = nombradorDeVersiones(datos.versiones, escenarios);
   const par = parPorDefecto(datos.versiones.length, opciones.par);
+  const mv = Math.min(opciones.mesesDe ?? 0,
+                      Math.max(0, datos.versiones.length - 1));
   const meta = REPARTOS.find(r => r.id === tipo)!;
   const deptos = datos.deptos ?? {};
 
@@ -797,8 +832,8 @@ export function cuadroReparto(
     .filter(k => !compacto
                  || datos.resumen.some((_r, vi) =>
                       Math.abs(total12(plata(vi, k)) ?? 0) >= CENTAVO))
-    .sort((a, b) => Math.abs(total12(plata(0, b)) ?? 0)
-                    - Math.abs(total12(plata(0, a)) ?? 0) || a.localeCompare(b));
+    .sort((a, b) => Math.abs(total12(plata(mv, b)) ?? 0)
+                    - Math.abs(total12(plata(mv, a)) ?? 0) || a.localeCompare(b));
 
   const rotulo = (k: string) => (deptos[k] ? `${k} · ${deptos[k]}` : k);
   const filas: FilaPlanning[] = [];
@@ -827,7 +862,7 @@ export function cuadroReparto(
   for (const k of claves) {
     filas.push({
       label: rotulo(k), nivel: 1,
-      meses: DOCE.map(i => plata(0, k)?.[i] ?? null),
+      meses: DOCE.map(i => plata(mv, k)?.[i] ?? null),
       anios: datos.versiones.map((_v, vi) => total12(plata(vi, k))),
     });
   }
@@ -840,7 +875,7 @@ export function cuadroReparto(
   filas.push({
     label: "TOTAL (el reparto tiene que dar cero)", es_total: true,
     suma_de: claves.map((_k, i) => desde + i),
-    meses: DOCE.map(i => claves.reduce((t, k) => t + (plata(0, k)?.[i] ?? 0), 0)),
+    meses: DOCE.map(i => claves.reduce((t, k) => t + (plata(mv, k)?.[i] ?? 0), 0)),
     anios: datos.versiones.map((_v, vi) =>
       claves.reduce((t, k) => t + (total12(plata(vi, k)) ?? 0), 0)),
   });
@@ -858,14 +893,14 @@ export function cuadroReparto(
     for (const k of conPeso) {
       filas.push({
         label: rotulo(k), nivel: 1, formato: "num1",
-        meses: DOCE.map(i => peso(0, k)?.[i] ?? null),
+        meses: DOCE.map(i => peso(mv, k)?.[i] ?? null),
         anios: datos.versiones.map((_v, vi) => total12(peso(vi, k))),
       });
     }
     filas.push({
       label: `TOTAL ${meta.base.toUpperCase()}`, es_total: true, formato: "num1",
       suma_de: conPeso.map((_k, i) => d2 + i),
-      meses: DOCE.map(i => conPeso.reduce((t, k) => t + (peso(0, k)?.[i] ?? 0), 0)),
+      meses: DOCE.map(i => conPeso.reduce((t, k) => t + (peso(mv, k)?.[i] ?? 0), 0)),
       anios: datos.versiones.map((_v, vi) =>
         conPeso.reduce((t, k) => t + (total12(peso(vi, k)) ?? 0), 0)),
     });
@@ -873,11 +908,12 @@ export function cuadroReparto(
 
   return armarCuadro({
     titulo: `Planning · Reparto de ${meta.rotulo} · ${meta.fuente}`,
-    subtitulo: `${nombre(0)} — cuánto recibió cada departamento y con qué peso `
+    subtitulo: `Los doce meses son de ${nombre(mv)} — cuánto recibió cada `
+      + `departamento y con qué peso `
       + `se repartió. La fila en NEGATIVO es el departamento que reparte: su `
       + `crédito contra los que consumen, y por eso el total da cero. El peso `
       + `es el que usó el motor, no uno recalculado acá.`,
-    hoja: `Reparto ${meta.rotulo}`,
-    anchoRotulo: 40,
+    hoja: `Reparto ${meta.rotulo}${mv ? ` m${mv}` : ""}`,
+    anchoRotulo: 40, mesesDe: mv,
   }, datos.versiones.length, nombre, par, filas);
 }

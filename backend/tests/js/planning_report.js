@@ -141,6 +141,30 @@ function auditar(cuadro, etiqueta) {
   }
 }
 
+/* ── 1b · Los doce meses pueden ser de CUALQUIER version ────────────────── */
+//
+// Owner, 2026-10-01: «quiero que metas la opcion de generar un 12 meses de
+// Forecast y Budget 2026».
+//
+// ⚠️ La formula `=SUM(B5:M5)` TIENE que mudarse con la eleccion. Si se queda
+// clavada en la primera columna de año, escribe una suma en una columna cuyos
+// doce sumandos no estan en la hoja: el exportador la descarta en silencio y el
+// reporte pierde su celda mas mirada sin que nada avise.
+for (const mv of [0, 1, 2]) {
+  const cols = P.columnasPlanning(3, (vi) => `v${vi}`, [0, 1], 34, mv);
+  const conFormula = cols
+    .map((c, i) => [c, i])
+    .filter(([c]) => c.suma_cols)
+    .map(([, i]) => i);
+  ok(conFormula.length === 1,
+     `una sola columna de año suma sus meses (mv=${mv}): ${conFormula.length}`);
+  ok(conFormula[0] === 13 + mv,
+     `⚠️ con mv=${mv} la formula va en la columna ${13 + mv} y fue a la `
+     + `${conFormula[0]}`);
+  ok(cols[13 + mv].sub === `v${mv}`,
+     `y esa columna es la de la version ${mv}: ${cols[13 + mv].sub}`);
+}
+
 /* ── 2 · El P&L ─────────────────────────────────────────────────────────── */
 
 const PL = {
@@ -160,6 +184,24 @@ for (const compacto of [false, true]) {
      `el modo compacto saca la fila en cero (${c.filas.length} filas)`);
   ok(c.filas[0].valores.every(v => v === null),
      "el encabezado de sección va SIN números, no en cero");
+}
+
+// Y que el cuadro traiga de verdad los meses de esa version, no solo la
+// formula: un encabezado que dice una cosa sobre numeros de otra es peor que
+// no tener la opcion.
+for (const mv of [0, 1]) {
+  const c = P.cuadroPlanning(PL, ESCENARIOS,
+                             { ambito: "hotel", compacto: true, mesesDe: mv });
+  const rooms = c.filas.find(f => f.label === "Rooms");
+  const esperado = PL.filas[1].series[mv];
+  ok(esperado.every((v, i) => Math.abs(rooms.valores[i] - v) < CENT),
+     `⚠️ con mesesDe=${mv} los doce meses son de la version ${mv}`);
+  // El año de ESA version sigue siendo la suma de esos meses.
+  const suma = esperado.reduce((a, b) => a + b, 0);
+  ok(Math.abs(rooms.valores[12 + mv] - suma) < CENT,
+     `y su año (col ${12 + mv}) es la suma: ${rooms.valores[12 + mv]} vs ${suma}`);
+  ok(c.subtitulo.includes("Los doce meses son de"),
+     "el subtitulo dice de quien son los meses");
 }
 
 /* ── 3 · Las aperturas ──────────────────────────────────────────────────── */

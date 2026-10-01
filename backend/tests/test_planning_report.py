@@ -116,16 +116,42 @@ def test_la_columna_del_ANO_baja_como_formula():
     """`=SUM(B5:M5)`: sus doce sumandos estan en la misma fila, asi que es la
     unica columna del cuadro que se puede escribir sin inventar nada.
 
-    ⚠️ Las otras columnas de ano —las de las versiones comparadas— NO la
-    llevan, y es correcto: sus doce meses no estan en la hoja y la formula no
-    tendria a que apuntar. El exportador la tiraria igual, en silencio.
+    ⚠️ **Y es la de la version que puso los meses, no siempre la primera.** Las
+    otras columnas de ano NO la llevan, y es correcto: sus doce meses no estan
+    en la hoja y la formula no tendria a que apuntar — el exportador la tiraria
+    igual, en silencio.
     """
     lib = _lib()
     assert "suma_cols: DOCE.map((_m, i) => 1 + i)" in lib
-    # La de las versiones comparadas se arma aparte y sin `suma_cols`.
-    cols = lib[lib.index("export function columnasPlanning("):]
-    comparadas = cols[cols.index("...otras.map("):]
-    assert "suma_cols" not in comparadas.split("...(par")[0]
+    assert "...(vi === mv ? { suma_cols:" in lib, (
+        "la formula quedo clavada en la primera columna de ano: con los meses "
+        "de otra version apunta a sumandos que no estan en la hoja")
+
+
+def test_los_doce_meses_pueden_ser_de_CUALQUIER_version():
+    """Owner, 2026-10-01: *«quiero que metas la opcion de generar un 12 meses de
+    Forecast y Budget 2026»*.
+
+    El ano de cada version siempre esta; esto elige de cual se abre la
+    estacionalidad. Vale para las SIETE vistas, porque todas pasan por
+    `armarCuadro`.
+    """
+    lib = _lib()
+    assert "mesesDe?: number;" in lib
+    # Los siete constructores lo usan: ninguno quedo leyendo la version 0 fija.
+    for constructor in ("cuadroPlanning", "cuadroApertura", "cuadroCheckbook",
+                        "cuadroPosiciones", "cuadroReparto"):
+        cuerpo = lib[lib.index(f"export function {constructor}("):]
+        cuerpo = cuerpo.split("export function ")[1]
+        assert "opciones.mesesDe ?? 0" in cuerpo, (
+            f"{constructor} sigue abriendo siempre la primera version")
+    pagina = _pagina()
+    assert "setMesesDe(" in pagina
+    assert "ids[Math.min(mesesDe, ids.length - 1)]" in pagina, (
+        "las estadisticas siguen pidiendo los doce meses de la primera version: "
+        "abririan un ano distinto que las otras seis hojas")
+    assert "if (mesesDe >= ids.length) setMesesDe(0);" in pagina, (
+        "sacar una version de la comparacion deja la eleccion colgada")
 
 
 def test_la_variacion_resta_las_dos_columnas_de_ANO():
@@ -258,8 +284,10 @@ def test_cada_columna_declara_su_version():
     """Tres columnas que dicen «Full Year» no se distinguen. La segunda linea de
     la cabecera lleva el nombre de la version."""
     lib = _lib()
-    assert 'label: "Full Year", sub: nombre(0)' in lib
     assert 'label: "Full Year", sub: nombre(vi)' in lib
+    cols = lib[lib.index("export function columnasPlanning("):]
+    assert "Array.from({ length: cuantas }, (_, vi) =>" in cols, (
+        "las columnas de ano se dejaron de armar una por version")
 
 
 def test_el_checkbook_se_ABRE_en_sub_lineas():
