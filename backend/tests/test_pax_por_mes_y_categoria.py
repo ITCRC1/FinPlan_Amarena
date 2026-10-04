@@ -184,8 +184,8 @@ def test_la_grilla_se_pega_desde_EXCEL():
     la celda se ve igual en los dos casos.
     """
     g = GRILLA.read_text(encoding="utf-8")
-    assert "onPaste={e => pegar(" in g
-    assert "celdasPegadas(" in g and "repartirPegado(" in g
+    assert "onPaste={e => manejarPegado(" in g
+    assert "repartirPegado(" in g
     assert "export const aNumero = numeroDeExcel;" in g, (
         "el tecleo volvio a tener su propio parser, distinto del del pegado")
 

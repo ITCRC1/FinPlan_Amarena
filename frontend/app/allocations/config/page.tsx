@@ -1,6 +1,7 @@
 "use client";
 import BloqueSeguro from "@/components/BloqueSeguro";
 import { borrarFilaReparto } from "@/lib/api";
+import { celdasPegadas, numeroDeExcel } from "@/lib/pegarGrilla";
 import { usePlanningScenarioConUrl, sharedScenarioOr } from "@/lib/planningScenario";
 import { elegir } from "@/lib/escenarioPreferido";
 import { useTranslations } from "next-intl";

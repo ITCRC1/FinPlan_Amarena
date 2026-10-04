@@ -30,7 +30,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { getPaxGrid, setPaxGrid, rtLabel, type PaxGrid } from "@/lib/api";
-import { celdasPegadas, repartirPegado, numeroDeExcel } from "@/lib/pegarGrilla";
+import { manejarPegado, repartirPegado, numeroDeExcel } from "@/lib/pegarGrilla";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -115,12 +115,8 @@ export default function GrillaPax({
    * guardado lo rechaza— y pisar la celda de al lado para «no perder» el valor
    * correría todo el bloque un mes. Se dice cuántas quedaron fuera.
    */
-  function pegar(fi: number, mi: number, e: React.ClipboardEvent) {
+  function pegar(fi: number, mi: number, bloque: string[][]) {
     if (!grid || bloqueado) return;
-    const bloque = celdasPegadas(e.clipboardData.getData("text"));
-    if (!bloque) return;        // una celda sola: que la escriba el navegador
-    e.preventDefault();
-
     const nuevos: Record<string, string> = {};
     const nuevasSucias = new Set(sucias);
     let saltadas = 0;
@@ -240,7 +236,7 @@ export default function GrillaPax({
                           edición no llega nunca a guardarse. */}
                       <input className="fin-input mono" type="text" inputMode="decimal"
                         value={borr[k] ?? ""} disabled={bloqueado}
-                        onPaste={e => pegar(i, c.month - 1, e)}
+                        onPaste={e => manejarPegado(e, b => pegar(i, c.month - 1, b))}
                         onFocus={e => e.target.select()}
                         onChange={e => {
                           setBorr(b => ({ ...b, [k]: e.target.value }));

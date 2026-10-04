@@ -2,6 +2,7 @@
 import { useMesesCerrados, CELDA_CERRADA, CABECERA_CERRADA, TITULO_CERRADO }
   from "@/lib/mesesCerrados";
 import { usePlanningScenario, usePlanningScenarioConUrl, sharedScenarioOr } from "@/lib/planningScenario";
+import { manejarPegado, numeroDeExcel, repartirPegado } from "@/lib/pegarGrilla";
 import { elegir } from "@/lib/escenarioPreferido";
 import { useTranslations } from "next-intl";
 import { money2 } from "@/lib/fmt";
@@ -488,6 +489,30 @@ function LineBlock({
 }) {
   const t = useTranslations("nonop");
   const tc = useTranslations("common");
+
+  /**
+   * Un bloque de Excel pegado: hacia la derecha y hacia abajo desde la celda.
+   *
+   * Owner, 2026-10-04: *«asegurate que todo el tab de planning de todas las
+   * finplan acepten copy paste»*.
+   *
+   * ⚠️ Escribe en el BORRADOR, igual que teclear: esta pantalla guarda con su
+   * botón, no celda por celda. Mandarlo al servidor acá saltearía el Guardar.
+   *
+   * ⚠️ Los meses CERRADOS se saltean: su celda es de sólo lectura porque el mes
+   * ya tiene actuales, y pegarle encima escribiría algo que el backend rechaza.
+   *
+   * ⚠️ Y **no se sale de esta línea del reporte**: las filas de otra línea están
+   * en otra tabla, y seguir de largo escribiría donde nadie estaba mirando.
+   */
+  function pegarDesde(ri: number, mi: number, bloque: string[][]) {
+    repartirPegado(bloque, ri, mi, lineRows.length, MONTH_KEYS.length,
+      (f, c, valor) => {
+        if (cerrado(c + 1)) return;
+        onSetMonth(lineRows[f].key, MONTH_KEYS[c], String(numeroDeExcel(valor)));
+      });
+  }
+
   // Driver lines: read-only reference (computed by the engine).
   if (line.kind === "driver") {
     return (
@@ -530,8 +555,11 @@ function LineBlock({
         <td></td>
       </tr>
 
+      {/* ⚠️ El pegado escribe en el BORRADOR, igual que teclear: esta pantalla
+          guarda con su boton, no celda por celda. Mandarlo al servidor acá
+          saltearia el Guardar y rompería el «¿seguro?» de salir sin guardar. */}
       {/* Detail rows */}
-      {lineRows.map(r => {
+      {lineRows.map((r, ri) => {
         const rowAnnual = MONTH_KEYS.reduce((s, mk) => s + (parseFloat(r.months[mk]) || 0), 0);
         return (
           <tr key={r.key}>
@@ -556,6 +584,7 @@ function LineBlock({
                   value={r.months[mk]}
                   readOnly={cerrado(mi + 1)}
                   onChange={e => onSetMonth(r.key, mk, e.target.value)}
+                  onPaste={e => manejarPegado(e, b => pegarDesde(ri, mi, b))}
                   className="fin-input"
                   style={{ width: 66, textAlign: "right",
                            ...(cerrado(mi + 1) ? CELDA_CERRADA : {}) }}

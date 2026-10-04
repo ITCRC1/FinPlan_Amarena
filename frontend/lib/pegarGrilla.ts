@@ -106,3 +106,42 @@ export function repartirPegado(
   });
   return puestas;
 }
+
+/**
+ * El enganche de una celda: `onPaste={e => manejarPegado(e, b => pegar(f, m, b))}`.
+ *
+ * Deja pasar el pegado de UNA celda —ésa la escribe el navegador y lo hace
+ * bien— e intercepta el de un bloque. Una línea por grilla, para que agregar el
+ * pegado a una pantalla nueva no sea una decisión sino un reflejo.
+ */
+export function manejarPegado(
+  e: { clipboardData: { getData: (t: string) => string }; preventDefault: () => void },
+  alPegar: (bloque: string[][]) => void,
+): void {
+  const bloque = celdasPegadas(e.clipboardData.getData("text"));
+  if (!bloque) return;
+  e.preventDefault();
+  alPegar(bloque);
+}
+
+/**
+ * El caso simple: una grilla de UNA fila de doce meses, en estado local.
+ *
+ * Toma la **primera fila** del bloque y la reparte desde la celda donde se
+ * pegó. Las demás filas se descartan: en una grilla de una fila no hay a dónde
+ * mandarlas, y repartirlas sobre los renglones de al lado —que son otra cosa,
+ * otro estado y a veces otra unidad— escribiría donde nadie pidió.
+ */
+export function pegarEnFila(
+  bloque: string[][], desde: number, largo: number,
+  poner: (i: number, valor: string) => void,
+): number {
+  let puestas = 0;
+  (bloque[0] ?? []).forEach((valor, dc) => {
+    const i = desde + dc;
+    if (i < 0 || i >= largo) return;
+    poner(i, valor.trim());
+    puestas += 1;
+  });
+  return puestas;
+}
