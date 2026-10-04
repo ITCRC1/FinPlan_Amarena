@@ -43,6 +43,7 @@ PAGINA = FRONT / "app/revenue/pax/page.tsx"
 GRILLA = FRONT / "app/revenue/pax/GrillaPax.tsx"
 INVENTARIO = FRONT / "app/revenue/inventory/page.tsx"
 ARNES = pathlib.Path(__file__).parent / "js/pegar_grilla.js"
+ARNES_DOM = pathlib.Path(__file__).parent / "js/pegado_en_la_grilla.js"
 
 
 def _api() -> str:
@@ -219,5 +220,31 @@ def test_cada_numero_de_excel_entra_como_EL_QUE_ES():
     if not (FRONT / "node_modules/typescript").exists():
         pytest.skip("falta node_modules del frontend")
     r = subprocess.run(["node", str(ARNES)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "0 fallos" in r.stdout, r.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="no hay node")
+def test_el_pegado_esta_ENGANCHADO_de_verdad():
+    """⚠️ Que el parser este bien no dice que el pegado funcione.
+
+    Owner, 2026-10-04, despues de la primera correccion: *«trate de hacer copy
+    paste en pax y sigue igual»*. Era el bundle viejo todavia servido — pero no
+    habia forma de SABERLO leyendo el codigo, y el camino para averiguarlo fue
+    montar el componente en un DOM y dispararle un paste.
+
+    Este arnes comprueba lo que ningun grep alcanza: que el `onPaste` este en el
+    input, que React lo reciba, que cada valor caiga en SU celda —no en la
+    primera, que es el defecto—, que la celda sin tarifa se saltee sin correr el
+    bloque, y que `2,1` llegue al guardado como 2.1 y no como 21.
+
+    Necesita `jsdom`, que no esta en el repo: sin el se saltea. Es diagnostico,
+    no barrera.
+    """
+    if not (FRONT / "node_modules/react-dom").exists():
+        pytest.skip("falta node_modules del frontend")
+    r = subprocess.run(["node", str(ARNES_DOM)], capture_output=True, text=True)
+    if r.returncode == 77:
+        pytest.skip("falta jsdom: `npm i jsdom` en algun lado del NODE_PATH")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "0 fallos" in r.stdout, r.stdout
