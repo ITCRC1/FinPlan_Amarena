@@ -30,15 +30,17 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { getPaxGrid, setPaxGrid, rtLabel, type PaxGrid } from "@/lib/api";
+import { celdasPegadas, repartirPegado, numeroDeExcel } from "@/lib/pegarGrilla";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-/** `2,1` y `2.1` son el mismo número. El owner escribe con coma. */
-export const aNumero = (v: string): number => {
-  const n = parseFloat(String(v).trim().replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-};
+/** `2,1` y `2.1` son el mismo número. El owner escribe con coma.
+ *
+ *  ⚠️ Es el MISMO parser que usa el pegado. Con uno para teclear y otro para
+ *  pegar, el mismo `2,1` puede entrar como 2,1 por un camino y como 21 por el
+ *  otro — y la celda se ve igual en los dos casos. */
+export const aNumero = numeroDeExcel;
 
 /** Un pax se lee con un decimal: `2,0` · `2,1`. Dos serían ruido y cero
  *  escondería justo la diferencia que se está cargando. */
@@ -100,6 +102,47 @@ export default function GrillaPax({
     }
     return s;
   }, [grid]);
+
+  /**
+   * Pegar un bloque de Excel desde la celda en la que se está parado.
+   *
+   * Owner, 2026-10-04: *«modifica para que yo pueda hacer un copy paste desde
+   * excel, rate y todo queda en la primera celda»*. Sin esto, los doce meses
+   * entraban como un texto largo dentro de la primera celda.
+   *
+   * ⚠️ **Las celdas sin tarifa se saltean y se cuentan.** Esa categoría no está
+   * en el presupuesto de ese mes; escribirle un pax no serviría de nada —el
+   * guardado lo rechaza— y pisar la celda de al lado para «no perder» el valor
+   * correría todo el bloque un mes. Se dice cuántas quedaron fuera.
+   */
+  function pegar(fi: number, mi: number, e: React.ClipboardEvent) {
+    if (!grid || bloqueado) return;
+    const bloque = celdasPegadas(e.clipboardData.getData("text"));
+    if (!bloque) return;        // una celda sola: que la escriba el navegador
+    e.preventDefault();
+
+    const nuevos: Record<string, string> = {};
+    const nuevasSucias = new Set(sucias);
+    let saltadas = 0;
+    repartirPegado(bloque, fi, mi, grid.filas.length, 12, (f, c, valor) => {
+      const fila = grid.filas[f];
+      const k = `${fila.room_type_id}:${c + 1}`;
+      if (!conTarifa.has(k)) { saltadas += 1; return; }
+      // Se guarda el texto tal cual vino: la celda muestra lo que se pegó y
+      // `aNumero` lo interpreta igual que si se hubiera tecleado.
+      nuevos[k] = valor.trim();
+      nuevasSucias.add(k);
+    });
+
+    setBorr(b => ({ ...b, ...nuevos }));
+    setSucias(nuevasSucias);
+    setAviso(
+      `Pegadas ${Object.keys(nuevos).length} celdas`
+      + (saltadas ? ` · ${saltadas} se saltearon: esa categoría no tiene `
+                    + `tarifa en ese mes` : "")
+      + ". Todavía hay que guardar.");
+    setError(null);
+  }
 
   async function guardar() {
     if (!grid) return;
@@ -197,6 +240,7 @@ export default function GrillaPax({
                           edición no llega nunca a guardarse. */}
                       <input className="fin-input mono" type="text" inputMode="decimal"
                         value={borr[k] ?? ""} disabled={bloqueado}
+                        onPaste={e => pegar(i, c.month - 1, e)}
                         onFocus={e => e.target.select()}
                         onChange={e => {
                           setBorr(b => ({ ...b, [k]: e.target.value }));

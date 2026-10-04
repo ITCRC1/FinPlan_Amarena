@@ -31,6 +31,10 @@ nueva, y de ahi en adelante manda la grilla.
 """
 import pathlib
 import re
+import shutil
+import subprocess
+
+import pytest
 
 RAIZ = pathlib.Path(__file__).resolve().parents[2]
 FRONT = RAIZ / "frontend"
@@ -38,6 +42,7 @@ API = RAIZ / "backend/app/api/revenue_api.py"
 PAGINA = FRONT / "app/revenue/pax/page.tsx"
 GRILLA = FRONT / "app/revenue/pax/GrillaPax.tsx"
 INVENTARIO = FRONT / "app/revenue/inventory/page.tsx"
+ARNES = pathlib.Path(__file__).parent / "js/pegar_grilla.js"
 
 
 def _api() -> str:
@@ -124,7 +129,10 @@ def test_la_pantalla_acepta_DECIMALES_con_coma():
     """
     g = GRILLA.read_text(encoding="utf-8")
     assert 'type="text"' in g and 'inputMode="decimal"' in g
-    assert 'replace(",", ".")' in g, "la coma dejo de convertirse"
+    # La coma se interpreta en el parser COMPARTIDO, que es el mismo del pegado.
+    pegar = (FRONT / "lib/pegarGrilla.ts").read_text(encoding="utf-8")
+    assert "export function numeroDeExcel(" in pegar
+    assert 's.replace(",", ".")' in pegar, "la coma dejo de convertirse"
     # ⚠️ Se mira el JSX, no el comentario que explica por que no se usa.
     jsx = g[g.index("export default function GrillaPax("):]
     assert 'type="number"' not in jsx
@@ -161,3 +169,55 @@ def test_el_INVENTARIO_ya_no_pide_un_pax_que_no_alimenta_nada():
     for muerto in ("Pax min", "Pax max", "pax_min", "pax_max"):
         assert muerto not in inv, f"el inventario sigue pidiendo {muerto}"
     assert "/revenue/pax" in bruto, "no quedo el enlace a donde se carga ahora"
+
+
+def test_la_grilla_se_pega_desde_EXCEL():
+    """Owner, 2026-10-04: *«modifica para que yo pueda hacer un copy paste desde
+    excel, rate y todo queda en la primera celda»* · *«es pax»*.
+
+    Sin `onPaste`, los doce meses entran como un texto largo DENTRO de la
+    primera celda y hay que teclearlos de nuevo uno por uno.
+
+    ⚠️ Y el pegado usa EL MISMO parser que el tecleo. Con uno para cada camino,
+    el mismo `2,1` puede entrar como 2,1 por un lado y como 21 por el otro — y
+    la celda se ve igual en los dos casos.
+    """
+    g = GRILLA.read_text(encoding="utf-8")
+    assert "onPaste={e => pegar(" in g
+    assert "celdasPegadas(" in g and "repartirPegado(" in g
+    assert "export const aNumero = numeroDeExcel;" in g, (
+        "el tecleo volvio a tener su propio parser, distinto del del pegado")
+
+
+def test_el_pegado_SALTEA_las_celdas_sin_tarifa():
+    """⚠️ No las pisa ni corre el bloque.
+
+    Esa categoria no esta en el presupuesto de ese mes: escribirle un pax no
+    serviria —el guardado lo rechaza— y mover el valor a la celda de al lado
+    para «no perderlo» correria todo el bloque un mes, que es peor que perderlo.
+    Se saltea y se dice cuantas quedaron fuera.
+    """
+    g = GRILLA.read_text(encoding="utf-8")
+    cuerpo = g[g.index("function pegar("):g.index("async function guardar(")]
+    assert "if (!conTarifa.has(k)) { saltadas += 1; return; }" in cuerpo
+    assert "se saltearon" in cuerpo
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="no hay node")
+def test_cada_numero_de_excel_entra_como_EL_QUE_ES():
+    """⚠️ Lo unico que no se puede comprobar leyendo el codigo.
+
+    `2,1` tiene que entrar como 2,1 y `1,234` como 1234: la misma coma, dos
+    significados, y entre los dos hay un factor de diez en el pax — que
+    multiplica los huespedes y cuatro lineas de ingreso. Un error aca no rompe
+    nada: escribe un presupuesto equivocado que se ve perfectamente bien.
+
+    Se midio que FALLA: borrando todas las comas —que es lo que hace hoy el
+    `num()` de la pantalla de rack rates— se caen 5 de las 31 comprobaciones,
+    entre ellas `2,1 → 21`.
+    """
+    if not (FRONT / "node_modules/typescript").exists():
+        pytest.skip("falta node_modules del frontend")
+    r = subprocess.run(["node", str(ARNES)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "0 fallos" in r.stdout, r.stdout
