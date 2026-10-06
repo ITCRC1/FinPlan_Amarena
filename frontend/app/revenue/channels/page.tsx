@@ -9,8 +9,8 @@ import { HOTEL_ID } from "@/lib/hotel";
 import { bajarCuadros, type FilaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
 import {
-  getScenarios, getChannelsConfig,
-  type Scenario,
+  getScenarios, getChannelsConfig, getMixer,
+  type Scenario, type MixerVista,
 } from "@/lib/api";
 
 const MONTHS_FALLBACK = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -23,6 +23,11 @@ function pct(v: string): number {
 }
 // fracción "0.28" → "28" limpio
 function toPct(s: string): string { return String(parseFloat((parseFloat(s) * 100 || 0).toFixed(4))); }
+const usd = (v: number) =>
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+/** Dos Net Factor son el mismo si difieren menos de un diezmilésimo: por debajo
+ *  de eso es ruido de redondeo, no una divergencia. */
+const MISMO_NF = 0.0001;
 
 type SubTab = "mix" | "derivado";
 
@@ -48,6 +53,13 @@ export default function ChannelsPage() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [scenarioId, setScenarioId] = usePlanningScenarioConUrl();
   const [chs, setChs] = useState<ChEdit[]>([]);
+  /** El mix VIVO del sub-tab Mix, para cotejarlo contra lo guardado.
+   *  Esta grilla muestra `sales_channel_configs` — lo que el motor usa — y el
+   *  Mix propone otra cosa hasta que alguien aprieta APLICAR. Las dos pueden
+   *  estar divergidas por meses sin que nada avise: a Amarena le pasó con un
+   *  Net Factor de plantilla (TA 55% / OTA 10%) que nadie reemplazó, y el
+   *  0.8325 que producía se veía lo bastante razonable como para no mirarlo. */
+  const [vivo, setVivo] = useState<MixerVista | null>(null);
   const [seeded, setSeeded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
@@ -74,11 +86,17 @@ export default function ChannelsPage() {
   const load = useCallback(async (sid: string) => {
     setLoading(true); setMsg(null);
     try {
-      const res = await getChannelsConfig(sid);
+      const [res, mx] = await Promise.all([
+        getChannelsConfig(sid),
+        // Si el mixer falla, la grilla se dibuja igual: el cotejo es un extra,
+        // no un requisito para ver lo que el motor usa.
+        getMixer(sid).catch(() => null),
+      ]);
       setChs(res.channels.map(c => ({
         channel: c.channel, label: c.label,
         mix: c.mix.map(toPct), comm: c.comm.map(toPct),
       })));
+      setVivo(mx);
       setSeeded(res.seeded);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : tc("error"));
@@ -175,6 +193,39 @@ export default function ChannelsPage() {
       <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 6, marginBottom: 12 }}>
         {t.rich("derivedIntro", { b: (c: React.ReactNode) => <b>{c}</b> })}
       </p>
+
+      {(() => {
+        if (!vivo || vivo.net_factor_hoy == null) return null;
+        const hoy = vivo.net_factor_hoy, nuevo = vivo.net_factor_nuevo;
+        if (Math.abs(hoy - nuevo) <= MISMO_NF) {
+          return <p style={{ color: "var(--accent-green, #1A7F4B)", fontSize: 12.5, marginBottom: 10 }}>
+            {t("freshOk")}</p>;
+        }
+        const dif = vivo.impacto?.delta_usd ?? null;
+        const dpc = vivo.impacto?.delta_pct ?? null;
+        return (
+          <div style={{ border: "1px solid var(--accent-red, #C0392B)", borderRadius: 6,
+            background: "rgba(192,57,43,0.06)", padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: "var(--accent-red, #C0392B)", marginBottom: 4 }}>
+              {t("staleTitle")}</div>
+            <div style={{ marginBottom: dif != null ? 4 : 0 }}>
+              {t.rich("staleBody", { b: (c: React.ReactNode) => <b>{c}</b>,
+                hoy: hoy.toFixed(4), nuevo: nuevo.toFixed(4) })}
+            </div>
+            {dif != null && (
+              <div>{t.rich("staleMoney", { b: (c: React.ReactNode) => <b>{c}</b>,
+                dif: usd(dif), pct: dpc != null ? `${(dpc * 100).toFixed(1)}%` : "—" })}</div>
+            )}
+            {vivo.manda === "tarifas" && (
+              <div style={{ marginTop: 6, color: "var(--accent-red, #C0392B)" }}>{t("staleRates")}</div>
+            )}
+            <button onClick={() => setSubtab("mix")}
+              style={{ marginTop: 8, padding: "5px 12px", fontSize: 12.5, cursor: "pointer",
+                border: "1px solid var(--brand)", borderRadius: 4, background: "transparent",
+                color: "var(--brand)", fontWeight: 600 }}>{t("staleGo")}</button>
+          </div>
+        );
+      })()}
 
       {seeded && <p style={{ color: "var(--accent-amber, #856404)", fontSize: 12, marginBottom: 8 }}>{t("defaults")}</p>}
       {msg && <div style={{ color: "var(--accent-green, #1A7F4B)", fontSize: 13, marginBottom: 8 }}>{msg}</div>}

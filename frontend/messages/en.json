@@ -1781,13 +1781,19 @@
       "advancedShow": "More options",
       "advancedHide": "Hide options"
     },
-    "derivedIntro": "<b>This grid is not edited: it is the result.</b> It comes from the sub-channels in the <b>Mix</b> sub-tab, grouped by where each one rolls into. To change something, change it there and apply it — that way the number you see here is always the one the engine uses. Net Rate = Rack Rate × Net Factor.",
+    "derivedIntro": "<b>This grid is not edited: it is what the engine uses TODAY.</b> These are the scenario's stored rows, not a live roll-up of the <b>Mix</b> sub-tab: they only change when <b>APPLY</b> is pressed there. Net Rate = Rack Rate × Net Factor.",
     "excelFailed": "The Excel file could not be downloaded",
     "excelHint": "Downloads the whole table — mix, commission and net factor per month",
     "goToMix": "Go to the Mix to change it →",
     "tabDerived": "Result per channel",
     "tabMix": "Mix — this is where planning happens",
-    "xlsTitle": "Sales Channels — Mix and Commission per month"
+    "xlsTitle": "Sales Channels — Mix and Commission per month",
+    "staleTitle": "This is NOT what the Mix says",
+    "staleBody": "The engine is using a Net Factor of <b>{hoy}</b>. The mix loaded in the <b>Mix</b> sub-tab gives <b>{nuevo}</b>. Until it is applied, what you see above is the old one.",
+    "staleMoney": "That is <b>{dif}</b> of rooms revenue ({pct}).",
+    "staleRates": "⚠ Today the factor comes from the stored net RATES, not from the mix. Changing the mix moves nothing until APPLY regenerates the rates.",
+    "staleGo": "Go to Mix and apply →",
+    "freshOk": "Matches the Mix: what you see here is what the engine uses."
   },
   "inventory": {
     "addCategory": "+ Add category",
