@@ -1,0 +1,68 @@
+{
+  "_nota": "Los siete sub-canales de Amarena. Mix = promedio del año ponderado por la venta de cada mes del BUDGET Working 2027; comisiones cerradas por el owner el 2026-10-05. El Direct va en 0 porque su costo ya esta en el OPEX. Net Factor 0.8684.",
+  "canales": [
+    {
+      "code": "B2B",
+      "nombre": "B2B — agency / DMC / TO",
+      "comision_pct": 0.3,
+      "entrada": "Travel Agent",
+      "orden": 1,
+      "mix_pct": 0.0992,
+      "rueda_a": "TA"
+    },
+    {
+      "code": "DIR_WEB",
+      "nombre": "Direct — website / booking engine",
+      "comision_pct": 0.0,
+      "entrada": "Website",
+      "orden": 2,
+      "mix_pct": 0.2303,
+      "rueda_a": "DIRECT"
+    },
+    {
+      "code": "DIR_TEL",
+      "nombre": "Direct — phone / email / social",
+      "comision_pct": 0.0,
+      "entrada": "Direct Client",
+      "orden": 3,
+      "mix_pct": 0.2137,
+      "rueda_a": "DIRECT"
+    },
+    {
+      "code": "CRC_DIRECT",
+      "nombre": "Costa Rica Collection direct",
+      "comision_pct": 0.1,
+      "entrada": "",
+      "orden": 4,
+      "mix_pct": 0.0958,
+      "rueda_a": "CRC"
+    },
+    {
+      "code": "DIR_GROUPS",
+      "nombre": "Direct groups",
+      "comision_pct": 0.2,
+      "entrada": "",
+      "orden": 5,
+      "mix_pct": 0.0523,
+      "rueda_a": "GROUPS"
+    },
+    {
+      "code": "EXEC_DIRECT",
+      "nombre": "Executive personal direct",
+      "comision_pct": 0.0,
+      "entrada": "",
+      "orden": 6,
+      "mix_pct": 0.0166,
+      "rueda_a": "DIRECT"
+    },
+    {
+      "code": "OTA",
+      "nombre": "OTA",
+      "comision_pct": 0.28,
+      "entrada": "OTA",
+      "orden": 7,
+      "mix_pct": 0.2921,
+      "rueda_a": "OTA"
+    }
+  ]
+}
