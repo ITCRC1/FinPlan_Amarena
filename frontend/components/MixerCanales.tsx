@@ -109,7 +109,21 @@ function preferido(escs: EscenarioMixer[]): EscenarioMixer | undefined {
     ?? gobernados[0] ?? escs[0];
 }
 
-export default function MixerCanales() {
+export default function MixerCanales({ scenarioId }: { scenarioId?: string } = {}) {
+  /** ⚠️ **Un solo selector de escenario por pantalla.**
+   *
+   *  Owner, 2026-10-06, con las dos cajas circuladas en rojo: *«fija esto en
+   *  budget 2027»*.
+   *
+   *  Esta pantalla tenía DOS: el de la página y el de acá, independientes. Se
+   *  veía «BUDGET Final 2026 🔒» arriba y «BUDGET Working 2026» abajo al mismo
+   *  tiempo. Cambiar el de arriba no movía la grilla — y el botón «Pasar al
+   *  checkbook», que vive arriba, empujaba al escenario del selector de arriba
+   *  mientras la persona editaba el de abajo. Uno bloqueado y el otro no, sin
+   *  que nada lo dijera.
+   *
+   *  Con `scenarioId` manda la página y los selectores de acá se esconden. Sin
+   *  él —si alguien monta el mixer suelto— sigue eligiendo solo, como antes. */
   const t = useTranslations("channels");
   const tc = useTranslations("common");
   const tm = useTranslations("months");
@@ -160,13 +174,20 @@ export default function MixerCanales() {
     (async () => {
       try {
         const escs = await cargarEscenarios();
-        const prefe = preferido(escs);
-        if (prefe) setEscId(prefe.id);
+        // El de la página manda. El preferido sólo decide cuando no lo hay.
+        if (scenarioId) setEscId(scenarioId);
+        else {
+          const prefe = preferido(escs);
+          if (prefe) setEscId(prefe.id);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : tc("error"));
       } finally { setCargando(false); }
     })();
-  }, [cargarEscenarios]);
+  }, [cargarEscenarios, scenarioId]);
+
+  // Y lo sigue cuando cambia, no sólo al montar.
+  useEffect(() => { if (scenarioId) setEscId(scenarioId); }, [scenarioId]);
 
   const cargarVista = useCallback(async (sid: string, m: number) => {
     if (!sid) return;
@@ -469,12 +490,14 @@ export default function MixerCanales() {
       <div style={CAJA}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
           marginBottom: 12 }}>
-          <select value={escId} onChange={e => setEscId(e.target.value)}
-                  style={{ ...BTN, fontWeight: 500, minWidth: 240 }}>
-            {escenarios.map(e => (
-              <option key={e.id} value={e.id}>{e.nombre}</option>
-            ))}
-          </select>
+          {!scenarioId && (
+            <select value={escId} onChange={e => setEscId(e.target.value)}
+                    style={{ ...BTN, fontWeight: 500, minWidth: 240 }}>
+              {escenarios.map(e => (
+                <option key={e.id} value={e.id}>{e.nombre}</option>
+              ))}
+            </select>
+          )}
           <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{t("mixer.twelveTitle")}</h2>
         </div>
         <GrillaMixDoce
@@ -493,6 +516,7 @@ export default function MixerCanales() {
       {/* ── El mixer ───────────────────────────────────────────────────── */}
       <div style={CAJA}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+          {!scenarioId && (
           <select value={escId} onChange={e => setEscId(e.target.value)}
                   style={{ ...BTN, fontWeight: 500, minWidth: 240 }}>
             {escenarios.map(e => (
@@ -501,6 +525,7 @@ export default function MixerCanales() {
               </option>
             ))}
           </select>
+          )}
           <select value={mes} onChange={e => setMes(Number(e.target.value))}
                   style={{ ...BTN, fontWeight: 500 }}>
             {MESES.map((m, i) => <option key={m} value={i}>{m}</option>)}

@@ -78,7 +78,7 @@ export default function ChannelsPage() {
       )}
 
       <div style={{ marginTop: 14 }}>
-        <MixerCanales />
+        <MixerCanales scenarioId={scenarioId} />
       </div>
     </div>
   );
