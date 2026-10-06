@@ -1779,7 +1779,11 @@
       "twelveSaved": "Guardado: {n} filas.",
       "rollupHelp": "Mix / comisión. El cubo es la suma del mix de sus sub-canales y el promedio de su comisión ponderado por ese mix — no el promedio simple.",
       "advancedShow": "Más opciones",
-      "advancedHide": "Ocultar opciones"
+      "advancedHide": "Ocultar opciones",
+      "baseOnlyTitle": "Esto es el MIX BASE, no el de este escenario",
+      "baseOnlyBody": "Las doce columnas de arriba tienen el mix real de <b>{esc}</b>, mes a mes. Esta tabla está en <b>Anual</b> y ninguna de sus filas tiene excepción, así que muestra la <b>base</b>: lo que hereda un escenario nuevo. Por eso los números no coinciden.",
+      "baseOnlyFactor": "Net Factor de la base <b>{base}</b> · del escenario <b>{esc}</b>.",
+      "baseOnlyHint": "Para ver o cambiar el de este escenario, use la grilla de los doce meses."
     },
     "derivedIntro": "<b>Esta grilla no se edita: es lo que el motor usa HOY.</b> Son las filas guardadas del escenario, no un cálculo en vivo del sub-tab <b>Mix</b>: solo cambian cuando se aprieta <b>APLICAR</b> ahí. Net Rate = Rack Rate × Net Factor.",
     "excelFailed": "No se pudo bajar el Excel",

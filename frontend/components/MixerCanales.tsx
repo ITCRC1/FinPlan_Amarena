@@ -558,6 +558,37 @@ export default function MixerCanales({ scenarioId }: { scenarioId?: string } = {
           </p>
         )}
 
+        {/* ⚠️ **La misma pantalla mostrando dos mixes distintos.**
+         *
+         *  Owner, 2026-10-06: *«corrige todo lo de abajo de este tab... haz los
+         *  cambios necesarios para que se lea bien»*, con las celdas en rojo.
+         *
+         *  Arriba estaban los doce meses de BUDGET Working 2027 —8, 21, 18…— y
+         *  acá abajo 55, 35, 10. Los dos correctos: esta tabla estaba en
+         *  «Anual» y, sin excepciones anuales cargadas, cae a la BASE. Lo
+         *  único que lo decia era un «mix base» diminuto en la última columna.
+         *
+         *  Es el mismo modo de falla de todo este módulo: dos números ciertos
+         *  que no hablan del mismo objeto, y nada que lo diga. */}
+        {mes === 0 && subcanales.length > 0
+          && subcanales.every(c => c.origen === "base") && (
+          <div style={{ border: "1px solid var(--accent-amber, #B8860B)", borderRadius: 6,
+            background: "rgba(184,134,11,0.07)", padding: "10px 14px", marginBottom: 12,
+            fontSize: 13 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("mixer.baseOnlyTitle")}</div>
+            <div>{t.rich("mixer.baseOnlyBody", { ...b, esc: escActual?.nombre ?? "" })}</div>
+            {nfHoy !== null && (
+              <div style={{ marginTop: 4 }}>
+                {t.rich("mixer.baseOnlyFactor", { ...b,
+                  base: nfNuevo.toFixed(4), esc: nfHoy.toFixed(4) })}
+              </div>
+            )}
+            <div style={{ marginTop: 4, color: "var(--text-secondary)" }}>
+              {t("mixer.baseOnlyHint")}
+            </div>
+          </div>
+        )}
+
         <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
