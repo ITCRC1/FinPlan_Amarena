@@ -1787,13 +1787,7 @@
     "goToMix": "Go to the Mix to change it →",
     "tabDerived": "Result per channel",
     "tabMix": "Mix — this is where planning happens",
-    "xlsTitle": "Sales Channels — Mix and Commission per month",
-    "staleTitle": "This is NOT what the Mix says",
-    "staleBody": "The engine is using a Net Factor of <b>{hoy}</b>. The mix loaded in the <b>Mix</b> sub-tab gives <b>{nuevo}</b>. Until it is applied, what you see above is the old one.",
-    "staleMoney": "That is <b>{dif}</b> of rooms revenue ({pct}).",
-    "staleRates": "⚠ Today the factor comes from the stored net RATES, not from the mix. Changing the mix moves nothing until APPLY regenerates the rates.",
-    "staleGo": "Go to Mix and apply →",
-    "freshOk": "Matches the Mix: what you see here is what the engine uses."
+    "xlsTitle": "Sales Channels — Mix and Commission per month"
   },
   "inventory": {
     "addCategory": "+ Add category",

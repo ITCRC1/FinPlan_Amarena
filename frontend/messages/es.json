@@ -1787,13 +1787,7 @@
     "goToMix": "Ir al Mix para cambiarlo →",
     "tabDerived": "Resultado por canal",
     "tabMix": "Mix — acá se planifica",
-    "xlsTitle": "Canales de Venta — Mix y Comisión por mes",
-    "staleTitle": "Esto NO es lo que dice el Mix",
-    "staleBody": "El motor está usando un Net Factor de <b>{hoy}</b>. El mix cargado en el sub-tab <b>Mix</b> da <b>{nuevo}</b>. Mientras no se aplique, lo que ves acá arriba es lo viejo.",
-    "staleMoney": "Son <b>{dif}</b> de ingreso de habitaciones ({pct}).",
-    "staleRates": "⚠ Hoy el factor sale de las TARIFAS netas guardadas, no del mix. Cambiar el mix no mueve un solo número hasta que el APLICAR regenere las tarifas.",
-    "staleGo": "Ir al Mix y aplicar →",
-    "freshOk": "Coincide con el Mix: lo que ves acá es lo que el motor usa."
+    "xlsTitle": "Canales de Venta — Mix y Comisión por mes"
   },
   "inventory": {
     "addCategory": "+ Agregar categoría",
