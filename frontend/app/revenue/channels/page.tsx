@@ -46,9 +46,18 @@ export default function ChannelsPage() {
       try {
         const all = await getScenarios(HOTEL_ID);
         setScenarios(all);
-        if (!scenarioId && all.length) {
-          const budget = elegir(all, "budget") ?? all[0];
-          setScenarioId(budget.id);
+        // Esta pantalla ESCRIBE. Si lo recordado viene enllavado — el Planning
+        // comparte el escenario entre tabs y `budget` apunta a Final 2026, que
+        // lo está — la grilla abre de solo lectura y hay que cambiar el selector
+        // en cada visita. Se cae al presupuesto editable del año que se planifica.
+        if (all.length) {
+          const recordado = all.find(x => x.id === scenarioId);
+          if (!recordado || recordado.is_locked) {
+            const editable = elegir(all, "budgetPlan")
+              ?? all.find(x => x.type === "BUDGET" && !x.is_locked)
+              ?? elegir(all, "budget") ?? all[0];
+            setScenarioId(editable.id);
+          }
         }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : tc("error"));
