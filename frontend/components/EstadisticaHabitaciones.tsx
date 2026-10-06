@@ -44,9 +44,16 @@ interface Bloque {
   clave: string;
   titulo: string;
   unidad: Unidad;
-  /** `null` = es una tasa y se calcula aparte; no se suma. */
+  /** `null` = es una tasa: no se suma, se recalcula con `tasa` sobre los
+   *  totales del período. Promediar los mensuales haría pesar igual a un mes de
+   *  20 noches y a uno de 202. */
   saca: ((r: Medible) => number) | null;
+  /** Numerador y denominador de la tasa. Antes `revenue / noches` estaba
+   *  cableado en el cálculo, así que no se podía agregar una segunda. */
+  tasa?: { num: (r: Medible) => number; den: (r: Medible) => number };
   nota?: string;
+  /** Decimales de la tasa. Las de conteo —noches por llegada— no son plata. */
+  dec?: number;
 }
 
 interface Medible {
@@ -72,7 +79,19 @@ const BLOQUES: Bloque[] = [
   { clave: "cliEst", titulo: "Clientes Estancias", unidad: "num",
     saca: r => r.pax, nota: "Noches-huésped: es el «pax» del Room Stats." },
   { clave: "tarifa", titulo: "Tarifa Promedio", unidad: "usd", saca: null,
+    tasa: { num: r => r.revenue, den: r => r.nights_occupied },
     nota: "Ingreso ÷ noches. El acumulado se recalcula, no se promedia." },
+  // Owner, 2026-10-06: *«que las estadísticas estén todas»*. Estas tres salen
+  // del mismo dato del PMS y no estaban: dos ratios y el ingreso completo.
+  { clave: "ingTotal", titulo: "Ingreso Total", unidad: "usd",
+    saca: r => r.revenue + (r.ingreso_ayb ?? 0) + (r.ingreso_otros ?? 0),
+    nota: "Hospedaje + A y B + Otros." },
+  { clave: "estadia", titulo: "Estadía Promedio", unidad: "num", saca: null,
+    tasa: { num: r => r.nights_occupied, den: r => r.hab_entradas ?? 0 }, dec: 2,
+    nota: "Noches por llegada. Necesita Hab. Entradas cargadas." },
+  { clave: "paxHab", titulo: "Huéspedes por Habitación", unidad: "num", saca: null,
+    tasa: { num: r => r.pax, den: r => r.nights_occupied }, dec: 2,
+    nota: "Noches-huésped ÷ noches ocupadas." },
 ];
 
 const usd = (v: number) =>
@@ -231,7 +250,12 @@ export default function EstadisticaHabitaciones({
     return b?.saca ? suma(full, null, b.saca) === 0 : true;
   });
 
-  const fmt = (u: Unidad) => (u === "usd" ? usd : num);
+  // ⚠️ `num` redondea a entero, y una estadía de 2,92 noches saldría 3.
+  // Los bloques de tasa dicen cuántos decimales quieren.
+  const fmt = (b: Bloque) => b.dec
+    ? (v: number) => v.toLocaleString("es-CR", { minimumFractionDigits: b.dec,
+                                                maximumFractionDigits: b.dec })
+    : (b.unidad === "usd" ? usd : num);
 
   return (
     <Marco escenario={anio.escenario} abierto={abierto}
@@ -260,36 +284,45 @@ export default function EstadisticaHabitaciones({
       )}
       {abierto && (
         <div style={{ display: "grid", gap: 14, padding: "12px 14px 16px",
-                      // `start`: cada tarjeta mide lo que su contenido. Con el
-                      // `stretch` por defecto, las de encabezado corto quedaban
-                      // estiradas y el `overflow:hidden` del borde redondeado
-                      // les cortaba la primera fila.
-                      alignItems: "start",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
+                      // `stretch` para que las tarjetas de una misma fila midan
+                      // igual y la rejilla se lea como rejilla. Ya no hay
+                      // `overflow:hidden` en la tarjeta, que era lo que antes
+                      // cortaba la primera fila y obligaba al `start`.
+                      alignItems: "stretch",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
           {BLOQUES.map(b => {
-            const f = fmt(b.unidad);
+            const f = fmt(b);
             /** Una celda: la medida del bloque para una clave y un período. */
             const celda = (meses: AnioMes[], clave: string | null) => {
               if (!meses.length) return null;
               if (b.saca === null) {
                 // ⚠️ Tasa: se recalcula sobre los totales del período.
-                const ing = suma(meses, clave, r => r.revenue);
-                const noc = suma(meses, clave, r => r.nights_occupied);
-                return noc ? ing / noc : 0;
+                if (!b.tasa) return 0;
+                const n = suma(meses, clave, b.tasa.num);
+                const d = suma(meses, clave, b.tasa.den);
+                return d ? n / d : 0;
               }
               return suma(meses, clave, b.saca);
             };
             return (
               <div key={b.clave} style={{ border: "1px solid var(--border-medium)",
                                           borderRadius: 7,
-                                          background: "var(--bg-surface)" }}>
+                                          background: "var(--bg-surface)",
+                                          display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "7px 11px", background: "var(--bg-elevated)",
                               borderBottom: "1px solid var(--border-medium)" }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700 }}>{b.titulo}</div>
                   {b.nota && <div style={{ fontSize: 10.5, marginTop: 1,
                                            color: "var(--text-secondary)" }}>{b.nota}</div>}
                 </div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12,
+                                tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "46%" }} />
+                    {periodos.map(([rot]) => (
+                      <col key={rot} style={{ width: `${54 / periodos.length}%` }} />
+                    ))}
+                  </colgroup>
                   <thead>
                     <tr>
                       <th style={TH}>{dim === "canal" ? "Canal" : "Categoría"}</th>
@@ -335,7 +368,7 @@ export default function EstadisticaHabitaciones({
 
 const TH: React.CSSProperties = {
   padding: "5px 9px", fontSize: 10.5, fontWeight: 600, textAlign: "left",
-  textTransform: "uppercase", letterSpacing: ".03em",
+  textTransform: "uppercase", letterSpacing: ".03em", whiteSpace: "nowrap",
   color: "var(--text-secondary)", borderBottom: "1px solid var(--border-subtle)",
 };
 const TD: React.CSSProperties = {
