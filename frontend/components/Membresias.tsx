@@ -194,10 +194,15 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
 
           <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
             <button onClick={guardar} disabled={guardando || !hayCambios}
+              title={hayCambios ? undefined
+                                : "Escriba alguna cantidad arriba para poder guardar"}
               style={{ ...SEL, padding: "7px 15px", fontWeight: 600,
-                       cursor: hayCambios ? "pointer" : "not-allowed", border: "none",
+                       cursor: hayCambios ? "pointer" : "not-allowed",
+                       // ⚠️ Apagado conserva el borde: sin el se confunde con el
+                       // fondo y la pantalla parece no tener boton de guardar.
+                       border: hayCambios ? "none" : "1px solid var(--border-medium)",
                        background: hayCambios ? "var(--positive)" : "var(--bg-elevated)",
-                       color: hayCambios ? "#fff" : "var(--text-disabled)" }}>
+                       color: hayCambios ? "#fff" : "var(--text-secondary)" }}>
               {guardando ? "Guardando…" : `Guardar ${MESES[mesSel - 1]}`}
             </button>
             {hayCambios && (
@@ -207,8 +212,22 @@ export default function Membresias({ scenarioId, mesSel, SEL }: {
           </div>
           <p style={{ fontSize: 11, color: "var(--text-secondary)",
                       margin: "9px 0 0", lineHeight: 1.45 }}>
-            El mes que se edita es el de arriba. Guardar <b>reemplaza</b> el mes
-            entero; dejarlo todo en blanco lo vacía.
+            {hayCambios ? (
+              <>
+                Guardar <b>reemplaza</b> {MESES[mesSel - 1]} entero: los conceptos
+                que queden en blanco se guardan en cero.
+              </>
+            ) : (
+              <>
+                {/* ⚠️ Un boton apagado sin motivo se lee como un boton que falta.
+                    Owner, 2026-10-23: *«como guardo aca»*. */}
+                <b>Guardar se habilita al escribir.</b> Escriba las cantidades de{" "}
+                {MESES[mesSel - 1]} en los campos de arriba y el botón se pone
+                verde. {mes?.cargado
+                  ? "Para vaciar el mes, borre los campos: eso también es un cambio."
+                  : "También puede cargar el año entero con «↑ Subir Excel»."}
+              </>
+            )}
           </p>
         </div>
 
