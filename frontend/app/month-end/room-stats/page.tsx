@@ -808,6 +808,23 @@ export default function CierreRoomStatsPage() {
             .map(m => m.mes_nombre).join(" · ")}. Cambiá de mes en el selector
           para revisarlos sin volver a subirlo, o guardalos todos de una.{" "}
           <b>Nada se guarda hasta que apretés Guardar.</b>
+          {/* ⚠️ La barra de guardar se esconde en Membresías (es otra fuente, con
+              su propio guardado). Pero este aviso dice «apretá Guardar» estando
+              en una pestaña donde Guardar no existe, y ahí la persona queda
+              varada con el archivo leído y sin salida visible.
+              Owner, 2026-10-23: *«no me da la ocpion de guardar»*. */}
+          {vista === "membresias" && (
+            <div style={{ marginTop: 7 }}>
+              Estás en <b>Membresías</b>, que tiene su propio guardado: el botón
+              de estas estadísticas no aparece acá.{" "}
+              <button onClick={() => setVista("canal")}
+                style={{ ...SEL, padding: "3px 10px", fontWeight: 600,
+                         cursor: "pointer", border: "none", marginLeft: 2,
+                         background: "var(--brand)", color: "#fff" }}>
+                Ir a Por canal para guardar
+              </button>
+            </div>
+          )}
         </Aviso>
       )}
       {vista !== "membresias" && sinCanal.length > 0 && (
