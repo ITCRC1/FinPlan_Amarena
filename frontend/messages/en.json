@@ -2840,7 +2840,8 @@
     "tab_auditoria": "Audit",
     "tab_resumen12": "12m Summary",
     "tab_utilidad": "Profit by Dept",
-    "tab_trescortes": "Month · YTD · Full Year"
+    "tab_trescortes": "Month · YTD · Full Year",
+    "tab_usali": "USALI P&L"
   },
   "otb": {
     "a851Nota1": "{metrica} by {unidad}:",

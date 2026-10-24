@@ -41,6 +41,7 @@ import { bajarCuadros, bajarCierreWord, type Cuadro, type FilaCuadro,
 import IrA from "@/components/IrA";
 import DoceMeses from "./DoceMeses";
 import Formato from "./Formato";
+import PLUsali from "./PLUsali";
 import TresCortes from "./TresCortes";
 import {
   AMBITOS, KPIS, celdasDe, componentesDelPL, cortesDe, cuadroTresCortes,
@@ -111,6 +112,12 @@ const VISTAS = [
   { key: "opex" },
   { key: "property" },
   { key: "formato" },     // el cuadro tal cual el Excel del cierre
+  // El mismo cierre en USALI y en espanol, con las CUENTAS que forman cada
+  // renglon. Owner, 2026-10-23: *«necesito que construyas el tab llamado
+  // P&L USALI SEPT, tal cual»*. Va pegado a `formato` porque los dos son el
+  // cuadro que el owner arma a mano para los dueños — uno mes a mes, este
+  // con el detalle abierto.
+  { key: "usali" },
   { key: "utilidad" },    // Profit by Department: mes · YTD · full year
   // Lo que se abre cuando hace falta mirar más abajo.
   { key: "consulta" },
@@ -4016,6 +4023,11 @@ export default function MonthEndPLPage() {
       {vista === "formato" && (
         <Formato escenarios={escenarios} inicial={ranuras[0] || undefined}
                  compacto={compacto} />
+      )}
+
+      {vista === "usali" && (
+        <PLUsali escenarios={escenarios} inicial={ranuras[0] || undefined}
+                 mes={mes} />
       )}
 
       {vista === "trescortes" && (

@@ -2840,7 +2840,8 @@
     "tab_auditoria": "Auditoría",
     "tab_resumen12": "Resumen 12m",
     "tab_utilidad": "Utilidad x depto",
-    "tab_trescortes": "Mes · YTD · Full Year"
+    "tab_trescortes": "Mes · YTD · Full Year",
+    "tab_usali": "P&L USALI"
   },
   "otb": {
     "a851Nota1": "{metrica} por {unidad}:",

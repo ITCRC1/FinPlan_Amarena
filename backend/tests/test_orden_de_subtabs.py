@@ -40,6 +40,8 @@ def test_no_se_perdio_ningun_sub_tab_al_reordenar():
         "pl", "revenue", "payroll", "cost", "opex", "property", "consulta",
         "flow", "simple", "summary", "estado", "revdet", "fb", "doce",
         "formato", "auditoria", "resumen12",
+        # El P&L USALI del cierre, con el detalle por cuenta (2026-10-23).
+        "usali",
         # Profit by Department: el P&L Detail del owner, colgado de esta fila el
         # 2026-09-07 («esto debe ir en cierre de mes como un sub tab»).
         "utilidad",

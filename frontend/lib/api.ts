@@ -2916,6 +2916,50 @@ export async function getPLDetail(
   return api.get<PLDetail>(
     `/reports/pl-detail/${encodeURIComponent(ambito)}/?scenario_id=${encodeURIComponent(scenarioId)}${cmp}`);
 }
+
+
+// ── P&L USALI del cierre ─────────────────────────────────────────────────────
+//
+// El cuadro en espanol que el owner arma a mano cada mes. ⚠️ Los montos son los
+// MISMOS que los del P&L: el endpoint reagrupa las lineas que ya existen y no
+// vuelve a calcular la cascada. Lo nuevo es el detalle cuenta por cuenta, que
+// hoy solo se ve abriendo celda por celda.
+export interface PLUsaliFila {
+  cuenta: string; nombre: string; monto: number; pct: number;
+}
+export interface PLUsaliSeccion {
+  clase: string; titulo: string; filas: PLUsaliFila[]; total: number; pct: number;
+}
+export interface PLUsaliDepto {
+  dept_code: string; dept_name: string;
+  /** OPERATING | OVERHEAD — sale de `department_catalog.pl_kind`. */
+  kind: string;
+  secciones: PLUsaliSeccion[];
+  ingreso: number; gasto: number; utilidad: number;
+}
+export interface PLUsaliBloque {
+  titulo: string; total: number; pct: number;
+  filas: { code: string; rotulo: string; monto: number; pct: number }[];
+}
+export interface PLUsali {
+  scenario_id: string; escenario: string; year: number; mes: number; ambito: string;
+  resumen: Record<string, PLUsaliBloque>;
+  cascada: { code: string; rotulo: string; monto: number; pct: number }[];
+  departamentos: PLUsaliDepto[];
+  /** El resumen contra el detalle. Las dos diferencias deben dar 0. */
+  control: {
+    ingresos_resumen: number; ingresos_detalle: number; ingresos_dif: number;
+    gastos_resumen: number; gastos_detalle: number; gastos_dif: number;
+  };
+}
+export async function getPLUsali(
+  scenarioId: string, mes: number, ambito = "consolidado",
+): Promise<PLUsali> {
+  return api.get<PLUsali>(
+    `/reports/pl-usali/${encodeURIComponent(scenarioId)}/`
+    + `?mes=${mes}&ambito=${encodeURIComponent(ambito)}`);
+}
+
 /** El Excel con la FORMA del cuadro (dos pisos de encabezado). Lo arma el
  *  servidor con los mismos parametros de la pantalla: mandarle el cuadro ya
  *  armado seria una segunda forma de llegar al numero. */
