@@ -62,6 +62,10 @@ export default function FteReportPage() {
   // Recargar el reporte cuando cambia el escenario (sync con Master Data del año)
   useEffect(() => {
     if (!scenarioId) return;
+    // El cartel «✓ N posiciones importadas» es de UN escenario. Si no se
+    // limpia acá, sobrevive al cambio y afirma de otro escenario algo que
+    // nunca pasó ahí — apareció una vez sobre un BUDGET enllavado.
+    setXlsxMsg(null);
     loadReport(scenarioId).catch(e => setError(e instanceof Error ? e.message : "Error"));
   }, [scenarioId]);
 
@@ -80,6 +84,11 @@ export default function FteReportPage() {
       if (fileRef.current) fileRef.current.value = "";
     }
   }
+
+  const sel = scenarios.find(s => s.id === scenarioId);
+  // El backend ya rechaza la subida a un escenario enllavado (`candado_del_escenario`
+  // en `_guard`), pero sin esto el error sale DESPUES de mandar el archivo.
+  const bloqueado = !!sel?.is_locked;
 
   // Group rows by dept
   const byDept: Record<string, { name: string; rows: FteReportRow[] }> = {};
@@ -129,14 +138,16 @@ export default function FteReportPage() {
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={handleXlsxUpload} />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={xlsxUp || !scenarioId}
+            disabled={xlsxUp || !scenarioId || bloqueado}
+            title={bloqueado ? "Escenario enllavado — no admite subidas" : undefined}
             style={{
               padding: "5px 14px", fontSize: 12, borderRadius: 4,
-              background: xlsxUp ? "var(--bg-elevated)" : "#1E3A5F",
-              color: xlsxUp ? "var(--text-disabled)" : "#90CAF9",
-              border: "1px solid #2962FF", cursor: xlsxUp ? "default" : "pointer",
+              background: xlsxUp || bloqueado ? "var(--bg-elevated)" : "#1E3A5F",
+              color: xlsxUp || bloqueado ? "var(--text-disabled)" : "#90CAF9",
+              border: `1px solid ${bloqueado ? "var(--border-medium)" : "#2962FF"}`,
+              cursor: xlsxUp || bloqueado ? "default" : "pointer",
             }}
-          >{xlsxUp ? "Subiendo..." : "↑ Subir Excel"}</button>
+          >{xlsxUp ? "Subiendo..." : bloqueado ? "🔒 Subir Excel" : "↑ Subir Excel"}</button>
         </div>
       </div>
 
