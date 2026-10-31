@@ -274,11 +274,37 @@ def compute_cashflow_directo(revenue_lines: dict, opex_lines: dict, payroll_line
                 + (1 - ap_same) * (serie_costo[i - 1] if i > 0 else serie_costo[0])
                 for i in rng]
 
-    plan_ef = _devengado_efectivo(planilla)
+    # ⚠️ La planilla PROPIA no tiene rezago: se paga en el mes, para el mes.
+    # Owner, 2026-10-31: *«la planilla se paga en el mes para el mes; lo único
+    # que se paga el otro mes es la caja y otras retenciones»*. Aplicarle el
+    # calendario de proveedores la corría 40% a un mes que no le toca y, en el
+    # primer mes de operación, le descontaba el 40% de un mes anterior que no
+    # existió: junio 2026 de Amarena pagaba 71.8% de su planilla.
+    #
+    # Si la planilla SÍ es tercerizada llega como factura de proveedor y
+    # entonces el rezago le corresponde, así que ahí se mantiene.
+    outsourced = bool(_p(p, "payroll_outsourced"))
     tot_ef = _devengado_efectivo(C)
-    peso_planilla = [(plan_ef[i] / tot_ef[i]) if abs(tot_ef[i]) > 0.005 else 0.0
-                     for i in rng]
-    pago_planilla = [pago_prov[i] * peso_planilla[i] for i in rng]
+    if outsourced:
+        # Tercerizada: llega por factura, así que se reparte el pago total
+        # según el peso de cada uno CON SU PROPIO REZAGO.
+        plan_ef = _devengado_efectivo(planilla)
+        peso_planilla = [(plan_ef[i] / tot_ef[i]) if abs(tot_ef[i]) > 0.005 else 0.0
+                         for i in rng]
+        pago_planilla = [pago_prov[i] * peso_planilla[i] for i in rng]
+    else:
+        # Propia: sale ENTERA en su mes. No se reparte por peso —ese cálculo no
+        # puede dar exacto, porque `pago_prov` ya rezaga únicamente la parte que
+        # NO es planilla (`wc_cost_base` la saca de la base de A/P) mientras que
+        # el peso la rezagaba igual que al resto. Con los números de Amarena ese
+        # desajuste le ponía a junio un 115% de su planilla.
+        pago_planilla = [min(planilla[i], pago_prov[i]) if pago_prov[i] > 0
+                         else planilla[i] for i in rng]
+        peso_planilla = [(pago_planilla[i] / pago_prov[i]) if abs(pago_prov[i]) > 0.005
+                         else 0.0 for i in rng]
+    # Proveedores es SIEMPRE el resto: así Planilla + Proveedores cierra contra
+    # el total pagado aunque el movimiento venga del balance real de un mes
+    # cerrado y no del modelo.
     pago_proveedores = [pago_prov[i] - pago_planilla[i] for i in rng]
     # Aguinaldo: se PROVISIONA cada mes contra el balance y se PAGA entero en su
     # mes. En el flujo solo tiene que verse la salida: mostrar la provisión como
@@ -327,7 +353,13 @@ def compute_cashflow_directo(revenue_lines: dict, opex_lines: dict, payroll_line
     pago_renta = [-renta_mov[i] for i in rng]
     cobro_con_iva = [cobro_op[i] + iva_out[i] - retenciones_tarjeta[i] for i in rng]
     pago_con_iva = [pago_prov[i] + iva_in[i] for i in rng]
-    iva_planilla = [iva_in[i] * peso_planilla[i] for i in rng]
+    # El IVA de compras se reparte entre las dos líneas según su peso, pero con
+    # planilla propia ese reparto no tiene de dónde salir: los salarios no
+    # llevan IVA y `wc_cost_base` ya los sacó de la base, así que `iva_in` es
+    # IVA de proveedores y nada más. Asignarle una tajada a la planilla le
+    # inventaba IVA a la línea de salarios y se lo quitaba a la de proveedores.
+    iva_planilla = ([iva_in[i] * peso_planilla[i] for i in rng] if outsourced
+                    else [0.0] * 12)
     planilla_con_iva = [pago_planilla[i] + iva_planilla[i] - provision_aguinaldo[i]
                         for i in rng]
     proveedores_con_iva = [(pago_prov[i] - pago_planilla[i])
@@ -341,7 +373,14 @@ def compute_cashflow_directo(revenue_lines: dict, opex_lines: dict, payroll_line
     obrera_rate_ = float(_p(p, "ccss_obrera_rate") or 0)
     ccss_devengado = [cs("ccss_patronal")[i] + cs("bruto")[i] * obrera_rate_
                       for i in rng]
-    pago_ccss = _devengado_efectivo(ccss_devengado)
+    # ⚠️ La Caja se deposita el mes SIGUIENTE, entera — no con el 60/40 de
+    # proveedores. Es la otra mitad de la regla del owner (2026-10-31): el
+    # salario sale en el mes y la CCSS y las retenciones salen al siguiente.
+    # Enero paga lo devengado en diciembre del año anterior; sin esa serie se
+    # usa el propio enero como aproximación, igual que `_devengado_efectivo`
+    # hace con su primer mes.
+    pago_ccss = [ccss_devengado[i - 1] if i > 0 else ccss_devengado[0]
+                 for i in rng]
     planilla_neta_pago = [planilla_con_iva[i] - pago_ccss[i] for i in rng]
     salidas_op = [planilla_neta_pago[i] + pago_ccss[i] + pago_aguinaldo[i]
                   + proveedores_con_iva[i] + servicio_pagado[i]
