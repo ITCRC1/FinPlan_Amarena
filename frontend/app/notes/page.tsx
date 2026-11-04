@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import ResumenEjecutivo from "@/components/ResumenEjecutivo";
 import { useTranslations } from "next-intl";
 import { HOTEL_ID } from "@/lib/hotel";
 import { useEscenarioDe } from "@/lib/escenarioPreferido";
@@ -30,7 +31,7 @@ export default function NotesPage() {
   // clavado en 2026).
   const [scenarioId, setScenarioId] = useEscenarioDe("notes:budget", scenarios, "budget", undefined, true);
   const [sections, setSections] = useState<SectionRow[]>([]);
-  const [kind, setKind] = useState<"comment" | "question">("comment");
+  const [kind, setKind] = useState<"comment" | "question" | "resumen">("comment");
   const [items, setItems] = useState<Annotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,23 +100,33 @@ export default function NotesPage() {
           {scenarios.map(s => <option key={s.id} value={s.id}>{s.type} {s.version} {s.year}</option>)}
         </select>
         <div style={{ display: "inline-flex", border: "1px solid var(--border-medium)", borderRadius: 6, overflow: "hidden" }}>
-          {(["comment", "question"] as const).map(k => (
+          {(["comment", "question", "resumen"] as const).map(k => (
             <button key={k} onClick={() => setKind(k)} style={{
               padding: "6px 14px", fontSize: 13, border: "none", cursor: "pointer",
               background: kind === k ? "var(--brand)" : "transparent",
               color: kind === k ? "#fff" : "var(--text-secondary)",
-            }}>{k === "comment" ? "Comentarios (narrativa)" : "Q&A"}</button>
+            }}>{k === "comment" ? "Comentarios (narrativa)"
+                : k === "question" ? "Q&A" : "Resumen ejecutivo"}</button>
           ))}
         </div>
       </div>
       <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 6, marginBottom: 16 }}>
         {kind === "comment"
           ? "Explicaciones por línea que se agregan en la narrativa para los dueños (ej. “Abril 2026 tuvo el grupo NH → ingreso alto; 2027 sin grupo → baja”)."
-          : "Preguntas en contexto (abierta/resuelta) para el equipo."}
+          : kind === "question"
+          ? "Preguntas en contexto (abierta/resuelta) para el equipo."
+          : "El año de este escenario contra el anterior, calculado en vivo. Es el contexto con el que se escriben los comentarios y se contestan las preguntas."}
       </p>
 
       {error && <div style={{ color: "var(--accent-red, #C0392B)", fontSize: 13, marginBottom: 8 }}>{error}</div>}
 
+      {kind === "resumen" ? (
+        // El MISMO componente que la pantalla de Financieros. El escenario de
+        // esta página es el lado derecho de la comparación; el izquierdo —el
+        // año anterior— lo elige el componente.
+        <ResumenEjecutivo escenarioFijo={scenarioId} />
+      ) : (
+      <>
       {/* Form */}
       <div style={{ border: "1px solid var(--border-medium)", borderRadius: 8, padding: 14, marginBottom: 20, background: "var(--bg-surface)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}>
@@ -187,6 +198,8 @@ export default function NotesPage() {
             </div>
           </div>
         ))
+      )}
+      </>
       )}
     </div>
   );
