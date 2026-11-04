@@ -51,3 +51,8 @@ backend/scripts/_verif_salida.json
 # Permisos personales de Claude Code en esta máquina. NO se comparte: es de
 # quién puede hacer qué desde ESTE equipo, no del proyecto.
 .claude/settings.local.json
+
+# Credenciales de lectura de FinPlan (scripts/finplan.py). Son de quien las
+# escribe y no viajan a git: un secreto commiteado queda en el historial.
+scripts/finplan.credentials.json
+scripts/.finplan.tokens.json
