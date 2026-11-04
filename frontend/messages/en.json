@@ -138,7 +138,8 @@
       "monthEndDetailFull": "P&L Detail Full (consolidated)",
       "monthEndCheckbooks": "Checkbooks (read-only)",
       "monthEndRevenuePlan": "Revenue build-up (read-only)",
-      "monthEndRoomStats": "Room statistics (PMS PDF)"
+      "monthEndRoomStats": "Room statistics (PMS PDF)",
+      "resumenAnual": "Executive summary (year vs year)"
     },
     "groupsFull": {
       "financials": "Financial Statements",

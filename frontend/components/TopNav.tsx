@@ -108,6 +108,9 @@ export const NAV: NavGroup[] = [
   {
     key: "financials",
     items: [
+      // Año contra año, en vivo. Va arriba del P&L porque es la lectura de
+      // alto nivel: el P&L es el detalle al que se baja después.
+      { key: "resumenAnual", href: "/reports/resumen-anual" },
       { key: "balanceSheet", href: "/pl/balance-sheet" },
       { key: "plFullYear", href: "/pl/full" },
       { key: "plSimplified", href: "/pl/simplified" },

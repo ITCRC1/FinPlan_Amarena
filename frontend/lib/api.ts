@@ -45,7 +45,13 @@ export function dlUrl(path: string): string {
   const l = readLocaleCookie();
   if (l) q.set("lang", l);
   const s = q.toString();
-  return `${BASE}${path}${s ? `?${s}` : ""}`;
+  // ⚠️ El separador depende de si la ruta YA trae query. Pegar siempre «?»
+  // produce `...?base=X&comparado=Y?token=Z`, que el servidor lee como un
+  // `comparado` con basura adentro y un token que no llega — un 401 cuyo
+  // motivo no se ve por ningún lado. Hasta hoy ninguna ruta de descarga traía
+  // parámetros; el resumen anual es la primera.
+  const sep = path.includes("?") ? "&" : "?";
+  return `${BASE}${path}${s ? `${sep}${s}` : ""}`;
 }
 
 /** Cuántas veces se reintenta una lectura que ni siquiera llegó al servidor. */
@@ -2618,6 +2624,47 @@ export async function saveClubFee(
   meses: { month: number; precio: number; actividad: number; visitantes: number }[],
 ): Promise<ClubFee> {
   return api.put<ClubFee>(`/scenarios/${scenarioId}/club-fee/`, { base, meses });
+}
+
+/** Una fila del resumen anual: los doce meses de cada año y su variación. */
+export type ResumenFila = {
+  code: string; nombre: string;
+  base: number; base_meses: number[];
+  comp: number; comp_meses: number[];
+  var: number; var_pct: number | null;
+  /** Lo resuelve el backend: en un gasto, subir NO es favorable. */
+  favorable: boolean | null;
+};
+export type ResumenKpis = {
+  disponibles: number; ocupadas: number; pax: number;
+  ocupacion: number; adr: number; revpar: number; rooms: number;
+  meses: { disponibles: number[]; ocupadas: number[]; pax: number[]; ocupacion: number[] };
+};
+export type ResumenAnual = {
+  meses: string[];
+  base: { id: string; tipo: string; version: string; anio: number };
+  comparado: { id: string; tipo: string; version: string; anio: number };
+  meses_con_dato: { base: number; comp: number };
+  kpis: { base: ResumenKpis; comp: ResumenKpis };
+  ingresos: ResumenFila[];
+  clases: (ResumenFila & { clase: string })[];
+  resultado: ResumenFila[];
+  departamentos: { grupo: string; nombre: string;
+                   ingreso: ResumenFila; gasto: ResumenFila; utilidad: ResumenFila }[];
+  narrativa: string[];
+};
+/** Se calcula en vivo: pedirlo ES actualizarlo. No hay nada guardado. */
+export async function getResumenAnual(
+  base: string, comparado: string,
+): Promise<ResumenAnual> {
+  return api.get<ResumenAnual>(
+    `/reports/resumen-anual/?base=${base}&comparado=${comparado}`);
+}
+
+/** El mismo resumen en Word. Lo arma el backend llamando al endpoint de
+ *  arriba, así que el documento y la pantalla son el mismo número. */
+export function resumenAnualWordUrl(base: string, comparado: string): string {
+  return dlUrl(`/reports/resumen-anual/word/?base=${base}&comparado=${comparado}`);
 }
 
 export async function getPLFullDetail(

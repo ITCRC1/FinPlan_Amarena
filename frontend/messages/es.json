@@ -138,7 +138,8 @@
       "monthEndDetailFull": "P&L Detail Full (consolidado)",
       "monthEndCheckbooks": "Checkbooks (consulta)",
       "monthEndRevenuePlan": "Armado de ingresos (consulta)",
-      "monthEndRoomStats": "Estadística de habitaciones (PDF del PMS)"
+      "monthEndRoomStats": "Estadística de habitaciones (PDF del PMS)",
+      "resumenAnual": "Resumen ejecutivo (año vs año)"
     },
     "groupsFull": {
       "financials": "Estados financieros",
