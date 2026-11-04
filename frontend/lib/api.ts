@@ -2634,6 +2634,7 @@ export type ResumenFila = {
   var: number; var_pct: number | null;
   /** Lo resuelve el backend: en un gasto, subir NO es favorable. */
   favorable: boolean | null;
+  es_total?: boolean;
 };
 export type ResumenKpis = {
   disponibles: number; ocupadas: number; pax: number;
@@ -2651,7 +2652,13 @@ export type ResumenAnual = {
   resultado: ResumenFila[];
   departamentos: { grupo: string; nombre: string;
                    ingreso: ResumenFila; gasto: ResumenFila; utilidad: ResumenFila }[];
-  narrativa: string[];
+  /** Las aperturas de los sub-tabs: doce meses por línea o por departamento. */
+  aperturas: Record<string, { titulo: string; filas: ResumenFila[]; total: ResumenFila }>;
+  /** Los totales los calcula el backend: dos vistas sumando por su cuenta
+   *  terminan dando dos totales distintos. */
+  totales: { ingresos: ResumenFila; clases: ResumenFila };
+  narrativa: { titulo: string; tipo: "titular" | "normal" | "aviso";
+               lineas: string[] }[];
 };
 /** Se calcula en vivo: pedirlo ES actualizarlo. No hay nada guardado. */
 export async function getResumenAnual(

@@ -64,6 +64,8 @@ export default function ResumenEjecutivo({ escenarioFijo }: { escenarioFijo?: st
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
   const [verMeses, setVerMeses] = useState(true);
+  /** Qué se está mirando: el resumen, o una de las aperturas de doce meses. */
+  const [vista, setVista] = useState<"resumen" | "ingresos" | "opex" | "payroll" | "cost">("resumen");
 
   useEffect(() => {
     (async () => {
@@ -141,16 +143,18 @@ export default function ResumenEjecutivo({ escenarioFijo }: { escenarioFijo?: st
         </td>
       </tr>
       {xs.map(x => (
-        <tr key={x.code}>
-          <td style={{ ...td, fontWeight: fuerte ? 700 : 400 }}>{x.nombre}</td>
+        <tr key={x.code} style={x.es_total
+          ? { background: "var(--bg-elevated)", borderTop: "2px solid var(--border-medium)" }
+          : undefined}>
+          <td style={{ ...td, fontWeight: (fuerte || x.es_total) ? 700 : 400 }}>{x.nombre}</td>
           {verMeses && x.base_meses.map((v, i) => (
             <td key={`a${i}`} style={{ ...tdNum, color: "var(--text-secondary)" }}>{money(v)}</td>
           ))}
-          <td style={{ ...tdNum, fontWeight: 700 }}>{money(x.base)}</td>
+          <td style={{ ...tdNum, fontWeight: x.es_total ? 800 : 700 }}>{money(x.base)}</td>
           {verMeses && x.comp_meses.map((v, i) => (
             <td key={`b${i}`} style={{ ...tdNum, color: "var(--text-secondary)" }}>{money(v)}</td>
           ))}
-          <td style={{ ...tdNum, fontWeight: 700 }}>{money(x.comp)}</td>
+          <td style={{ ...tdNum, fontWeight: x.es_total ? 800 : 700 }}>{money(x.comp)}</td>
           <td style={{ ...tdNum, fontWeight: 700, color: colorVar(x) }}>{money(x.var)}</td>
           <td style={{ ...tdNum, color: colorVar(x) }}>{pct(x.var_pct)}</td>
         </tr>
@@ -204,7 +208,29 @@ export default function ResumenEjecutivo({ escenarioFijo }: { escenarioFijo?: st
 
       {d && (
         <>
+          {/* ── Sub-tabs ───────────────────────────────────────────────
+              El resumen es la lectura; las otras cuatro son el detalle de
+              doce meses al que se baja cuando una variación no se explica. */}
+          <div style={{ display: "flex", gap: 2, marginTop: 14, flexWrap: "wrap",
+                        borderBottom: "1px solid var(--border-medium)" }}>
+            {([["resumen", "Resumen"],
+               ["ingresos", "Ingresos por línea"],
+               ["opex", "OPEX por depto."],
+               ["payroll", "Planilla por depto."],
+               ["cost", "Costo de ventas"]] as const).map(([k, lab]) => (
+              <button key={k} onClick={() => setVista(k)} style={{
+                padding: "7px 14px", fontSize: 12.5, cursor: "pointer",
+                border: "none", background: "transparent",
+                fontWeight: vista === k ? 700 : 400,
+                color: vista === k ? "var(--brand)" : "var(--text-secondary)",
+                borderBottom: `2px solid ${vista === k ? "var(--brand)" : "transparent"}`,
+                marginBottom: -1,
+              }}>{lab}</button>
+            ))}
+          </div>
+
           {/* ── KPIs ───────────────────────────────────────────────── */}
+          {vista === "resumen" && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 6px" }}>
             {([["Ocupación", `${(100 * d.kpis.base.ocupacion).toFixed(1)}%`, `${(100 * d.kpis.comp.ocupacion).toFixed(1)}%`],
                ["Noches", d.kpis.base.ocupadas.toLocaleString("en-US"), d.kpis.comp.ocupadas.toLocaleString("en-US")],
@@ -223,18 +249,49 @@ export default function ResumenEjecutivo({ escenarioFijo }: { escenarioFijo?: st
               </div>
             ))}
           </div>
+          )}
 
-          {/* ── Narrativa ──────────────────────────────────────────── */}
-          <div style={{ margin: "14px 0", padding: "12px 16px", borderRadius: 8,
-                        background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em",
-                          color: "var(--text-secondary)", marginBottom: 6 }}>
-              Lectura del año
-            </div>
-            {d.narrativa.map((f, i) => (
-              <p key={i} style={{ margin: "0 0 5px", fontSize: 13, lineHeight: 1.5 }}>{f}</p>
-            ))}
+          {/* ── Lectura del año ────────────────────────────────────────
+              En bloques y no en una lista corrida: trece renglones seguidos
+              son un volcado, y los avisos —lo único que exige decidir algo—
+              quedaban al mismo nivel que el resto. */}
+          {vista === "resumen" && (
+          <div style={{ margin: "16px 0 18px" }}>
+            {d.narrativa.map((b, i) => {
+              const aviso = b.tipo === "aviso";
+              const titular = b.tipo === "titular";
+              return (
+                <div key={i} style={{
+                  marginBottom: 10, padding: titular ? "14px 18px" : "12px 16px",
+                  borderRadius: 8,
+                  background: aviso ? "rgba(245,158,11,0.07)" : "var(--bg-surface)",
+                  border: `1px solid ${aviso ? "rgba(245,158,11,0.45)" : "var(--border-subtle)"}`,
+                  borderLeft: `3px solid ${aviso ? "var(--warning, #F59E0B)"
+                    : titular ? "var(--brand)" : "var(--border-medium)"}`,
+                }}>
+                  <div style={{ fontSize: 10.5, textTransform: "uppercase",
+                                letterSpacing: "0.06em", fontWeight: 700,
+                                color: aviso ? "var(--warning, #F59E0B)" : "var(--text-secondary)",
+                                marginBottom: titular ? 4 : 7 }}>
+                    {aviso ? "⚠ " : ""}{b.titulo}
+                  </div>
+                  {b.lineas.map((f, j) => (
+                    <p key={j} style={{
+                      margin: j ? "6px 0 0" : 0,
+                      fontSize: titular ? 16 : 13,
+                      fontWeight: titular ? 700 : 400,
+                      lineHeight: 1.55,
+                      color: titular ? "var(--text-primary)" : undefined,
+                      paddingLeft: titular ? 0 : 14, textIndent: titular ? 0 : -14,
+                    }}>
+                      {titular ? "" : "· "}{f}
+                    </p>
+                  ))}
+                </div>
+              );
+            })}
           </div>
+          )}
 
           {/* ── El cuadro ──────────────────────────────────────────── */}
           <div className="fin-scroll-x" style={{ overflowX: "auto" }}>
@@ -255,11 +312,19 @@ export default function ResumenEjecutivo({ escenarioFijo }: { escenarioFijo?: st
                 </tr>
               </thead>
               <tbody>
-                {bloque("Ingresos", d.ingresos)}
-                {bloque("Gasto por clase", d.clases)}
-                {bloque("Resultado", d.resultado, true)}
-                {bloque("Utilidad por departamento",
-                        d.departamentos.map(x => x.utilidad))}
+                {vista === "resumen" ? (
+                  <>
+                    {bloque("Ingresos", [...d.ingresos, d.totales.ingresos])}
+                    {bloque("Gasto por clase", [...d.clases, d.totales.clases])}
+                    {bloque("Resultado", d.resultado, true)}
+                    {bloque("Utilidad por departamento",
+                            d.departamentos.map(x => x.utilidad))}
+                  </>
+                ) : (
+                  bloque(d.aperturas[vista]?.titulo ?? "",
+                         [...(d.aperturas[vista]?.filas ?? []),
+                          ...(d.aperturas[vista] ? [d.aperturas[vista].total] : [])])
+                )}
               </tbody>
             </table>
           </div>

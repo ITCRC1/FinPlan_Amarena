@@ -128,7 +128,10 @@ async def _lado(session, scenario) -> dict:
             con_dato += 1
 
     gasto = {c: [0.0] * 12 for c, _n in CLASES}
-    for fila in await _por_mes(session, scenario.id):
+    # `detalle` lo llena `_por_mes`: {clase: {depto: [12 meses]}}. Es la misma
+    # apertura que usa el tab de Gasto por Clase, no una cuenta nueva.
+    detalle: dict = {}
+    for fila in await _por_mes(session, scenario.id, detalle):
         i = int(fila["month"]) - 1
         for c, _n in CLASES:
             gasto[c][i] = float(fila.get(c) or 0)
@@ -140,6 +143,7 @@ async def _lado(session, scenario) -> dict:
         "kpis": kpis,
         "lineas": lineas,
         "gasto": gasto,
+        "detalle": detalle,
     }
 
 
@@ -205,16 +209,68 @@ def _departamentos(a: dict, b: dict) -> list[dict]:
     return out
 
 
+def _por_departamento(a: dict, b: dict, clase: str, nombres: dict) -> list[dict]:
+    """Una fila por departamento, con los doce meses de cada año.
+
+    Los departamentos son la UNIÓN de los dos años: uno que existe sólo en el
+    presupuesto nuevo tiene que verse —es precisamente el que hay que mirar— y
+    uno que desaparece, también.
+    """
+    da = (a["detalle"].get(clase) or {})
+    db = (b["detalle"].get(clase) or {})
+    out = []
+    for dept in sorted(set(da) | set(db)):
+        ma = [round(x, 2) for x in da.get(dept, [0.0] * 12)]
+        mb = [round(x, 2) for x in db.get(dept, [0.0] * 12)]
+        ta, tb = sum(ma), sum(mb)
+        if abs(ta) < 0.005 and abs(tb) < 0.005:
+            continue
+        var = tb - ta
+        out.append({
+            "code": dept, "nombre": nombres.get(dept, dept),
+            "base": round(ta, 2), "base_meses": ma,
+            "comp": round(tb, 2), "comp_meses": mb,
+            "var": round(var, 2),
+            "var_pct": (round(100 * var / abs(ta), 1) if ta else None),
+            # En un gasto, subir NO es favorable.
+            "favorable": var < 0 if abs(var) > 0.005 else None,
+        })
+    return sorted(out, key=lambda x: -abs(x["comp"]))
+
+
+def _totales(filas: list[dict], nombre: str, signo: int = 1) -> dict:
+    """La fila de total de un cuadro. Se calcula acá y no en la pantalla: dos
+    vistas sumando por su cuenta terminan dando dos totales distintos."""
+    ma = [round(sum(f["base_meses"][i] for f in filas), 2) for i in range(12)]
+    mb = [round(sum(f["comp_meses"][i] for f in filas), 2) for i in range(12)]
+    ta, tb = round(sum(ma), 2), round(sum(mb), 2)
+    var = round(tb - ta, 2)
+    return {"code": "TOTAL", "nombre": nombre, "base": ta, "base_meses": ma,
+            "comp": tb, "comp_meses": mb, "var": var,
+            "var_pct": (round(100 * var / abs(ta), 1) if ta else None),
+            "favorable": (var * signo) > 0 if abs(var) > 0.005 else None,
+            "es_total": True}
+
+
 def _narrativa(a: dict, b: dict, ka: dict, kb: dict,
                ingresos: list[dict], resultado: list[dict],
-               deptos: list[dict], clases: list[dict]) -> list[str]:
-    """Frases armadas con los números que ya están en el cuadro.
+               deptos: list[dict], clases: list[dict]) -> list[dict]:
+    """La lectura del año, en BLOQUES y no en una lista de frases sueltas.
+
+    Trece renglones seguidos son un volcado: el ojo no encuentra dónde empieza
+    cada idea y los avisos —que es lo único que exige una decisión— quedan al
+    mismo nivel que el resto. Agrupadas por tema, con un titular arriba y los
+    avisos aparte, se lee en diagonal y se entiende igual.
+
+    Cada bloque es `{titulo, tipo, lineas}`. El `tipo` lo usa la pantalla para
+    el color y el Word para el formato; ninguno de los dos decide por su cuenta
+    qué es un aviso.
 
     ⚠️ **Describe, no interpreta.** Dice qué se movió y cuánto; no dice si está
-    bien. En CWL la narrativa se escribe a mano justamente porque el juicio
-    —si una favorabilidad es ahorro o diferimiento, qué hallazgo va primero— no
-    sale del dato. Acá el owner pidió que fuera automática, así que cada frase
-    se limita a lo que el número sostiene.
+    bien. En CWL la narrativa se escribe a mano justamente porque el juicio —si
+    una favorabilidad es ahorro o diferimiento, qué hallazgo va primero— no sale
+    del dato. Acá el owner la pidió automática, así que cada frase se limita a
+    lo que el número sostiene.
     """
     def m(v):
         return "${:,.0f}".format(v).replace(",", ".")
@@ -223,61 +279,82 @@ def _narrativa(a: dict, b: dict, ka: dict, kb: dict,
         return "—" if v is None else "{:+.1f}%".format(v)
 
     ay, by = a["escenario"]["anio"], b["escenario"]["anio"]
-    f = []
+    bloques: list[dict] = []
+
+    def bloque(titulo, tipo, lineas):
+        lineas = [x for x in lineas if x]
+        if lineas:
+            bloques.append({"titulo": titulo, "tipo": tipo, "lineas": lineas})
 
     rev = next(x for x in resultado if x["code"] == "TOTAL_REVENUES")
-    f.append("El ingreso total pasa de {} en {} a {} en {} ({}).".format(
-        m(rev["base"]), ay, m(rev["comp"]), by, p(rev["var_pct"])))
+    gop = next((x for x in resultado if x["code"] == "TOTAL_GOP"), None)
+    net = next((x for x in resultado if x["code"] == "NET_PROFIT"), None)
 
-    f.append("Detrás: {:.0f} noches ocupadas contra {:.0f}, ocupación de {:.1f}% "
-             "contra {:.1f}%, y ADR de ${:,.2f} contra ${:,.2f}.".format(
-                 ka["ocupadas"], kb["ocupadas"], 100 * ka["ocupacion"],
-                 100 * kb["ocupacion"], ka["adr"], kb["adr"]))
+    # ── El titular ──────────────────────────────────────────────────────────
+    titular = "El ingreso pasa de {} a {} ({})".format(
+        m(rev["base"]), m(rev["comp"]), p(rev["var_pct"]))
+    if gop:
+        titular += ", y el GOP de {} a {}".format(m(gop["base"]), m(gop["comp"]))
+    bloque("El año en una frase", "titular", [titular + "."])
 
-    suben = sorted((x for x in ingresos if x["var"] > 0),
-                   key=lambda x: -x["var"])[:3]
+    # ── De dónde sale el ingreso ────────────────────────────────────────────
+    lineas = ["Volumen y tarifa: {:.0f} noches contra {:.0f}, ocupación de "
+              "{:.1f}% contra {:.1f}%, ADR de ${:,.2f} contra ${:,.2f}.".format(
+                  ka["ocupadas"], kb["ocupadas"], 100 * ka["ocupacion"],
+                  100 * kb["ocupacion"], ka["adr"], kb["adr"])]
+    suben = sorted((x for x in ingresos if x["var"] > 0), key=lambda x: -x["var"])[:3]
     if suben:
-        f.append("Lo que más suma al ingreso: " + " · ".join(
+        lineas.append("Lo que más suma: " + " · ".join(
             "{} {}".format(x["nombre"], m(x["var"])) for x in suben) + ".")
     bajan = sorted((x for x in ingresos if x["var"] < 0), key=lambda x: x["var"])[:3]
     if bajan:
-        f.append("Lo que resta: " + " · ".join(
+        lineas.append("Lo que resta: " + " · ".join(
             "{} {}".format(x["nombre"], m(x["var"])) for x in bajan) + ".")
+    bloque("De dónde viene el ingreso", "normal", lineas)
 
-    ceros = [x["nombre"] for x in ingresos
-             if abs(x["comp"]) < 0.005 and abs(x["base"]) > 0.005]
-    if ceros:
-        f.append("⚠️ Facturaron en {} y están en CERO en {}: {}. "
-                 "Si no es una decisión, falta cargarlas.".format(
-                     ay, by, ", ".join(ceros)))
+    # ── El gasto ────────────────────────────────────────────────────────────
+    bloque("Qué pasa con el gasto", "normal",
+           ["{}: de {} a {} ({}).".format(x["nombre"], m(x["base"]), m(x["comp"]),
+                                          p(x["var_pct"]))
+            for x in clases if abs(x["var"]) > 0.005])
 
-    for x in clases:
-        if abs(x["var"]) > 0.005:
-            f.append("{} pasa de {} a {} ({}).".format(
-                x["nombre"], m(x["base"]), m(x["comp"]), p(x["var_pct"])))
-
-    gop = next((x for x in resultado if x["code"] == "TOTAL_GOP"), None)
+    # ── El resultado ────────────────────────────────────────────────────────
+    lineas = []
     if gop:
-        f.append("El GOP va de {} a {} — una diferencia de {}.".format(
-            m(gop["base"]), m(gop["comp"]), m(gop["var"])))
-    net = next((x for x in resultado if x["code"] == "NET_PROFIT"), None)
+        lineas.append("El GOP mejora {} — de {} a {}.".format(
+            m(abs(gop["var"])), m(gop["base"]), m(gop["comp"]))
+            if gop["var"] > 0 else
+            "El GOP cae {} — de {} a {}.".format(
+                m(abs(gop["var"])), m(gop["base"]), m(gop["comp"])))
     if net:
-        f.append("La utilidad neta cierra en {} contra {} del año anterior.".format(
+        lineas.append("La utilidad neta cierra en {} contra {}.".format(
             m(net["comp"]), m(net["base"])))
-
     mejor = max(deptos, key=lambda d: d["utilidad"]["var"], default=None)
     peor = min(deptos, key=lambda d: d["utilidad"]["var"], default=None)
     if mejor and abs(mejor["utilidad"]["var"]) > 0.005:
-        f.append("Por departamento, el que más mejora su utilidad es {} ({}); "
-                 "el que más la deteriora, {} ({}).".format(
-                     mejor["nombre"], m(mejor["utilidad"]["var"]),
-                     peor["nombre"], m(peor["utilidad"]["var"])))
+        lineas.append("El departamento que más mejora es {} ({}); el que más "
+                      "se deteriora, {} ({}).".format(
+                          mejor["nombre"], m(mejor["utilidad"]["var"]),
+                          peor["nombre"], m(peor["utilidad"]["var"])))
+    bloque("El resultado", "normal", lineas)
 
+    # ── Lo que exige una decisión ───────────────────────────────────────────
+    avisos = []
+    ceros = [x["nombre"] for x in ingresos
+             if abs(x["comp"]) < 0.005 and abs(x["base"]) > 0.005]
+    if ceros:
+        falta = sum(x["base"] for x in ingresos
+                    if abs(x["comp"]) < 0.005 and abs(x["base"]) > 0.005)
+        avisos.append("Facturaron en {} y están en CERO en {}: {} — {} que hoy "
+                      "no están presupuestados. Si no es una decisión, faltan "
+                      "cargarlas.".format(ay, by, ", ".join(ceros), m(falta)))
     if a["meses_con_dato"] < 12 or b["meses_con_dato"] < 12:
-        f.append("⚠️ Lectura: {} trae {} meses con dato y {} trae {}. "
-                 "Un año incompleto contra uno completo exagera toda variación.".format(
-                     ay, a["meses_con_dato"], by, b["meses_con_dato"]))
-    return f
+        avisos.append("{} trae {} meses con dato y {} trae {}. Un año incompleto "
+                      "contra uno completo exagera toda variación: los "
+                      "porcentajes de arriba se leen con esa reserva.".format(
+                          ay, a["meses_con_dato"], by, b["meses_con_dato"]))
+    bloque("Lo que hay que decidir", "aviso", avisos)
+    return bloques
 
 
 @router.get("/reports/resumen-anual/")
@@ -294,9 +371,26 @@ async def resumen_anual(
             raise ErrorApi(404, "escenario.no_encontrado")
         a = await _lado(session, a_scn)
         b = await _lado(session, b_scn)
+        from app.api._nombres_de_depto import nombres_de_depto
+        nombres = await nombres_de_depto(session)
 
     ka, kb = _kpis(a), _kpis(b)
+    # ⚠️ Las líneas declaradas en INGRESOS son las que tienen nombre lindo, pero
+    # NO son todas: el motor emite más códigos REV_ (Private Bar, Tienda, Área
+    # Recreativa, Other Rooms, los Rental…). Si sólo se listaran ésas, el total
+    # del cuadro daría $163,72 menos que TOTAL_REVENUES del P&L — y un total que
+    # no cuadra con el P&L hace dudar de todo lo demás, con razón.
+    #
+    # Así que después de las declaradas se barren las que queden, con el código
+    # por nombre. Una línea nueva aparece sola el día que exista.
     ingresos = [_fila(c, n, a, b, +1) for c, n in INGRESOS]
+    declarados = {c for c, _n in INGRESOS}
+    sueltos = sorted({c for lado in (a, b) for c in lado["lineas"]
+                      if c.startswith("REV_") and c not in declarados
+                      and c != "TOTAL_REVENUES"})
+    for c in sueltos:
+        nombre = c[4:].replace("_", " ").title()
+        ingresos.append(_fila(c, nombre, a, b, +1))
     ingresos = [x for x in ingresos
                 if abs(x["base"]) > 0.005 or abs(x["comp"]) > 0.005]
     resultado = [_fila(c, n, a, b, s) for c, n, s in RESULTADO]
@@ -315,6 +409,10 @@ async def resumen_anual(
             "favorable": var < 0 if abs(var) > 0.005 else None,
         })
 
+    ap_opex = _por_departamento(a, b, "opex", nombres)
+    ap_pay = _por_departamento(a, b, "payroll", nombres)
+    ap_cost = _por_departamento(a, b, "cost", nombres)
+
     return {
         "meses": MESES,
         "base": a["escenario"], "comparado": b["escenario"],
@@ -324,6 +422,24 @@ async def resumen_anual(
         "clases": clases,
         "resultado": resultado,
         "departamentos": deptos,
+        # Las tres aperturas por departamento, con los doce meses de cada año.
+        # Van en la misma respuesta y no en tres endpoints: el resumen se lee
+        # de una sola lectura del motor, y partirlo invitaría a que una pestaña
+        # muestre un corte distinto de las otras.
+        "aperturas": {
+            "ingresos": {"titulo": "Ingresos por línea", "filas": ingresos,
+                         "total": _totales(ingresos, "Total ingresos", +1)},
+            "opex": {"titulo": "OPEX por departamento", "filas": ap_opex,
+                     "total": _totales(ap_opex, "Total OPEX", -1)},
+            "payroll": {"titulo": "Planilla por departamento", "filas": ap_pay,
+                        "total": _totales(ap_pay, "Total planilla", -1)},
+            "cost": {"titulo": "Costo de ventas por departamento", "filas": ap_cost,
+                     "total": _totales(ap_cost, "Total costo", -1)},
+        },
+        "totales": {
+            "ingresos": _totales(ingresos, "Total ingresos", +1),
+            "clases": _totales(clases, "Gasto total", -1),
+        },
         "narrativa": _narrativa(a, b, ka, kb, ingresos, resultado, deptos, clases),
     }
 

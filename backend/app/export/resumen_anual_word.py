@@ -207,15 +207,21 @@ def build_resumen_anual(d: dict, propiedad: str = "Amarena") -> bytes:
     _p(doc, "Las frases que siguen se arman con los números del cuadro. "
             "Describen lo que se movió; no dicen si está bien — eso es juicio, "
             "y el juicio no sale del dato.", italic=True, color=GRIS)
-    for f in d["narrativa"]:
-        _p(doc, ("• " + f), color=(ROJO if f.startswith("⚠️") else None))
+    # ⚠️ `bloque` y no `b`: `b` es el escenario comparado y vive hasta el final
+    # de la función. Pisarlo acá hacía que `b["anio"]` del cuadro siguiente
+    # buscara el año DENTRO de una frase de la narrativa — KeyError: 'anio'.
+    for bloque in d["narrativa"]:
+        aviso = bloque.get("tipo") == "aviso"
+        _h(doc, ("⚠  " if aviso else "") + bloque["titulo"], nivel=2)
+        for f in bloque["lineas"]:
+            _p(doc, ("• " + f), color=(ROJO if aviso else None))
 
     # ── 4 a 6 ──────────────────────────────────────────────────────────────
     _h(doc, "4.  Ingresos por línea")
-    _cuadro(doc, d["ingresos"], a["anio"], b["anio"])
+    _cuadro(doc, d["ingresos"] + [d["totales"]["ingresos"]], a["anio"], b["anio"])
 
     _h(doc, "5.  Gasto por clase")
-    _cuadro(doc, d["clases"], a["anio"], b["anio"])
+    _cuadro(doc, d["clases"] + [d["totales"]["clases"]], a["anio"], b["anio"])
     _p(doc, "«Propiedad — todas las 8xxx» incluye capital, financieros, "
             "depreciación e impuesto. La línea «No operativos» de la cascada es "
             "sólo el bloque de arriba del EBITDA, así que da distinto a "
@@ -223,6 +229,14 @@ def build_resumen_anual(d: dict, propiedad: str = "Amarena") -> bytes:
 
     _h(doc, "6.  Utilidad por departamento")
     _cuadro(doc, [x["utilidad"] for x in d["departamentos"]], a["anio"], b["anio"])
+
+    for clave in ("opex", "payroll", "cost"):
+        ap = d.get("aperturas", {}).get(clave)
+        if not ap or not ap["filas"]:
+            continue
+        _h(doc, "6.{}  {}".format("123"["opex payroll cost".split().index(clave)],
+                                  ap["titulo"]), nivel=2)
+        _cuadro(doc, ap["filas"] + [ap["total"]], a["anio"], b["anio"])
 
     # ── 7. Anexo mensual ───────────────────────────────────────────────────
     doc.add_page_break()

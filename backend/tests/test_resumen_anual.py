@@ -65,8 +65,12 @@ def test_la_narrativa_avisa_de_las_lineas_que_quedaron_en_cero():
     resultado = [{"code": "TOTAL_REVENUES", "nombre": "Ingresos",
                   "base": 11713.0, "comp": 0.0, "var": -11713.0, "var_pct": -100.0}]
     k = {"ocupadas": 0, "ocupacion": 0, "adr": 0}
-    frases = ra._narrativa(a, b, k, k, ingresos, resultado, [], [])
-    assert any("CERO" in f and "A&B" in f for f in frases), frases
+    bloques = ra._narrativa(a, b, k, k, ingresos, resultado, [], [])
+    # La narrativa viene en bloques: el aviso tiene que estar en el suyo, no
+    # mezclado entre las frases descriptivas — es lo único que exige decidir.
+    avisos = [b for b in bloques if b["tipo"] == "aviso"]
+    assert avisos, bloques
+    assert any("CERO" in f and "A&B" in f for f in avisos[0]["lineas"]), avisos
 
 
 def test_la_narrativa_avisa_cuando_un_año_esta_incompleto():
@@ -78,8 +82,9 @@ def test_la_narrativa_avisa_cuando_un_año_esta_incompleto():
     k = {"ocupadas": 0, "ocupacion": 0, "adr": 0}
     res = [{"code": "TOTAL_REVENUES", "nombre": "Ingresos", "base": 1.0,
             "comp": 2.0, "var": 1.0, "var_pct": 100.0}]
-    frases = ra._narrativa(a, b, k, k, [], res, [], [])
-    assert any("exagera" in f for f in frases), frases
+    bloques = ra._narrativa(a, b, k, k, [], res, [], [])
+    avisos = [b for b in bloques if b["tipo"] == "aviso"]
+    assert avisos and any("exagera" in f for f in avisos[0]["lineas"]), bloques
 
 
 def test_las_dos_lineas_de_propiedad_se_llaman_distinto():
@@ -90,3 +95,27 @@ def test_las_dos_lineas_de_propiedad_se_llaman_distinto():
     cascada = next(n for c, n, _s in ra.RESULTADO if c == "TOTAL_NON_OP_EXPENSES")
     assert clase != cascada
     assert "8xxx" in clase and "renta" in cascada.lower()
+
+
+def test_el_total_de_ingresos_cuadra_con_el_pl():
+    """Un total del cuadro que no da igual que TOTAL_REVENUES hace dudar de todo
+    lo demás, con razón. Pasó: la lista de líneas escrita a mano no incluía
+    Private Bar y faltaban $163,72. Ahora las que no están declaradas se barren
+    solas, así que una línea nueva aparece el día que exista."""
+    a = {"lineas": {"REV_ROOMS": {"meses": [0] * 12, "anio": 100.0},
+                    "REV_PRIVATE_BAR": {"meses": [0] * 12, "anio": 7.0}}}
+    declarados = {c for c, _n in ra.INGRESOS}
+    sueltos = [c for c in a["lineas"]
+               if c.startswith("REV_") and c not in declarados]
+    assert "REV_PRIVATE_BAR" in sueltos, (
+        "Private Bar no está declarado y tiene que caer en el barrido")
+
+
+def test_el_total_lo_calcula_el_backend():
+    """Si cada pantalla sumara por su cuenta, el Word y la web darían distinto."""
+    filas = [{"base_meses": [1.0] * 12, "comp_meses": [2.0] * 12},
+             {"base_meses": [3.0] * 12, "comp_meses": [4.0] * 12}]
+    t = ra._totales(filas, "Total", +1)
+    assert t["base"] == 48.0 and t["comp"] == 72.0
+    assert t["base_meses"][0] == 4.0 and t["comp_meses"][0] == 6.0
+    assert t["es_total"] is True
