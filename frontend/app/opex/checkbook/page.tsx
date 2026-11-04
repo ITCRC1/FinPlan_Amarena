@@ -12,7 +12,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   getScenarios, getOpexDepts, getOpexDeptCheckbook, updateOpexEntry, importAllOpex,
   getTipoCambio,
-  opexExcelUrl, importOpexExcel, addOpexLines,
+  opexExcelUrl, importOpexExcel, ArchivoYaSubido, addOpexLines,
   type Scenario, type OpexAccount, type OpexEntry, type OpexDeptCheckbook,
   sembrarCuentas, recalcularOpexAlTc,
 } from "@/lib/api";
@@ -296,6 +296,8 @@ export default function OpexCheckbookPage() {
   const [importMsg, setImportMsg]         = useState<string | null>(null);
   const [xlsxUploading, setXlsxUploading] = useState(false);
   const [xlsxMsg, setXlsxMsg]             = useState<string | null>(null);
+  /** El archivo que el registro frenó por repetido, esperando el «subir igual». */
+  const [repetido, setRepetido]           = useState<File | null>(null);
   const [addingLines, setAddingLines]     = useState<string | null>(null);
   const [error, setError]                 = useState<string | null>(null);
   const fileInputRef                       = useRef<HTMLInputElement>(null);
@@ -486,24 +488,38 @@ export default function OpexCheckbookPage() {
     }
   }
 
-  async function handleXlsxUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !scenarioId) return;
+  /** Sube el Excel. `permitir` repite la subida de un archivo cuyo CONTENIDO ya
+   *  entró antes — el registro lo frena por defecto, y está bien que lo haga,
+   *  pero rearmar un escenario que quedó vacío con el mismo archivo es
+   *  legítimo y hasta ahora no había forma de hacerlo desde la pantalla. */
+  async function subirXlsx(file: File, permitir = false) {
+    if (!scenarioId) return;
     setXlsxUploading(true);
     setXlsxMsg(null);
+    setRepetido(null);
     try {
-      const result = await importOpexExcel(scenarioId, file);
+      const result = await importOpexExcel(scenarioId, file, permitir);
       setXlsxMsg(`✓ Excel importado: ${result.imported} líneas en ${result.depts} depts`);
       const raw = await getOpexDepts(scenarioId);
       const d = mergeDepts(raw.map(x => x.dept_code), "OPEX");
       setDepts(d);
       if (selectedDept) await loadDept(selectedDept);
     } catch (ex: unknown) {
-      setXlsxMsg(`${tc("error")}: ${ex instanceof Error ? ex.message : String(ex)}`);
+      if (ex instanceof ArchivoYaSubido) {
+        setRepetido(file);
+        setXlsxMsg(t("yaSubido", { archivo: file.name }));
+      } else {
+        setXlsxMsg(`${tc("error")}: ${ex instanceof Error ? ex.message : String(ex)}`);
+      }
     } finally {
       setXlsxUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  async function handleXlsxUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) await subirXlsx(file);
   }
 
   function toggleAccount(acctCode: string) {
@@ -693,8 +709,22 @@ export default function OpexCheckbookPage() {
           background: xlsxMsg.startsWith("✓") ? "rgba(38,166,154,0.08)" : "rgba(239,83,80,0.08)",
           color: xlsxMsg.startsWith("✓") ? "var(--positive)" : "var(--negative)",
           border: `1px solid ${xlsxMsg.startsWith("✓") ? "var(--positive)" : "var(--negative)"}`,
+          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         }}>
-          {xlsxMsg}
+          <span>{xlsxMsg}</span>
+          {repetido && (
+            <button
+              onClick={() => subirXlsx(repetido, true)}
+              disabled={xlsxUploading}
+              style={{
+                padding: "4px 12px", fontSize: 12, fontWeight: 700, borderRadius: 4,
+                background: "#1E3A5F", color: "#90CAF9", border: "1px solid #2962FF",
+                cursor: xlsxUploading ? "default" : "pointer",
+              }}
+            >
+              {t("subirIgual")}
+            </button>
+          )}
         </div>
       )}
       {importMsg && (

@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from app.importers.registro_dep import registro_de_subida
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -134,9 +134,21 @@ def _group_by_account(entries: list[OpexEntry]) -> list[dict]:
 
 @router.post("/opex/{scenario_id}/import/")
 async def import_all_opex(scenario_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    Import all OPEX checkbook files for this scenario.
-    Clears existing opex_entries for this scenario first.
+    """Importa los checkbooks de OPEX que estén en el disco DEL SERVIDOR.
+
+    Es el camino viejo, de cuando FinPlan corría en la máquina de CWL y los
+    archivos vivían al lado (`DATA_DIR`, por defecto `C:/FinPlan_CWL`). En
+    producción ese directorio NO existe, así que no hay nada que importar.
+
+    ⚠️ **Antes borraba primero y preguntaba después.** El 2026-11-03 alguien
+    apretó el botón en Amarena · Budget Working 2027: el DELETE se ejecutó, el
+    importador no encontró un solo archivo, devolvió «0 líneas» — y el
+    presupuesto quedó en CERO. 166 líneas y $930.000,09 desaparecidos con un
+    clic, y el mensaje en pantalla fue un ✓ verde.
+
+    Ahora **se lee primero y se borra sólo si hay con qué reemplazar.** Si el
+    importador no trae nada, el escenario queda intacto y el endpoint lo dice.
+    Sin archivos no se puede «importar todo»: se puede, como mucho, vaciar.
     """
     scenario = await _get_scenario_or_404(scenario_id, db)
     try:
@@ -144,12 +156,20 @@ async def import_all_opex(scenario_id: str, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=409, detail=str(e))
 
+    # ── 1. LEER. Si esto falla o viene vacío, no se tocó nada todavía. ──────
+    entries = import_opex_for_scenario(scenario_id, scenario.hotel_id, OPEX_BASE_DIR)
+    if not entries:
+        existentes = (await db.execute(
+            select(func.count()).select_from(OpexEntry)
+            .where(OpexEntry.scenario_id == scenario_id))).scalar_one()
+        raise ErrorApi(422, "opex.import_servidor_sin_archivos",
+                       carpeta=str(OPEX_BASE_DIR), lineas=existentes)
+
+    # ── 2. Recién ahora se reemplaza. ───────────────────────────────────────
     await db.execute(
         delete(OpexEntry).where(OpexEntry.scenario_id == scenario_id)
     )
     await db.flush()
-
-    entries = import_opex_for_scenario(scenario_id, scenario.hotel_id, OPEX_BASE_DIR)
     for e in entries:
         db.add(e)
 

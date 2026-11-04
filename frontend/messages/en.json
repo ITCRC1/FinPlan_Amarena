@@ -3263,7 +3263,9 @@
     "tcRunning": "Recalculating…",
     "tcHint": "Re-derives the USD of colón lines using the scenario's exchange rate. Dollar lines are left alone.",
     "tcDone": "{n} colón line(s) recalculated at FX {tc}.",
-    "tcNone": "No colón lines in this scenario — nothing to recalculate."
+    "tcNone": "No colón lines in this scenario — nothing to recalculate.",
+    "yaSubido": "«{archivo}» was already imported with this exact content. To load it again — to rebuild the scenario, say — use «Upload anyway».",
+    "subirIgual": "Upload anyway"
   },
   "ownersQ": {
     "bajarExcel": "Download Excel",

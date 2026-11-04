@@ -3263,7 +3263,9 @@
     "tcRunning": "Recalculando…",
     "tcHint": "Vuelve a pasar a dólares las líneas en colones con el tipo de cambio del escenario. Las líneas en dólares no se tocan.",
     "tcDone": "{n} línea(s) en colones recalculadas al TC {tc}.",
-    "tcNone": "No hay líneas en colones en este escenario: nada que recalcular."
+    "tcNone": "No hay líneas en colones en este escenario: nada que recalcular.",
+    "yaSubido": "«{archivo}» ya se importó antes con este mismo contenido. Si querés volver a cargarlo —por ejemplo para rearmar el escenario— usá «Subir igual».",
+    "subirIgual": "Subir igual"
   },
   "ownersQ": {
     "bajarExcel": "Bajar Excel",

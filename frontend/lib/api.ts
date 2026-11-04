@@ -1800,19 +1800,37 @@ export function opexExcelUrl(scenarioId: string): string {
   return dlUrl(`/opex/${scenarioId}/export/excel/`);
 }
 
+/** Error de subida que el registro frenó por repetida. Se distingue del resto
+ *  para que la pantalla pueda ofrecer «subir igual» en vez de dejar al usuario
+ *  con un 409 que no explica qué hacer. */
+export class ArchivoYaSubido extends Error {
+  constructor(public readonly detalle: string) {
+    super(detalle);
+    this.name = "ArchivoYaSubido";
+  }
+}
+
 export async function importOpexExcel(
   scenarioId: string,
   file: File,
+  permitirReimport = false,
 ): Promise<{ imported: number; depts: string[] }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/opex/${scenarioId}/import/excel/`, {
+  const q = permitirReimport ? "?permitir_reimport=true" : "";
+  const res = await fetch(`${BASE}/opex/${scenarioId}/import/excel/${q}`, {
     method: "POST",
     body: form,
     headers: authHeaders(),
   });
   if (!res.ok) {
     const text = await res.text();
+    // El registro de importaciones frena el mismo CONTENIDO, no el mismo
+    // nombre. Volver a subirlo es legítimo —por ejemplo para rearmar un
+    // escenario que quedó vacío— y la pantalla tiene que poder ofrecerlo.
+    if (res.status === 409 && text.includes("import.ya_subido")) {
+      throw new ArchivoYaSubido(text);
+    }
     throw new Error(`API ${res.status}: ${text}`);
   }
   return res.json();
