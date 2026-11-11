@@ -6,15 +6,16 @@
   "La llave es depto + nombre de la posicion, sin mayusculas ni espacios de mas: el mismo nombre en otro escenario cae en el mismo puesto.",
   "Las posiciones salen de todos los Budget y Forecast de Amarena (2026 y 2027). 260 = Club Madresal.",
   "Propuesta de Claude (2026-11-10) contra el catalogo de posiciones del grupo: Amarena todavia no tiene su catalogo homologado de estadisticas (falta el export STATS de Integrity).",
-  "revisar = propuesta, no confirmada por el owner. Ver 2026-11-10_Amarena_homologacion_posiciones_Integrity_v1.xlsx."
+  "revisar = propuesta, no confirmada por el owner. Ver 2026-11-10_Amarena_homologacion_posiciones_Integrity_v1.xlsx.",
+  "2026-11-11: cruzado contra stats_integrity_AMA.json. 22 posiciones no tienen cuenta de horas en su depto (Club 260, Tours 0150, chofer en 0182, asistente en 0111): quedan sin puesto y marcadas revisar."
  ],
  "mapa": [
   {
    "depto": "0111",
    "posicion": "ASISTENTE ADMINISTRATIVA HOTEL & CLUB",
-   "puesto": "557",
+   "puesto": "",
    "revisar": true,
-   "nota": "No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant segun lo que haga"
+   "nota": "El depto 0111 no tiene el puesto 557 en las cuentas de horas (9980) de Integrity; equivalente propuesto 557 ACCOUNTING ASSISTANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant segun lo que haga"
   },
   {
    "depto": "0111",
@@ -68,16 +69,16 @@
   {
    "depto": "0150",
    "posicion": "Centro de actividades La Calera",
-   "puesto": "608",
+   "puesto": "",
    "revisar": true,
-   "nota": "No hay puesto de centro de actividades: 608 Adventure Guide o 606 Naturalist Guide"
+   "nota": "Tours (0150): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 0150; equivalente propuesto 608 ADVENTURE GUIDE. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: No hay puesto de centro de actividades: 608 Adventure Guide o 606 Naturalist Guide"
   },
   {
    "depto": "0150",
    "posicion": "Chofer-Transporte Empleados Y Huespedes",
-   "puesto": "612",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Tours (0150): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 0150; equivalente propuesto 612 DRIVER TRANSPORTATION. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "0161",
@@ -89,9 +90,9 @@
   {
    "depto": "0182",
    "posicion": "Chofer-Transporte Empleados Y Huespedes",
-   "puesto": "612",
+   "puesto": "",
    "revisar": true,
-   "nota": "Chofer cargado en Finanzas (0182): 612 Driver Transportation, o 565 Driver Purchasing si es de compras"
+   "nota": "El depto 0182 no tiene el puesto 612 en las cuentas de horas (9980) de Integrity; equivalente propuesto 612 DRIVER TRANSPORTATION. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Chofer cargado en Finanzas (0182): 612 Driver Transportation, o 565 Driver Purchasing si es de compras"
   },
   {
    "depto": "0186",
@@ -124,128 +125,128 @@
   {
    "depto": "260",
    "posicion": "AMA DE LLAVES HOTEL",
-   "puesto": "509",
+   "puesto": "",
    "revisar": true,
-   "nota": "Ama de llaves: 509 Housekeeping Manager o 511 Housekeeping Supervisor"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 509 HOUSEKEEPING MANAGER. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Ama de llaves: 509 Housekeeping Manager o 511 Housekeeping Supervisor"
   },
   {
    "depto": "260",
    "posicion": "ASISTENTE ADMINISTRATIVA HOTEL & CLUB",
-   "puesto": "557",
+   "puesto": "",
    "revisar": true,
-   "nota": "No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 557 ACCOUNTING ASSISTANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant"
   },
   {
    "depto": "260",
    "posicion": "CAMARERA HOTEL",
-   "puesto": "508",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 508 ROOM ATTENDANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "ENCARGADO DE CLUB",
-   "puesto": "595",
+   "puesto": "",
    "revisar": true,
-   "nota": "Encargado del Club: 595 Operations Manager o 610 Assistant Operations Manager"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 595 OPERATIONS MANAGER. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Encargado del Club: 595 Operations Manager o 610 Assistant Operations Manager"
   },
   {
    "depto": "260",
    "posicion": "ENCARGADO DE PLAYA",
-   "puesto": "510",
+   "puesto": "",
    "revisar": true,
-   "nota": "No hay puesto de playa: 510 Public Areas Attendant o 596 Rooms and Public Areas Operator"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 510 PUBLIC AREAS ATTENDANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: No hay puesto de playa: 510 Public Areas Attendant o 596 Rooms and Public Areas Operator"
   },
   {
    "depto": "260",
    "posicion": "GERENTE DE OPERACIONES",
-   "puesto": "595",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 595 OPERATIONS MANAGER. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "GEST EXPICIENCE",
-   "puesto": "515",
+   "puesto": "",
    "revisar": true,
-   "nota": "Mismo puesto que Guest Experience (el nombre trae el typo de la planilla, a proposito); 515 es el MANAGER"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 515 GUEST EXPERIENCE MANAGER. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Mismo puesto que Guest Experience (el nombre trae el typo de la planilla, a proposito); 515 es el MANAGER"
   },
   {
    "depto": "260",
    "posicion": "HOST CLUB MADRESAL",
-   "puesto": "541",
+   "puesto": "",
    "revisar": true,
-   "nota": "Host del Club: 541 Hostess o 516 Guest Relations"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 541 HOSTESS. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Host del Club: 541 Hostess o 516 Guest Relations"
   },
   {
    "depto": "260",
    "posicion": "Host-in charge of Gym and Area",
-   "puesto": "596",
+   "puesto": "",
    "revisar": true,
-   "nota": "Host del gimnasio y areas: 596 Rooms and Public Areas Operator o 547 Lead Wellness Therapist"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 596 ROOMS AND PUBLIC AREAS OPERATOR. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Host del gimnasio y areas: 596 Rooms and Public Areas Operator o 547 Lead Wellness Therapist"
   },
   {
    "depto": "260",
    "posicion": "HOUSEKEEPING SUPERVISOR",
-   "puesto": "511",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 511 HOUSEKEEPING SUPERVISOR. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "JARDINERO HOTEL & CLUB",
-   "puesto": "591",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 591 GARDENER. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "MISCELANEA CLUB MADRESAL",
-   "puesto": "510",
+   "puesto": "",
    "revisar": true,
-   "nota": "Miscelanea (limpieza de areas): 510 Public Areas Attendant"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 510 PUBLIC AREAS ATTENDANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: Miscelanea (limpieza de areas): 510 Public Areas Attendant"
   },
   {
    "depto": "260",
    "posicion": "OPERARIO DE MTO CLUB & HOTEL",
-   "puesto": "583",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 583 GENERAL MAINTENANCE. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "PISCINERO",
-   "puesto": "586",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 586 POOL TECHNICIAN. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "RECEPCIONISTA HOTEL",
-   "puesto": "501",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 501 FRONT DESK AGENT / RECEPTIONIST. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "RECEPCIONISTA NOCTURNO",
-   "puesto": "502",
+   "puesto": "",
    "revisar": true,
-   "nota": "502 Night Auditor, o 501 si Integrity lo registra como recepcion"
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 502 NIGHT AUDITOR. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas. Antes: 502 Night Auditor, o 501 si Integrity lo registra como recepcion"
   },
   {
    "depto": "260",
    "posicion": "Room Attendant",
-   "puesto": "508",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 508 ROOM ATTENDANT. Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   },
   {
    "depto": "260",
    "posicion": "RUNNER HOTEL",
-   "puesto": "513",
-   "revisar": false,
-   "nota": ""
+   "puesto": "",
+   "revisar": true,
+   "nota": "Club Madresal (260): el catalogo de Integrity no tiene cuentas de horas (9980) en el depto 260; equivalente propuesto 513 CORRIDOR ATTENDANT (FLOOR RUNNER). Se ve aparte en el reporte de FTE hasta que contabilidad defina donde registra las horas."
   }
  ]
 }

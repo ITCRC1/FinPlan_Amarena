@@ -454,3 +454,55 @@ def test_el_set_del_catalogo_es_el_del_motor():
 def test_las_calculadas_no_entran_en_la_plantilla():
     src = inspect.getsource(__import__("app.engine.estadisticas_grilla", fromlist=["x"]).construir)
     assert 'StatAccount.formula == ""' in src
+
+
+# ── El catálogo homologado de Amarena (2026-11-11) ───────────────────────────
+
+def test_el_catalogo_de_amarena_carga_y_sus_noches_son_sus_cuatro_tipos():
+    """Sale de `scripts/generar_stats_integrity.py`: lo del grupo igual que CWL
+    y las noches rehechas con los 4 tipos activos de Amarena (N7 01-04)."""
+    cat = si.leer_catalogo("AMA")
+    assert cat["hotel"] == "AMA"
+    noches = [c for c in cat["cuentas"] if c["grupo"] == "9000"]
+    assert {c["clave"][-2:] for c in noches} == {"00", "01", "02", "03", "04"}
+    assert {c["depto"] for c in noches} == {"0110"}
+    assert all(c["estado_finplan"] == "CREAR EN INTEGRITY" for c in noches)
+    bar = next(c for c in noches if c["clave"] == "9000-0110-001-001-001-01")
+    assert bar["cuenta_ingreso"] == "4000-0110-001-001-001-DD-01"
+    assert "Garden View Deluxe-Tented Villa" in bar["nivel7"]
+    assert len(cat["grupos"]) == 44
+
+
+def test_el_generador_numera_el_n7_como_la_pantalla():
+    """N7 = posición del tipo por `sort_order` contando TODOS los tipos, como
+    `stats_integrity_api.plan`; un tipo inactivo o sin unidades no abre cuentas."""
+    import importlib.util, pathlib
+    ruta = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "generar_stats_integrity.py"
+    spec = importlib.util.spec_from_file_location("gen", ruta)
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    plantilla = {"grupos": {"9000": {"concepto": "Noches", "unidad": "noches", "cuentas": 2}}, "cuentas": [
+        {"clave": "9000-0110-001-001-001-01", "codigo": "9000-0110-001-001-001-DD-01", "grupo": "9000",
+         "descripcion": "BAR · FIT · X", "depto": "0110", "depto_nombre": "R", "nivel4": "FIT",
+         "nivel7": "01 X", "cuenta_ingreso": "4000-0110-001-001-001-DD-01"},
+        {"clave": "9000-0110-010-003-001-00", "codigo": "9000-0110-010-003-001-DD-00", "grupo": "9000",
+         "descripcion": "No Show · No aplica · Sin tipo", "depto": "0110", "depto_nombre": "R",
+         "nivel4": "No aplica", "nivel7": "00 Sin tipo", "cuenta_ingreso": ""}]}
+    hotel = {"hotel": "TST", "deptos": {}, "tipos": [
+        {"sort_order": 2, "code": "B", "name": "Dos", "units": 3, "dept_code": "", "active": True},
+        {"sort_order": 1, "code": "A", "name": "Uno", "units": 0, "dept_code": "", "active": False},
+        {"sort_order": 3, "code": "C", "name": "Tres", "units": 1, "dept_code": "", "active": True}]}
+    out = gen.generar(plantilla, hotel)
+    claves = sorted(c["clave"] for c in out["cuentas"])
+    assert claves == ["9000-0110-001-001-001-02", "9000-0110-001-001-001-03",
+                      "9000-0110-010-003-001-00"]
+
+
+def test_ninguna_posicion_de_amarena_apunta_a_un_puesto_sin_horas_en_su_depto():
+    """Con el catálogo homologado ya cargado, cada puesto del mapa tiene que
+    ser una 9980 de SU depto; lo que no la tiene queda sin puesto y a revisar
+    (Club 260, Tours 0150 y dos sueltos, 2026-11-11)."""
+    homologado = si.nombres_de_puestos(si.leer_catalogo("AMA"))
+    assert homologado
+    for (depto, nombre), m in si.leer_mapa_puestos("AMA").items():
+        assert not m["puesto"] or (depto, m["puesto"]) in homologado, (depto, nombre)
