@@ -69,6 +69,19 @@ def semilla(nombre: str, hotel_id: str | None = None):
     return _a_decimal(json.loads(ruta.read_text(encoding="utf-8")))
 
 
+def semilla_del_grupo(nombre: str):
+    """Una semilla que NO es por hotel: vive en la raiz de `seed_data`.
+
+    El catalogo de cuentas y el de posiciones son master data de TODO el grupo,
+    asi que no cuelgan de `<HOTEL_ID>/`. Se leen sin tipos convertidos: son
+    LLAVES, no cantidades (port de CWL).
+    """
+    ruta = _RAIZ / f"{nombre}.json"
+    if not ruta.exists():
+        return None
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
 def tiene_semillas(hotel_id: str | None = None) -> bool:
     """¿Esta propiedad trae datos de arranque? Útil para el mensaje de la UI."""
     return (_RAIZ / (hotel_id or HOTEL_ID)).is_dir()

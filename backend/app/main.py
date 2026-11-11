@@ -30,6 +30,7 @@ from app.api.big_picture_api import router as big_picture_router
 from app.api.actuals_api import router as actuals_router
 from app.api.mapping_api import router as mapping_router
 from app.api.audit_api import router as audit_router
+from app.api.auditoria_gl_api import router as auditoria_gl_router
 from app.api.auditoria_api import router as auditoria_router
 from app.api.detalle_celda_api import router as detalle_celda_router
 from app.api.comentario_pl_api import router as comentario_pl_router
@@ -180,6 +181,8 @@ app.include_router(big_picture_router, prefix="/api", dependencies=_guard)
 app.include_router(actuals_router, prefix="/api", dependencies=_guard)
 app.include_router(mapping_router, prefix="/api", dependencies=_guard)
 app.include_router(audit_router, prefix="/api", dependencies=_guard)
+# El mayor guardado va ANTES que la auditoria del mapeo: comparten prefijo.
+app.include_router(auditoria_gl_router, prefix="/api", dependencies=_guard)
 app.include_router(auditoria_router, prefix="/api", dependencies=_guard)
 app.include_router(executive_summary_router, prefix="/api", dependencies=_guard)
 app.include_router(detalle_celda_router, prefix="/api", dependencies=_guard)

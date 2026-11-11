@@ -61,6 +61,9 @@ export const NAV: NavGroup[] = [
     key: "scenarios",
     items: [
       { key: "scenarios", href: "/scenarios" },
+      // La auditoría del mayor va antes de la carga: se revisa el detalle de
+      // Integrity y recién después se sube el mes (port de CWL).
+      { key: "auditoriaGl", href: "/pre-cierre/auditoria" },
       { key: "importActuals", href: "/admin/import-actuals" },
     ],
   },

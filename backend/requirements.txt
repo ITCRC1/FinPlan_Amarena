@@ -22,6 +22,9 @@ openpyxl==3.1.5
 pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx==0.28.1
+# Solo para pruebas: una base en memoria donde ensayar un guardado real sin
+# PostgreSQL. Ver `test_el_mayor_guardado`.
+aiosqlite==0.22.1
 tzdata==2026.2
 anthropic==1.0.0
 # El generador del Word del cierre. Fijada como el resto: con `>=`

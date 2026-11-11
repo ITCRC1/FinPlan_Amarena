@@ -5776,3 +5776,219 @@ export async function setPaxGrid(
   return api.put(
     `/scenarios/${encodeURIComponent(scenarioId)}/revenue/pax-grid/`, { celdas });
 }
+
+// Un error de la API con su texto, su `clave` (errores.py) y su status.
+async function errorLegible(res: Response): Promise<Error> {
+  const texto = await res.text();
+  let mensaje = texto, clave: string | undefined, detalle: unknown;
+  try {
+    const j = JSON.parse(texto);
+    clave = j?.clave;
+    detalle = j?.detail;
+    mensaje = typeof j?.detail === "string" ? j.detail
+            : (j?.detail?.mensaje ?? j?.detail?.error ?? texto);
+  } catch { /* no era JSON */ }
+  return Object.assign(new Error(mensaje), { clave, detalle, status: res.status });
+}
+
+// ── Auditoría del detalle del mayor ──────────────────────────────────────────
+//
+// Owner, 2026-10-05: «que herramienta puedes hacerme para yo solo subir el
+// archivo en este detalle y me salgan automáticamente la auditoría con las
+// discrepancias». Se sube el Full Detail P&L de Integrity y vuelven los casos a
+// revisar. NO guarda nada: es una lupa sobre un archivo, no una carga.
+export interface AuditoriaLinea {
+  asiento: string; linea: string; fecha: string; cuenta: string;
+  descripcion: string; referencia: string; origen: string;
+  monto_crc: number; monto_usd: number;
+}
+export interface AuditoriaHallazgo {
+  /** Costos (5) · Planilla (6) · Opex (7) · Gastos de propiedad (8) ·
+   *  Ingresos (4). Sale de la cuenta SEÑALADA, no de la sugerida. */
+  grupo: string;
+  regla: string;
+  /** `alta` · `media` · `baja` — la tabla sale ordenada por esto y por monto. */
+  severidad: string;
+  cuenta: string; dept: string; concepto: string;
+  n_lineas: number; monto_crc: number; monto_usd: number;
+  porque: string;
+  /** La cuenta donde parece ir. Vacía cuando el reparto quedó partido al medio
+   *  y no hay un lado dominante: ahí hay que decidir, no mover. */
+  sugerencia: string;
+  lineas: AuditoriaLinea[];
+}
+export interface AuditoriaGL {
+  archivo: string; titulo: string; periodo: string; moneda: string;
+  hojas: string[];
+  lineas_del_archivo: number; lineas_revisadas: number; lineas_senaladas: number;
+  monto_en_revision_crc: number;
+  por_regla: Record<string, number>;
+  por_severidad: Record<string, number>;
+  /** Por tipo de cuenta, en el orden en que se revisa. Un tipo sin hallazgos NO
+   *  viene: una pestaña vacía se lee como «no revisé esto». */
+  por_grupo: Record<string, { casos: number; lineas: number; monto_crc: number; alta: number }>;
+  que_mira: Record<string, string>;
+  hallazgos: AuditoriaHallazgo[];
+}
+
+/** Lo que el estandar aprueba como renglones del reporte de un departamento. */
+export interface UsaliSchedule {
+  schedule: string;
+  /** 1 Rooms, 2 F&B, … 14 Payroll-Related. Nulo si no es un solo schedule. */
+  numero: number | null;
+  titulo?: string;
+  /** El titulo en espanol. Vacio si el glosario no lo tiene — vacio y NO el
+   *  ingles repetido: «Building — Building» se lee como un error. */
+  titulo_es?: string;
+  /** Los MISMOS renglones en espanol y en el mismo orden. */
+  renglones_es?: string[];
+  /** ⚠️ Falso en el Schedule 3 —Spa, Tours, Transporte, Retail—: el libro NO da
+   *  lista para esos. Decirlo es la mitad util de la respuesta. */
+  lista_aprobada: boolean;
+  motivo: string;
+  renglones: string[];
+}
+
+/** Los renglones aprobados del reporte de un departamento del USALI. */
+export async function usaliSchedule(schedule: string): Promise<UsaliSchedule> {
+  return api.get(`/usali/schedule/?schedule=${encodeURIComponent(schedule)}`);
+}
+
+/** Lo que el USALI dice de una cuenta del hotel. */
+export interface UsaliParaCuenta {
+  nombre: string;
+  /** `exacto` = el nombre es el mismo · `parecido` = variante · `ninguno`. */
+  grado: "exacto" | "parecido" | "ninguno";
+  parecido: number;
+  cuenta_usali: string | null;
+  /** Las definiciones de esa cuenta. El libro define «cualquier gasto de este
+   *  departamento que no encaje en los otros renglones» UNA VEZ POR
+   *  DEPARTAMENTO, asi que «Miscellaneous» trae trece. Vienen ordenadas con la
+   *  del departamento de la cuenta primero. */
+  definiciones: {
+    cuenta: string; texto: string; pagina: number;
+    /** De que departamento del USALI habla esta definicion. */
+    schedule: string;
+    /** `true` si es la del departamento de la cuenta que se abrio. */
+    es_del_depto: boolean;
+  }[];
+  items: { item: string; schedule: string }[];
+  /** Que lleva ESE departamento segun el estandar. Nulo si no se dijo cual. */
+  schedule: UsaliSchedule | null;
+}
+
+/**
+ * Que dice el estandar de una cuenta del hotel.
+ *
+ * ⚠️ NO afirma nada: devuelve lo que el libro dice de una cuenta que se llama
+ * parecido, con el parecido a la vista. Aparear ASIENTO contra estandar no se
+ * puede —el mayor dice el proveedor en espanol y el libro el articulo en
+ * ingles, y el 98,3% no comparte una palabra—; aparear NOMBRE DE CUENTA si,
+ * porque el catalogo del hotel se armo sobre USALI.
+ */
+export async function usaliParaCuenta(
+  nombre: string, dept = "",
+): Promise<UsaliParaCuenta> {
+  // Se manda el departamento de la contabilidad —«0110»— y el puente al
+  // departamento del USALI vive en el servidor: la pantalla no tiene por que
+  // saber que Rooms es el Schedule 1 y el Spa el 3.
+  return api.get(`/usali/para-cuenta/?nombre=${encodeURIComponent(nombre)}`
+    + `&dept=${encodeURIComponent(dept)}`);
+}
+
+/** Una linea del AUDIT INTEGRAL: una cuenta del mes contra las versiones. */
+export interface DetalleIntegral {
+  detalle: string; nombre: string; actual: number; lineas: number;
+}
+
+export interface FilaIntegral {
+  grupo: string; dept_code: string; dept_name: string;
+  cuenta: string; nombre: string;
+  actual: number; lineas: number;
+  versiones: Record<string, number>;
+  /** El tercer segmento de la cuenta — en las 6 el puesto, en las 7 el detalle
+   *  del gasto. Owner, 2026-10-07: *«e internamente por Detalle»*.
+   *
+   *  ⚠️ Sin comparacion a proposito: el presupuesto numera sus detalles por su
+   *  cuenta, y apareados darian una correspondencia inventada. Lo que se compara
+   *  es el total por CUENTA. Igual que `Opex by Detail`. */
+  detalles: DetalleIntegral[];
+}
+
+export interface AuditIntegralResp {
+  anio: number; mes: number; hay: boolean; motivo?: string;
+  archivo?: string; moneda?: string; subido_en?: string | null;
+  orden_grupos?: string[];
+  versiones?: { scenario_id: string; escenario: string }[];
+  filas?: FilaIntegral[];
+}
+
+/**
+ * El mes real a maximo detalle contra Budget y Forecast.
+ *
+ * Sale del MAYOR guardado, no del espejo del Pre-Cierre: el espejo llega a la
+ * cuenta y se acaba, y aca hace falta poder bajar al asiento.
+ */
+export async function getAuditIntegral(
+  anio: number, mes: number, scenarios: string[],
+): Promise<AuditIntegralResp> {
+  const q = encodeURIComponent(scenarios.filter(Boolean).join(","));
+  return api.get(`/mayor/${anio}/${mes}/integral/?scenarios=${q}`);
+}
+
+/** Un mes del mayor que ya quedo guardado. */
+export interface MesGuardado {
+  anio: number; mes: number; movimientos: number;
+  archivo: string | null; subido_en: string | null;
+}
+
+/** Que meses del mayor estan guardados, del mas nuevo al mas viejo. */
+export async function mesesDelMayor(): Promise<{ meses: MesGuardado[] }> {
+  return api.get(`/mayor/meses/`);
+}
+
+/**
+ * Los hallazgos de un mes YA SUBIDO, recalculados del mayor guardado.
+ *
+ * Owner, 2026-10-07: *«que el analisis no desaparezca… veo que todo desaparece
+ * una vez que uno sale y entra otra vez»*.
+ *
+ * ⚠️ Devuelve `hay: false` cuando el mes no esta subido, en vez de un cuadro
+ * vacio: «no subido» y «sin hallazgos» son dos cosas distintas.
+ */
+export async function auditoriaGuardada(
+  anio: number, mes: number,
+): Promise<AuditoriaGL & { hay: boolean; motivo?: string; de_lo_guardado?: boolean;
+                           subido_en?: string | null; subido_por?: string }> {
+  return api.get(`/auditoria-gl/${anio}/${mes}/`);
+}
+
+export async function auditarMayor(file: File): Promise<AuditoriaGL> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/auditoria-gl/revisar/`,
+    { method: "POST", body: fd, headers: authHeaders() });
+  if (!res.ok) throw await errorLegible(res);
+  return res.json();
+}
+
+/** El mismo análisis como hoja de trabajo. Va por POST porque lleva el archivo,
+ *  así que no puede usar `bajarArchivo`, que es GET. */
+export async function auditarMayorExcel(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/auditoria-gl/excel/`,
+    { method: "POST", body: fd, headers: authHeaders() });
+  if (!res.ok) throw await errorLegible(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const cd = res.headers.get("content-disposition") || "";
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  a.download = m ? decodeURIComponent(m[1]) : "auditoria.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

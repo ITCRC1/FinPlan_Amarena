@@ -219,7 +219,13 @@ def _rutas_de_subida() -> tuple[list[str], list[str]]:
 # Lo vigila `test_cierre_lee_la_base_plana.py::test_el_endpoint_existe_y_no_guarda_nada`.
 NO_REGISTRAN = {"audit_api.py:validate_upload",
                 "room_stats_pdf_api.py:leer_pdf_room_stats",
-                "room_stats_pdf_api.py:leer_excel_room_stats"}
+                "room_stats_pdf_api.py:leer_excel_room_stats",
+                # La auditoria del mayor (port de CWL) no deja ningun numero en
+                # el P&L ni en un escenario: guarda el libro en su propia tabla
+                # (`mayor_movimientos`) para mirarlo, y lo devuelve revisado.
+                "auditoria_gl_api.py:revisar",
+                "auditoria_gl_api.py:excel",
+                "auditoria_gl_api.py:_revisar"}
 
 
 def test_TODA_puerta_de_subida_QUE_ESCRIBE_registra_el_archivo():

@@ -19,7 +19,13 @@ import builtins
 import pathlib
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1] / "app"
-BUILTINS = set(dir(builtins))
+#: `dir(builtins)` NO trae los dunder que Python le pone a cada modulo. Sin
+#: ellos, un `Path(__file__)` dentro de una funcion —la forma normal de ubicar
+#: un archivo al lado del codigo— se reportaba como NameError. Era mentira:
+#: `__file__` es un global del modulo y la funcion corre perfecto (port de CWL).
+MODULO = {"__file__", "__name__", "__doc__", "__package__",
+          "__spec__", "__loader__", "__builtins__", "__debug__"}
+BUILTINS = set(dir(builtins)) | MODULO
 
 
 def _liga(nodo) -> set[str]:
