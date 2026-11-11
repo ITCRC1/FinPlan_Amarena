@@ -265,6 +265,65 @@ INDICADORES = [
     ("revpar_rooms", "RevPAR habitaciones (ADR × ocupación)", "USD"),
 ]
 
+#: Las membresías del Club, pegadas a este mismo tab.
+#:
+#: Owner, 2026-11-11: *«metelas en A y yo las saco de ahí, filtradas»*. No son
+#: un indicador de habitaciones y el `Club ·` del rótulo está puesto para que
+#: se puedan filtrar de un saque.
+#:
+#: Salen de `statistical_entries` (98xx), que llena
+#: `estadisticas.membresias_puente` desde la pantalla del cierre. El resto de
+#: este tab sale de los KPIs del P&L: son dos fuentes distintas en una misma
+#: lista, y por eso el valor del año se calcula aparte.
+MEMBRESIAS = [
+    ("club_total",        "9800", "Club · total de membresías",      "socios"),
+    ("club_activas",      "9802", "Club · activas de cobro",         "socios"),
+    ("club_condicionados","9801", "Club · condicionados 2da etapa",  "socios"),
+    ("club_plan_pago",    "9803", "Club · en acuerdo de pago",       "socios"),
+    ("club_pend_firma",   "9804", "Club · pendientes de firma",      "socios"),
+    ("club_excepcion",    "9805", "Club · exceptuadas de pago",      "socios"),
+]
+
+
+async def _membresias_del_escenario(session, scenario_id: str):
+    """Las 98xx del escenario: `({mes: {clave: valor}}, {clave: valor_del_año})`.
+
+    ⚠️ **El año NO es la suma de los meses.** Estas cuentas son `agrega=FIN`:
+    son un padrón, no un flujo. Sumar doce meses de 130 socios daría 1.560
+    socios donde hay 130, y el número saldría enorme sin que nada avise.
+
+    `FIN` estaba declarado en el catálogo desde que existen las 98xx pero
+    **nadie lo implementaba**: esta es la primera vez que algo lo lee.
+
+    ⚠️ Y no se toma diciembre a secas, sino **el último mes con dato**. La
+    regla escrita dice «el saldo de diciembre», pero un ACTUAL a mitad de año
+    no tiene diciembre: con la lectura literal, un club con 130 socios en
+    septiembre mostraría **cero** en el año, que se lee como que se quedó sin
+    socios. El último mes contado es el saldo más reciente que se conoce, y es
+    lo que esa regla quiere decir cuando el año está completo.
+    """
+    from app.estadisticas.membresias_puente import CUENTAS
+    from app.models.statistical_entry import StatisticalEntry
+
+    filas = (await session.execute(
+        select(StatisticalEntry).where(
+            StatisticalEntry.scenario_id == scenario_id,
+            StatisticalEntry.account_code.in_(CUENTAS),
+        ))).scalars().all()
+
+    por_cuenta: dict[str, dict[int, float]] = {}
+    for f in filas:
+        por_cuenta.setdefault(f.account_code, {})[f.month] = float(f.value or 0)
+
+    por_mes: dict[int, dict[str, float]] = {}
+    del_anio: dict[str, float] = {}
+    for clave, cuenta, _n, _u in MEMBRESIAS:
+        meses = por_cuenta.get(cuenta, {})
+        for mes, valor in meses.items():
+            por_mes.setdefault(mes, {})[clave] = valor
+        del_anio[clave] = meses[max(meses)] if meses else 0.0
+    return por_mes, del_anio
+
 
 def _monto(lineas, codigo: str) -> float:
     total = 0.0
@@ -347,6 +406,9 @@ async def consolidado_estadisticas(
             raise ErrorApi(404, "consolidado.sin_escenario", propiedad=HOTEL_NAME, tipo=tipo, anio=year)
         mensual = await pl_api._monthly_results(session, escenario)
         anual = pl_api._aggregate(mensual, 12)
+        # Dentro de la sesión: las 98xx no salen del P&L sino de su propia tabla.
+        club_por_mes, club_del_anio = await _membresias_del_escenario(
+            session, escenario.id)
 
     por_mes = {m["month"]: indicadores_del_periodo(
         m["kpis"] or {}, m["lines"], calendar.monthrange(year, m["month"])[1]) for m in mensual}
@@ -356,6 +418,14 @@ async def consolidado_estadisticas(
     dias_con_hab = sum(calendar.monthrange(year, m["month"])[1] for m in mensual
                        if float((m["kpis"] or {}).get("rooms_available") or 0) > 0)
     del_anio = indicadores_del_periodo(anual.get("kpis") or {}, anual["lines"], dias_con_hab)
+
+    # Las membresías se pegan DESPUÉS de agregar: su año es el último saldo
+    # conocido, no la suma. Un mes del que el Club no tiene conteo queda sin
+    # clave y baja en cero, igual que los KPIs de un mes sin cerrar.
+    for mes, valores in club_por_mes.items():
+        por_mes.setdefault(mes, {}).update(valores)
+    del_anio.update(club_del_anio)
+
     return {
         "contrato": CONTRATO,
         "hotel_id": HOTEL_ID,
@@ -369,5 +439,5 @@ async def consolidado_estadisticas(
             "clave": k, "nombre": n, "unidad": u,
             "meses": [round(por_mes.get(i, {}).get(k, 0.0), 4) for i in range(1, 13)],
             "anual": round(del_anio[k], 4),
-        } for k, n, u in INDICADORES],
+        } for k, n, u in INDICADORES + [(k, n, u) for k, _c, n, u in MEMBRESIAS]],
     }
