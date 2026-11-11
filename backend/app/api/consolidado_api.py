@@ -16,8 +16,10 @@ afuera. Además sirve desde el primer hotel, no desde el segundo.
 escenario usado, y cada línea del P&L con sus 12 meses y el anual, en USD, más
 los KPIs. Si cambia, cambia en las cuatro — por eso hay prueba de su forma.
 
-**Qué NO sale por acá:** detalle de cuentas, planilla, nombres de personas,
-ninguna fila del GL. Totales por línea y nada más.
+**Qué NO sale por acá:** ningún asiento del mayor. (Hasta el 2026-11-11 tampoco
+salían el detalle por cuenta, la planilla ni nombres de personas: ese día se
+sumó `/consolidado/gl/` desde CWL, y el owner pidió posiciones con nombre y
+salario — ver `consolidado_planilla_api`.) Por acá: totales por línea.
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
