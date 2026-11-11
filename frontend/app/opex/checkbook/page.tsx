@@ -342,11 +342,16 @@ export default function OpexCheckbookPage() {
     try {
       const cb = await getOpexDeptCheckbook(scenarioId, deptCode);
       setCheckbook(cb);
-      // Auto-expand accounts that have non-zero annual total
-      const nonZero = new Set(
-        cb.accounts.filter(a => parseFloat(a.annual_total) > 0).map(a => a.account_code)
-      );
-      setExpanded(nonZero);
+      // Abre TODAS las cuentas, no solo las que ya tienen monto.
+      //
+      // Antes abria unicamente las de total anual > 0, y el criterio se
+      // contradecia solo: mostraba lo que ya estaba lleno y escondia justo
+      // donde hay que escribir. En Sales eso dejaba 22 de 32 cuentas cerradas,
+      // y el checkbook es una pantalla de CAPTURA — las 11 sub-lineas (800 a
+      // 810) existen para que el usuario teclee en ellas.
+      //
+      // «Colapsar todo» sigue ahi para la vista de repaso.
+      setExpanded(new Set(cb.accounts.map(a => a.account_code)));
     } finally {
       setDeptLoading(false);
     }
