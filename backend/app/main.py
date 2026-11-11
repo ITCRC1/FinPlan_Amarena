@@ -49,6 +49,7 @@ from app.api.gasto_por_clase_api import router as gasto_clase_router
 from app.api.fb_detalle_api import router as fb_detalle_router
 from app.api.ingreso_detalle_api import router as ingreso_detalle_router
 from app.api.estadisticas_api import router as estadisticas_router
+from app.api.stats_integrity_api import router as stats_integrity_router
 from app.api.checkbook_api import router as checkbook_router
 from app.api.canales_api import router as canales_router
 from app.api.semillas_api import router as semillas_router
@@ -208,6 +209,8 @@ app.include_router(gasto_clase_router, prefix="/api", dependencies=_guard)
 app.include_router(fb_detalle_router, prefix="/api", dependencies=_guard)
 app.include_router(ingreso_detalle_router, prefix="/api", dependencies=_guard)
 app.include_router(estadisticas_router, prefix="/api", dependencies=_guard)
+# Estadisticas de Integrity (clase 9) leidas del mayor guardado: solo lectura.
+app.include_router(stats_integrity_router, prefix="/api", dependencies=_guard)
 app.include_router(checkbook_router, prefix="/api", dependencies=_guard)
 app.include_router(canales_router, prefix="/api", dependencies=_guard)
 app.include_router(semillas_router, prefix="/api", dependencies=_guard)

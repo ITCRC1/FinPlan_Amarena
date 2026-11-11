@@ -1,0 +1,251 @@
+{
+ "_nota": [
+  "Que puesto de Integrity (nivel 3 de la 9980 y de las cuentas 6) corresponde a cada posicion de la planilla de FinPlan Amarena.",
+  "Port de CWL, owner 2026-11-10: «el FTE debe ser por position y las horas deben ser por position que viene de la contabilidad».",
+  "La planilla usa nombres propios; Integrity registra las horas por PUESTO del catalogo del grupo (posiciones_integrity.json), sumando a todas las personas del puesto. Por eso varias posiciones caen en un mismo puesto.",
+  "La llave es depto + nombre de la posicion, sin mayusculas ni espacios de mas: el mismo nombre en otro escenario cae en el mismo puesto.",
+  "Las posiciones salen de todos los Budget y Forecast de Amarena (2026 y 2027). 260 = Club Madresal.",
+  "Propuesta de Claude (2026-11-10) contra el catalogo de posiciones del grupo: Amarena todavia no tiene su catalogo homologado de estadisticas (falta el export STATS de Integrity).",
+  "revisar = propuesta, no confirmada por el owner. Ver 2026-11-10_Amarena_homologacion_posiciones_Integrity_v1.xlsx."
+ ],
+ "mapa": [
+  {
+   "depto": "0111",
+   "posicion": "ASISTENTE ADMINISTRATIVA HOTEL & CLUB",
+   "puesto": "557",
+   "revisar": true,
+   "nota": "No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant segun lo que haga"
+  },
+  {
+   "depto": "0111",
+   "posicion": "Front Desk Agent",
+   "puesto": "501",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0111",
+   "posicion": "Front Desk Agent -Overnight",
+   "puesto": "502",
+   "revisar": true,
+   "nota": "El recepcionista de noche: 502 Night Auditor, o 501 si Integrity lo registra como recepcion"
+  },
+  {
+   "depto": "0111",
+   "posicion": "Property Manager",
+   "puesto": "594",
+   "revisar": true,
+   "nota": "Director of Operations (594), General Manager (554) o Resident Manager (555)"
+  },
+  {
+   "depto": "0113",
+   "posicion": "HOUSEKEEPING SUPERVISOR",
+   "puesto": "511",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0113",
+   "posicion": "ROOM ATTENDANT",
+   "puesto": "508",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0113",
+   "posicion": "RUNNER HOTEL",
+   "puesto": "513",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0114",
+   "posicion": "Guest Experience",
+   "puesto": "515",
+   "revisar": true,
+   "nota": "515 es Guest Experience MANAGER; si es agente, 516 Guest Relations o 518 Concierge"
+  },
+  {
+   "depto": "0150",
+   "posicion": "Centro de actividades La Calera",
+   "puesto": "608",
+   "revisar": true,
+   "nota": "No hay puesto de centro de actividades: 608 Adventure Guide o 606 Naturalist Guide"
+  },
+  {
+   "depto": "0150",
+   "posicion": "Chofer-Transporte Empleados Y Huespedes",
+   "puesto": "612",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0161",
+   "posicion": "Laundry Attendant",
+   "puesto": "552",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0182",
+   "posicion": "Chofer-Transporte Empleados Y Huespedes",
+   "puesto": "612",
+   "revisar": true,
+   "nota": "Chofer cargado en Finanzas (0182): 612 Driver Transportation, o 565 Driver Purchasing si es de compras"
+  },
+  {
+   "depto": "0186",
+   "posicion": "Salvavidas",
+   "puesto": "575",
+   "revisar": true,
+   "nota": "No hay salvavidas en el catalogo: va con Seguridad como 575 Security Officer"
+  },
+  {
+   "depto": "0200",
+   "posicion": "JARDINERO HOTEL & CLUB",
+   "puesto": "591",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0200",
+   "posicion": "OPERARIO DE MTO CLUB & HOTEL",
+   "puesto": "583",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "0200",
+   "posicion": "PISCINERO",
+   "puesto": "586",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "AMA DE LLAVES HOTEL",
+   "puesto": "509",
+   "revisar": true,
+   "nota": "Ama de llaves: 509 Housekeeping Manager o 511 Housekeeping Supervisor"
+  },
+  {
+   "depto": "260",
+   "posicion": "ASISTENTE ADMINISTRATIVA HOTEL & CLUB",
+   "puesto": "557",
+   "revisar": true,
+   "nota": "No hay asistente administrativa en el catalogo de Integrity: 557 Accounting Assistant, o 566 Human Resources Assistant"
+  },
+  {
+   "depto": "260",
+   "posicion": "CAMARERA HOTEL",
+   "puesto": "508",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "ENCARGADO DE CLUB",
+   "puesto": "595",
+   "revisar": true,
+   "nota": "Encargado del Club: 595 Operations Manager o 610 Assistant Operations Manager"
+  },
+  {
+   "depto": "260",
+   "posicion": "ENCARGADO DE PLAYA",
+   "puesto": "510",
+   "revisar": true,
+   "nota": "No hay puesto de playa: 510 Public Areas Attendant o 596 Rooms and Public Areas Operator"
+  },
+  {
+   "depto": "260",
+   "posicion": "GERENTE DE OPERACIONES",
+   "puesto": "595",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "GEST EXPICIENCE",
+   "puesto": "515",
+   "revisar": true,
+   "nota": "Mismo puesto que Guest Experience (el nombre trae el typo de la planilla, a proposito); 515 es el MANAGER"
+  },
+  {
+   "depto": "260",
+   "posicion": "HOST CLUB MADRESAL",
+   "puesto": "541",
+   "revisar": true,
+   "nota": "Host del Club: 541 Hostess o 516 Guest Relations"
+  },
+  {
+   "depto": "260",
+   "posicion": "Host-in charge of Gym and Area",
+   "puesto": "596",
+   "revisar": true,
+   "nota": "Host del gimnasio y areas: 596 Rooms and Public Areas Operator o 547 Lead Wellness Therapist"
+  },
+  {
+   "depto": "260",
+   "posicion": "HOUSEKEEPING SUPERVISOR",
+   "puesto": "511",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "JARDINERO HOTEL & CLUB",
+   "puesto": "591",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "MISCELANEA CLUB MADRESAL",
+   "puesto": "510",
+   "revisar": true,
+   "nota": "Miscelanea (limpieza de areas): 510 Public Areas Attendant"
+  },
+  {
+   "depto": "260",
+   "posicion": "OPERARIO DE MTO CLUB & HOTEL",
+   "puesto": "583",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "PISCINERO",
+   "puesto": "586",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "RECEPCIONISTA HOTEL",
+   "puesto": "501",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "RECEPCIONISTA NOCTURNO",
+   "puesto": "502",
+   "revisar": true,
+   "nota": "502 Night Auditor, o 501 si Integrity lo registra como recepcion"
+  },
+  {
+   "depto": "260",
+   "posicion": "Room Attendant",
+   "puesto": "508",
+   "revisar": false,
+   "nota": ""
+  },
+  {
+   "depto": "260",
+   "posicion": "RUNNER HOTEL",
+   "puesto": "513",
+   "revisar": false,
+   "nota": ""
+  }
+ ]
+}
