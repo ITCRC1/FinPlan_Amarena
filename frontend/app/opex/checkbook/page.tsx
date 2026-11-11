@@ -1,6 +1,8 @@
 "use client";
 import { usePlanningScenario, usePlanningScenarioConUrl, sharedScenarioOr } from "@/lib/planningScenario";
-import { manejarPegado, numeroDeExcel, repartirPegado } from "@/lib/pegarGrilla";
+import { manejarPegado, numeroDeExcel, repartirPegado, celdasPegadas } from "@/lib/pegarGrilla";
+import { moverFoco, rumboDeTecla, tecleaUnNumero, ATTR_FILA, ATTR_COL, type Rumbo }
+  from "@/lib/navegarGrilla";
 import { elegir } from "@/lib/escenarioPreferido";
 import { useMesesCerrados, CELDA_CERRADA, CABECERA_CERRADA, TITULO_CERRADO }
   from "@/lib/mesesCerrados";
@@ -47,20 +49,58 @@ function fmtUsdTxt(v: string | number) {
   return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
-function NumCell({ value, onSave, cerrado, onPegar }: {
+function NumCell({ value, onSave, cerrado, onPegar, fila, col }: {
   value: string; onSave: (v: number) => void;
   /** El mes ya tiene actuales: se muestra, no se edita. */
   cerrado?: boolean;
   /** Un bloque pegado desde Excel, con esta celda como esquina. */
   onPegar?: (bloque: string[][]) => void;
+  /** Dirección de la celda para el teclado: fila (id de la línea) y mes 0..11. */
+  fila?: string;
+  col?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(money2(value));
+  const celda = useRef<HTMLTableCellElement>(null);
 
   function commit() {
-    const n = parseFloat(draft);
-    if (!isNaN(n)) onSave(n);
+    // `parseFloat` no entiende lo que escribe un Excel en español: con `2,1`
+    // devuelve 2 y se come el decimal. `numeroDeExcel` ya resuelve la coma, el
+    // punto de miles, el signo de moneda y el negativo entre paréntesis — y es
+    // el mismo criterio con el que entra un bloque pegado, así que tipear y
+    // pegar no dan resultados distintos.
+    const t = draft.trim();
+    if (t) onSave(numeroDeExcel(t));
     setEditing(false);
+  }
+
+  /** Cierra el editor y deja el foco en la celda, lista para seguir moviéndose. */
+  function cerrar(mover?: Rumbo) {
+    setEditing(false);
+    const c = celda.current;
+    if (!c) return;
+    // El `<input>` se desmonta en este mismo render: sin el salto de turno el
+    // foco se iría al `<body>` y la flecha siguiente no haría nada.
+    setTimeout(() => { if (mover ? !moverFoco(c, mover) : true) c.focus(); }, 0);
+  }
+
+  /**
+   * Pegar PARADO sobre la celda, sin abrirla antes.
+   *
+   * Antes el `onPaste` colgaba sólo del `<input>`, así que copiar de Excel y
+   * pegar no hacía nada hasta hacer clic en la celda para abrirla. Ese clic
+   * era el «proceso extraño».
+   *
+   * Un bloque se reparte; un valor suelto —que `celdasPegadas` descarta por no
+   * traer tabuladores ni saltos— se escribe en esta celda.
+   */
+  function pegar(e: React.ClipboardEvent) {
+    const texto = e.clipboardData.getData("text");
+    if (!texto.trim()) return;
+    e.preventDefault();
+    const bloque = celdasPegadas(texto);
+    if (bloque && onPegar) onPegar(bloque);
+    else onSave(numeroDeExcel(texto));
   }
 
   // ⚠️ Un mes cerrado NO abre el editor. El backend ya lo rechaza —409 «Jun ya
@@ -78,9 +118,35 @@ function NumCell({ value, onSave, cerrado, onPegar }: {
 
   return (
     <td
+      ref={celda}
       className="mono"
+      // `tabIndex` es lo que hace que la celda pueda tener el FOCO. Sin foco no
+      // hay tecla que llegue acá ni pegado que se pueda interceptar: el
+      // navegador sólo se los entrega a un elemento enfocado.
+      tabIndex={cerrado ? -1 : 0}
+      {...{ [ATTR_FILA]: fila, [ATTR_COL]: col }}
       style={{ textAlign: "right", cursor: "text", padding: "2px 6px", minWidth: 78 }}
       onClick={() => { setDraft(money2(value)); setEditing(true); }}
+      onPaste={editing ? undefined : pegar}
+      onKeyDown={editing ? undefined : e => {
+        const rumbo = rumboDeTecla(e.key, e.shiftKey);
+        if (rumbo) {
+          // El `preventDefault` sólo si HAY a dónde ir: en el borde de la tabla
+          // conviene que el Tab siga su curso y salga de la grilla.
+          if (moverFoco(e.currentTarget, rumbo)) e.preventDefault();
+          return;
+        }
+        if (e.key === "Enter" || e.key === "F2") {
+          e.preventDefault(); setDraft(money2(value)); setEditing(true); return;
+        }
+        if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault(); onSave(0); return;
+        }
+        // Empezar a escribir abre el editor con ESE carácter, como en Excel.
+        if (tecleaUnNumero(e)) {
+          e.preventDefault(); setDraft(e.key); setEditing(true);
+        }
+      }}
     >
       {editing ? (
         <input
@@ -91,7 +157,13 @@ function NumCell({ value, onSave, cerrado, onPegar }: {
           onPaste={onPegar
             ? e => manejarPegado(e, b => { setEditing(false); onPegar(b); })
             : undefined}
-          onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+          onKeyDown={e => {
+            // Enter baja y Tab avanza, igual que una hoja de cálculo: guardar
+            // y quedarse quieto obliga a volver al mouse en cada celda.
+            if (e.key === "Enter")  { e.preventDefault(); commit(); cerrar("abajo"); }
+            if (e.key === "Tab")    { e.preventDefault(); commit(); cerrar(e.shiftKey ? "izq" : "der"); }
+            if (e.key === "Escape") { e.preventDefault(); cerrar(); }
+          }}
           className="fin-input"
           style={{ width: 80, textAlign: "right" }}
         />
@@ -242,6 +314,7 @@ function AccountGroup({
                 key={mk}
                 value={line.crc_months?.[mk] ?? "0"}
                 cerrado={cerrado(mi + 1)}
+                fila={line.id} col={mi}
                 onSave={v => onSaveEntry(line, `crc_${mk}`, v)}
                 onPegar={b => pegarDesde(li, mi, b)}
               />
@@ -250,6 +323,7 @@ function AccountGroup({
                 key={mk}
                 value={line.months[mk] ?? "0"}
                 cerrado={cerrado(mi + 1)}
+                fila={line.id} col={mi}
                 onSave={v => onSaveEntry(line, mk, v)}
                 onPegar={b => pegarDesde(li, mi, b)}
               />
@@ -401,12 +475,64 @@ export default function OpexCheckbookPage() {
     if (selectedDept) loadDept(selectedDept);
   }, [selectedDept, loadDept]);
 
+  /**
+   * Mete en la pantalla las líneas que el backend acaba de devolver, y rehace
+   * los subtotales — **sin recargar el departamento**.
+   *
+   * Owner, 2026-11-11: *«para editar hacer un proceso extraño… debería dejar
+   * editar todo y después que guarde»*.
+   *
+   * Antes cada celda guardada llamaba a `loadDept()`: dos viajes al servidor y
+   * un redibujo de las 352 filas por número tecleado. La tabla parpadeaba, el
+   * foco se perdía, y escribir doce meses seguidos era inviable. Ahora el PUT
+   * sigue saliendo —nada queda sin guardar— pero la pantalla se actualiza con
+   * **la respuesta de ese mismo PUT**.
+   *
+   * ⚠️ Se usa la línea que DEVUELVE el backend, no la que uno supone. En una
+   * línea en colones el dólar es derivado con el TC de cada mes: calcularlo
+   * acá sería escribir por segunda vez una regla que ya vive en
+   * `_derivar_si_es_crc`, y la copia se desincroniza en el primer cambio.
+   *
+   * Las sumas sí se rehacen acá, y a propósito son las mismas tres de
+   * `_group_by_account`: subtotal de cuenta por mes, anual de la cuenta, y lo
+   * mismo para el departamento. Son sumas sobre `months`, que ya viene
+   * resuelto; no hay regla de negocio duplicada.
+   */
+  function aplicarLineas(nuevas: OpexEntry[]) {
+    if (!nuevas.length) return;
+    const porId = new Map(nuevas.map(l => [l.id, l]));
+    setCheckbook(prev => {
+      if (!prev) return prev;
+      const suma = (vals: (string | undefined)[]) =>
+        vals.reduce((a, v) => a + (parseFloat(v ?? "0") || 0), 0);
+
+      const accounts = prev.accounts.map(acct => {
+        if (!acct.lines.some(l => porId.has(l.id))) return acct;
+        const lines = acct.lines.map(l => porId.get(l.id) ?? l);
+        const monthly_totals = Object.fromEntries(
+          MONTH_KEYS.map(mk => [mk, String(suma(lines.map(l => l.months[mk])))]),
+        );
+        return {
+          ...acct, lines, monthly_totals,
+          annual_total: String(suma(Object.values(monthly_totals))),
+        };
+      });
+
+      const dept_monthly_totals = Object.fromEntries(
+        MONTH_KEYS.map(mk => [mk, String(suma(accounts.map(a => a.monthly_totals[mk])))]),
+      );
+      return {
+        ...prev, accounts, dept_monthly_totals,
+        dept_annual_total: String(suma(Object.values(dept_monthly_totals))),
+      };
+    });
+  }
+
   async function handleSaveEntry(entry: OpexEntry, monthKey: string, value: number) {
     if (!scenarioId) return;
     setSaving(entry.id);
     try {
-      await updateOpexEntry(scenarioId, entry.id, { [monthKey]: value });
-      if (selectedDept) await loadDept(selectedDept);
+      aplicarLineas([await updateOpexEntry(scenarioId, entry.id, { [monthKey]: value })]);
     } finally {
       setSaving(null);
     }
@@ -429,10 +555,11 @@ export default function OpexCheckbookPage() {
     if (!scenarioId || !porLinea.length) return;
     setSaving(porLinea[0].entry.id);
     try {
+      const guardadas: OpexEntry[] = [];
       for (const { entry, meses } of porLinea) {
-        await updateOpexEntry(scenarioId, entry.id, meses);
+        guardadas.push(await updateOpexEntry(scenarioId, entry.id, meses));
       }
-      if (selectedDept) await loadDept(selectedDept);
+      aplicarLineas(guardadas);
     } finally {
       setSaving(null);
     }
@@ -454,8 +581,7 @@ export default function OpexCheckbookPage() {
           });
         }
       }
-      await updateOpexEntry(scenarioId, entry.id, body);
-      if (selectedDept) await loadDept(selectedDept);
+      aplicarLineas([await updateOpexEntry(scenarioId, entry.id, body)]);
     } finally {
       setSaving(null);
     }
