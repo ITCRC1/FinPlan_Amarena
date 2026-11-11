@@ -45,10 +45,27 @@
     "",
     "La 9000 y la 9001 se abren SOLO por segmento desde el 18-ago-2026. Tenian ademas ROOMTYPE, pero su fuente —el res_statistics1 de Opera por market code— no trae tipo de habitacion: la cuenta prometia un desglose que el dato no tiene. Si algun dia hay un reporte que cruce segmento con tipo de habitacion, se agregan cuentas nuevas para eso y estas no se tocan.",
     "",
-    "9800-9803 — los socios del Club Madresal. `agrega` es FIN y no SUM:",
+    "9800-9805 — los socios del Club Madresal. `agrega` es FIN y no SUM:",
     "el total del anio es el saldo de DICIEMBRE, no la suma de los doce",
     "meses. Son socios, no ingresos; sumarlos daria 1.500 donde hay 129.",
-    "Ver `models/club_membership_stat.py`."
+    "",
+    "La fuente es `membresias_mes` (una fila por concepto), NO la tabla vieja",
+    "`club_membership_stats` de cuatro columnas. El `legado` de 9800-9803",
+    "sigue nombrando las columnas de esa tabla vieja y se deja como esta: es",
+    "el campo que esas cuentas alimentaban ANTES y borrarlo moveria lo que ya",
+    "se reporta. 9804 y 9805 nacen sin `legado` porque no existen alla.",
+    "",
+    "9804 y 9805 existen porque la pantalla tiene CINCO conceptos y el",
+    "catalogo tenia cuatro cuentas: 'pendiente de firma' y 'excepcion no",
+    "paga' no tenian donde caer y se perdian. El puente los necesita para",
+    "que 9800 (el total) cuadre contra la suma de sus partes.",
+    "",
+    "⚠️ `membresias_mes` guarda un concepto por FILA a proposito, para que un",
+    "estado nuevo del club sea un renglon y no una migracion. Este catalogo",
+    "usa codigos FIJOS. Son principios opuestos: el dia que la propiedad",
+    "agregue una 'tercera etapa', el concepto se carga igual en la pantalla",
+    "pero NO tendra cuenta, y el puente lo deja fuera avisando. Ver",
+    "`sincronizar_membresias` en `app/estadisticas/membresias_puente.py`."
   ],
   "dimensiones": {
     "DEPT": "Departamento (0110, 0120, …) — el catálogo de departamentos",
@@ -529,6 +546,36 @@
         "260"
       ],
       "legado": "acuerdo_pago"
+    },
+    {
+      "code": "9804",
+      "grupo": "9800",
+      "nombre_es": "Membresias pendientes de firma",
+      "nombre_en": "Memberships pending signature",
+      "unidad": "count",
+      "dims": [
+        "DEPT"
+      ],
+      "agrega": "FIN",
+      "deptos": [
+        "260"
+      ],
+      "legado": ""
+    },
+    {
+      "code": "9805",
+      "grupo": "9800",
+      "nombre_es": "Membresias exceptuadas de pago",
+      "nombre_en": "Memberships exempt from payment",
+      "unidad": "count",
+      "dims": [
+        "DEPT"
+      ],
+      "agrega": "FIN",
+      "deptos": [
+        "260"
+      ],
+      "legado": ""
     },
     {
       "code": "9900",

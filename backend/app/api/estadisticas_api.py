@@ -26,6 +26,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select
 
 from app.errores import ErrorApi
+from app.estadisticas.membresias_puente import sincronizar_membresias
 from app.auth import get_current_user
 from app.db import get_session
 from app.engine import estadisticas_grilla as grilla
@@ -345,6 +346,19 @@ async def importar(scenario_id: str, archivo: UploadFile = File(...),
                     room_type_code=f["room_type_code"],
                     value=valor, origen="ARCHIVO"))
                 n += 1
+        # Las membresías del club se REHACEN desde su propia tabla, después del
+        # reemplazo total.
+        #
+        # El reemplazo de arriba se lleva por delante las 98xx que escribió el
+        # puente, y sin esto el conteo de socios desaparecía del estadístico
+        # hasta que alguien volviera a guardar el mes. Peor: desaparecía en
+        # silencio, porque el resto del archivo entra bien.
+        #
+        # Y si el archivo TRAE filas 98xx, ganan las de acá: el dato maestro de
+        # los socios es `membresias_mes` —lo que muestra el cierre— y dejar que
+        # un archivo las pise crearía dos verdades sobre el mismo conteo.
+        await s.flush()
+        await sincronizar_membresias(s, scenario_id)
         await s.commit()
     return {"ok": True, "valores_guardados": n, "filas_con_dato": con_dato}
 

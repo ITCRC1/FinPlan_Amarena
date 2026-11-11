@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.errores import ErrorApi
+from app.estadisticas.membresias_puente import sincronizar_membresias
 from app.importers.registro_dep import registro_de_subida
 from app.models.membresia_mes import CONCEPTOS, MembresiaMes
 from app.models.scenario import Scenario
@@ -177,8 +178,14 @@ async def put_membresias(
         db.add(MembresiaMes(id=str(uuid.uuid4()), scenario_id=scenario_id,
                             month=month, concepto=clave, cantidad=c.cantidad))
         guardados += 1
+    # El estadístico se rehace en la MISMA transacción. Hacerlo después, en otra
+    # llamada, deja una ventana en la que la pantalla dice 130 y la cuenta 9800
+    # dice otra cosa — y esa diferencia no avisa, hay que ir a buscarla.
+    await db.flush()
+    puente = await sincronizar_membresias(db, scenario_id)
     await db.commit()
-    return {"saved": True, "month": month, "conceptos_saved": guardados}
+    return {"saved": True, "month": month, "conceptos_saved": guardados,
+            "estadisticas": puente}
 
 
 # ⚠️ Esta puerta ESCRIBE, asi que registra el archivo — al reves que los
@@ -266,10 +273,13 @@ async def importar_membresias(
                 continue
             db.add(MembresiaMes(id=str(uuid.uuid4()), scenario_id=scenario_id,
                                 month=mes, concepto=clave, cantidad=cantidad))
+    await db.flush()
+    puente = await sincronizar_membresias(db, scenario_id)
     await db.commit()
     return {"saved": True, "year": sc.year,
             "meses": meses_con_dato,
-            "meses_nombre": [MESES[m - 1] for m in meses_con_dato]}
+            "meses_nombre": [MESES[m - 1] for m in meses_con_dato],
+            "estadisticas": puente}
 
 
 def _numero(v) -> float | None:
