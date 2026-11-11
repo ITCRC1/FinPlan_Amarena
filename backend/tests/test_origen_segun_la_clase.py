@@ -55,3 +55,16 @@ def test_la_migracion_150_renombra_a_lo_que_dice_el_archivo():
     for rep, dep, cta, viejo, nuevo in mod.CAMBIOS:
         assert (rep, dep, cta, nuevo) in en_archivo, (dep, cta, nuevo)
         assert (rep, dep, cta, viejo) not in en_archivo, (dep, cta, viejo)
+
+
+def test_cada_fila_cae_en_la_categoria_de_su_clase():
+    """La categoría que resulta de la sección del P&L (la que usa el mayor por
+    mes) tampoco contradice el primer dígito de la cuenta."""
+    from app.engine import gl_por_mes as g
+    categoria = {"4": {"REVENUE", "ALLOCATIONS"}, "5": {"COST_OF_SALES"}, "6": {"PAYROLL"},
+                 "7": {"OPERATING_EXPENSES"}, "8": {"BELOW_GOP"}}
+    malas = [(x["source_department"], x["account_code"], x["report_section"])
+             for x in MAPEO["account_mapping"]
+             if g.categoria_de(str(x["account_code"]), x["report_section"])
+             not in categoria[str(x["account_code"])[0]]]
+    assert not malas, malas[:10]
