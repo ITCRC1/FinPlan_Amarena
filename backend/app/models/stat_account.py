@@ -46,10 +46,20 @@ class StatAccount(Base):
     # por nada.
     dims: Mapped[str] = mapped_column(String(120), default="")
 
-    # SUM = el año es la suma de los doce meses.
-    # FIN = el año es el saldo de diciembre. Es el caso de los conteos de padrón
-    #       —headcount, socios—: sumar doce meses de 129 socios da 1,548 socios
-    #       donde hay 129. Mismo criterio que `ClubMembershipStat`.
+    # SUM  = el año es la suma de los doce meses.
+    # PROM = el año es el PROMEDIO de los meses CON DATO. Es el caso de los
+    #        conteos de padrón —headcount, socios—: sumar doce meses de 129
+    #        socios da 1,548 donde hay 129.
+    #        Owner, 2026-11-11: «al año debe ser un promedio de los socios
+    #        siempre... no se suman».
+    #        ⚠️ Sobre los meses contados, no sobre doce: un ACTUAL que va por
+    #        setiembre tiene nueve conteos, y dividir entre doce mezclaría «no
+    #        contado» con «cero socios».
+    # FIN  = el año es el saldo de diciembre. Quedó declarado cuando nacieron
+    #        las 98xx y **nunca se implementó**; al implementarlo por primera
+    #        vez el owner corrigió el criterio a PROM. No lo usa ninguna cuenta
+    #        hoy: se deja porque es el valor correcto para un saldo de verdad
+    #        —un inventario, una cartera— el día que haya uno.
     agrega: Mapped[str] = mapped_column(String(4), default="SUM")
 
     # ⚠️ `dinero=True` NO es una cantidad: es plata que el P&L ya reporta,

@@ -39,8 +39,13 @@ def leer_catalogo() -> list[dict]:
         if malas:
             raise ValueError(f"{code}: dimensión desconocida {sorted(malas)}")
 
-        if c.get("agrega", "SUM") not in ("SUM", "FIN"):
-            raise ValueError(f"{code}: `agrega` solo puede ser SUM o FIN")
+        # PROM se suma al vocabulario el 2026-11-11, cuando el owner corrigió
+        # el criterio de los socios: «al año debe ser un promedio de los socios
+        # siempre... no se suman». FIN —el saldo de diciembre— queda declarado
+        # y sin usar: es el valor correcto para un saldo de verdad, no para un
+        # padrón que se cuenta mes a mes.
+        if c.get("agrega", "SUM") not in ("SUM", "FIN", "PROM"):
+            raise ValueError(f"{code}: `agrega` solo puede ser SUM, FIN o PROM")
 
         # ⚠️ ACÁ NO ENTRA DINERO (owner, 2026-08-14). Solo cantidades.
         #

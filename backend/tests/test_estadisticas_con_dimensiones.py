@@ -159,7 +159,7 @@ def test_el_json_valida_lo_que_promete():
         con([base, dict(base)])
     with pytest.raises(ValueError, match="[Dd]imensión desconocida"):
         con([dict(base, dims=["PLANETA"])])
-    with pytest.raises(ValueError, match="SUM o FIN"):
+    with pytest.raises(ValueError, match="SUM, FIN o PROM"):
         con([dict(base, agrega="PROMEDIO")])
     with pytest.raises(ValueError, match="CANTIDADES"):
         con([dict(base, dinero=True)])

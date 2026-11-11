@@ -288,19 +288,23 @@ MEMBRESIAS = [
 async def _membresias_del_escenario(session, scenario_id: str):
     """Las 98xx del escenario: `({mes: {clave: valor}}, {clave: valor_del_año})`.
 
-    ⚠️ **El año NO es la suma de los meses.** Estas cuentas son `agrega=FIN`:
-    son un padrón, no un flujo. Sumar doce meses de 130 socios daría 1.560
-    socios donde hay 130, y el número saldría enorme sin que nada avise.
+    ⚠️ **El año es el PROMEDIO de los meses contados, no la suma.**
 
-    `FIN` estaba declarado en el catálogo desde que existen las 98xx pero
-    **nadie lo implementaba**: esta es la primera vez que algo lo lee.
+    Owner, 2026-11-11: *«al año debe ser un promedio de los socios siempre…
+    no se suman»*. Son un padrón, no un flujo: sumar nueve meses de ~120
+    socios daría más de mil donde hay 130, y el número saldría enorme sin que
+    nada avise.
 
-    ⚠️ Y no se toma diciembre a secas, sino **el último mes con dato**. La
-    regla escrita dice «el saldo de diciembre», pero un ACTUAL a mitad de año
-    no tiene diciembre: con la lectura literal, un club con 130 socios en
-    septiembre mostraría **cero** en el año, que se lee como que se quedó sin
-    socios. El último mes contado es el saldo más reciente que se conoce, y es
-    lo que esa regla quiere decir cuando el año está completo.
+    El catálogo decía `FIN` —el saldo de diciembre— desde que nacieron estas
+    cuentas, pero **nunca lo leyó nadie**: estaba declarado y sin implementar.
+    Al implementarlo por primera vez el owner corrigió el criterio, y el
+    catálogo se cambió a `PROM` junto con esto. Que el catálogo diga una cosa
+    y el código haga otra es peor que cualquiera de las dos por separado.
+
+    ⚠️ El promedio va sobre los meses **con dato**, no sobre doce. Un ACTUAL
+    que va por setiembre tiene nueve conteos; dividir entre doce mezclaría «no
+    contado» con «cero socios» y hundiría el promedio un 25% — 88 en vez de
+    117, sin que nadie pueda ver de dónde salió la diferencia.
     """
     from app.estadisticas.membresias_puente import CUENTAS
     from app.models.statistical_entry import StatisticalEntry
@@ -321,7 +325,7 @@ async def _membresias_del_escenario(session, scenario_id: str):
         meses = por_cuenta.get(cuenta, {})
         for mes, valor in meses.items():
             por_mes.setdefault(mes, {})[clave] = valor
-        del_anio[clave] = meses[max(meses)] if meses else 0.0
+        del_anio[clave] = (sum(meses.values()) / len(meses)) if meses else 0.0
     return por_mes, del_anio
 
 
@@ -419,9 +423,9 @@ async def consolidado_estadisticas(
                        if float((m["kpis"] or {}).get("rooms_available") or 0) > 0)
     del_anio = indicadores_del_periodo(anual.get("kpis") or {}, anual["lines"], dias_con_hab)
 
-    # Las membresías se pegan DESPUÉS de agregar: su año es el último saldo
-    # conocido, no la suma. Un mes del que el Club no tiene conteo queda sin
-    # clave y baja en cero, igual que los KPIs de un mes sin cerrar.
+    # Las membresías se pegan DESPUÉS de agregar: su año es el promedio de los
+    # meses contados, no la suma. Un mes del que el Club no tiene conteo queda
+    # sin clave y baja en cero, igual que los KPIs de un mes sin cerrar.
     for mes, valores in club_por_mes.items():
         por_mes.setdefault(mes, {}).update(valores)
     del_anio.update(club_del_anio)

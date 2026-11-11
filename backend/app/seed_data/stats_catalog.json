@@ -45,9 +45,19 @@
     "",
     "La 9000 y la 9001 se abren SOLO por segmento desde el 18-ago-2026. Tenian ademas ROOMTYPE, pero su fuente —el res_statistics1 de Opera por market code— no trae tipo de habitacion: la cuenta prometia un desglose que el dato no tiene. Si algun dia hay un reporte que cruce segmento con tipo de habitacion, se agregan cuentas nuevas para eso y estas no se tocan.",
     "",
-    "9800-9805 — los socios del Club Madresal. `agrega` es FIN y no SUM:",
-    "el total del anio es el saldo de DICIEMBRE, no la suma de los doce",
-    "meses. Son socios, no ingresos; sumarlos daria 1.500 donde hay 129.",
+    "9800-9805 — los socios del Club Madresal. `agrega` es PROM, no SUM:",
+    "el valor del anio es el PROMEDIO de los meses contados. Son socios, no",
+    "ingresos; sumarlos daria 1.500 donde hay 129.",
+    "",
+    "Owner, 2026-11-11: «al anio debe ser un promedio de los socios",
+    "siempre... no se suman». Antes decia FIN —el saldo de diciembre— y era",
+    "lo que estaba escrito cuando nacieron estas cuentas, pero nunca lo leyo",
+    "nadie: FIN estaba declarado y sin implementar. El owner corrigio el",
+    "criterio al implementarlo por primera vez.",
+    "",
+    "⚠️ El promedio es sobre los meses CON DATO, no sobre doce. Un ACTUAL que",
+    "va por setiembre tiene nueve conteos; dividir entre doce mezclaria «no",
+    "contado» con «cero socios» y hundiria el promedio un 25%.",
     "",
     "La fuente es `membresias_mes` (una fila por concepto), NO la tabla vieja",
     "`club_membership_stats` de cuatro columnas. El `legado` de 9800-9803",
@@ -496,7 +506,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],
@@ -511,7 +521,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],
@@ -526,7 +536,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],
@@ -541,7 +551,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],
@@ -556,7 +566,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],
@@ -571,7 +581,7 @@
       "dims": [
         "DEPT"
       ],
-      "agrega": "FIN",
+      "agrega": "PROM",
       "deptos": [
         "260"
       ],

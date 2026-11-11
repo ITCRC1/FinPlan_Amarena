@@ -31,15 +31,19 @@ def test_las_cuatro_estan_en_el_catalogo():
 def test_el_total_del_anio_NO_es_la_suma_de_los_meses():
     """⚠️ Son socios, no ingresos.
 
-    El saldo de diciembre ES el total del año. Sumar los doce meses daría 1.500
-    socios donde hay 129 — por eso `agrega` es FIN y no SUM, igual que el
-    headcount. Ver `models/club_membership_stat.py`.
+    El valor del año es el PROMEDIO de los meses contados. Sumar los doce daría
+    1.500 socios donde hay 129 — por eso `agrega` es PROM y no SUM.
+
+    Owner, 2026-11-11: *«al año debe ser un promedio de los socios siempre…
+    no se suman»*. Antes decía `FIN` —el saldo de diciembre—, que fue lo que
+    se escribió cuando nacieron estas cuentas y que **nunca leyó nadie**: al
+    implementarlo por primera vez el owner corrigió el criterio.
     """
     for c in _catalogo():
         if c["grupo"] == "9800":
-            assert c["agrega"] == "FIN", (
-                f"{c['code']} agrega como {c['agrega']}: el total del año "
-                f"volvería a ser la suma de los doce meses")
+            assert c["agrega"] == "PROM", (
+                f"{c['code']} agrega como {c['agrega']}: el valor del año "
+                f"dejaría de ser el promedio de los meses contados")
 
 
 def test_el_importador_las_manda_a_su_propia_tabla():

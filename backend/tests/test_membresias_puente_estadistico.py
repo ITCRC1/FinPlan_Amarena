@@ -51,13 +51,20 @@ def test_las_cuentas_existen_en_el_catalogo_sembrado():
 
 
 def test_las_cuentas_no_se_suman_a_lo_largo_del_anio():
-    """`agrega=FIN`: el año es el saldo de DICIEMBRE, no la suma de los doce
-    meses. Son socios, no ingresos — sumarlos daría 1.500 donde hay 129."""
+    """`agrega=PROM`: el año es el PROMEDIO de los meses contados.
+
+    Owner, 2026-11-11: *«al año debe ser un promedio de los socios siempre…
+    no se suman»*. Son socios, no ingresos — sumarlos daría 1.500 donde hay
+    129.
+
+    ⚠️ El catálogo y el código tienen que decir lo mismo. Decía `FIN` —el
+    saldo de diciembre— y nunca lo leyó nadie; al implementarlo por primera
+    vez el owner corrigió el criterio y las dos puntas se cambiaron juntas."""
     cat = _cuentas_del_catalogo()
     for cuenta in sorted(CUENTAS):
-        assert cat[cuenta]["agrega"] == "FIN", (
-            f"{cuenta} agrega={cat[cuenta]['agrega']}: el total del año sería "
-            "la suma de los meses y multiplicaría los socios")
+        assert cat[cuenta]["agrega"] == "PROM", (
+            f"{cuenta} agrega={cat[cuenta]['agrega']}: el valor del año no "
+            "sería el promedio y multiplicaría o hundiría los socios")
 
 
 def test_las_cuentas_son_del_departamento_del_club():

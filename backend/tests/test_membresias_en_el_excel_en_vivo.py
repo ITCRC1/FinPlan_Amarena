@@ -42,24 +42,38 @@ class _Sesion:
 # ───────────────────────── Lo que no puede romperse ────────────────────────
 
 @pytest.mark.asyncio
-async def test_el_anio_es_el_ULTIMO_SALDO_y_no_la_suma():
-    """⚠️ El error que no avisa. Son un padrón, no un flujo: sumar nueve meses
-    de ~120 socios daría más de mil donde hay 130. El número saldría enorme y
+async def test_el_anio_es_el_PROMEDIO_y_no_la_suma():
+    """Owner, 2026-11-11: *«al año debe ser un promedio de los socios
+    siempre… no se suman»*.
+
+    ⚠️ El error que no avisa. Son un padrón, no un flujo: sumar nueve meses de
+    ~120 socios daría más de mil donde hay 130. El número saldría enorme y
     nadie sabría por qué."""
-    filas = [_Fila("9800", m, v) for m, v in
-             enumerate([100, 107, 112, 121, 123, 124, 110, 130, 130], start=1)]
+    cuenta = [100, 107, 112, 121, 123, 124, 110, 130, 130]   # Amarena 2026
+    filas = [_Fila("9800", m, v) for m, v in enumerate(cuenta, start=1)]
     _por_mes, del_anio = await _membresias_del_escenario(_Sesion(filas), "esc")
 
-    assert del_anio["club_total"] == 130, "tiene que ser el saldo, no la suma"
-    assert del_anio["club_total"] != sum(f.value for f in filas)
+    assert del_anio["club_total"] == pytest.approx(sum(cuenta) / len(cuenta))
+    assert del_anio["club_total"] == pytest.approx(117.44, abs=0.01)
+    assert del_anio["club_total"] != sum(cuenta)
 
 
 @pytest.mark.asyncio
-async def test_un_actual_a_mitad_de_anio_no_muestra_cero():
-    """La regla escrita dice «el saldo de diciembre», pero un ACTUAL que va por
-    septiembre no tiene diciembre. Tomarlo literal mostraría CERO socios en el
-    año — se leería como que el Club se quedó vacío."""
-    filas = [_Fila("9800", 9, 130)]          # sólo hasta septiembre
+async def test_el_promedio_es_sobre_los_meses_CONTADOS_no_sobre_doce():
+    """⚠️ Un ACTUAL que va por setiembre tiene nueve conteos. Dividir entre
+    doce mezclaría «no contado» con «cero socios» y hundiría el promedio un
+    25% — 88 en vez de 117 — sin que nadie pueda ver de dónde sale."""
+    cuenta = [100, 107, 112, 121, 123, 124, 110, 130, 130]
+    filas = [_Fila("9800", m, v) for m, v in enumerate(cuenta, start=1)]
+    _por_mes, del_anio = await _membresias_del_escenario(_Sesion(filas), "esc")
+
+    assert del_anio["club_total"] == pytest.approx(sum(cuenta) / 9)
+    assert del_anio["club_total"] != pytest.approx(sum(cuenta) / 12)
+
+
+@pytest.mark.asyncio
+async def test_un_solo_mes_contado_es_ese_mes():
+    filas = [_Fila("9800", 9, 130)]
     _por_mes, del_anio = await _membresias_del_escenario(_Sesion(filas), "esc")
     assert del_anio["club_total"] == 130
 
