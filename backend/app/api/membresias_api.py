@@ -192,6 +192,55 @@ async def put_membresias(
 # lectores del cierre, que leen y descartan. El registro es lo que frena
 # volver a subir el mismo archivo por accidente y sobreescribir un conteo
 # que alguien ya corrigio a mano.
+class CeldaIn(BaseModel):
+    cantidad: float
+
+
+@router.patch("/scenarios/{scenario_id}/membresias/{month}/{concepto}/")
+async def patch_celda(
+    scenario_id: str, month: int, concepto: str, body: CeldaIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Una sola celda del checkbook: un concepto de un mes.
+
+    Owner, 2026-11-11: *«por qué no haces un checkbook de stats más fácil de
+    editar»* · *«las subo por un checkbook stats y ahí se edita»*.
+
+    El `PUT` de arriba reemplaza el MES ENTERO, que es lo correcto para la
+    pantalla del cierre —se escriben los cinco conceptos de una— pero no para
+    una grilla: ahí se toca una celda y reenviar el mes completo desde el
+    navegador hace que un estado desactualizado borre lo que otro acabó de
+    escribir.
+
+    ⚠️ Cantidad en CERO **borra la fila**, no la guarda en cero. Es el mismo
+    criterio del `PUT`: `cargado` significa «alguien contó este mes», y una
+    fila en cero haría que un concepto vaciado a propósito se lea igual que
+    uno contado y sin socios.
+    """
+    await _escenario(scenario_id, db)
+    if not 1 <= month <= 12:
+        raise ErrorApi(422, "mes.fuera_de_rango")
+    clave = (concepto or "").strip()
+    if not clave:
+        raise ErrorApi(422, "membresias.concepto_vacio")
+    if body.cantidad < 0:
+        raise ErrorApi(422, "membresias.cantidad_negativa",
+                       concepto=clave, cantidad=body.cantidad)
+
+    await db.execute(delete(MembresiaMes).where(
+        MembresiaMes.scenario_id == scenario_id,
+        MembresiaMes.month == month, MembresiaMes.concepto == clave))
+    if body.cantidad:
+        db.add(MembresiaMes(id=str(uuid.uuid4()), scenario_id=scenario_id,
+                            month=month, concepto=clave, cantidad=body.cantidad))
+    # Mismo criterio que el PUT: el estadístico se rehace en esta transacción.
+    await db.flush()
+    puente = await sincronizar_membresias(db, scenario_id)
+    await db.commit()
+    return {"saved": True, "month": month, "concepto": clave,
+            "cantidad": body.cantidad, "estadisticas": puente}
+
+
 @router.post("/scenarios/{scenario_id}/membresias/importar/",
              dependencies=[Depends(registro_de_subida)])
 async def importar_membresias(

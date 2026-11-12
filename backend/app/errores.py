@@ -223,6 +223,12 @@ MENSAJES: dict[str, dict[str, str]] = {
     "membresias.cantidad_negativa": {
         "es": "«{concepto}» viene con {cantidad}. Un conteo de membresías no puede ser negativo.",
         "en": "“{concepto}” came as {cantidad}. A membership count cannot be negative."},
+    "planilla.conceptos_sin_datos": {
+        "es": "Ninguna hoja del archivo trajo conceptos con monto. {avisos}",
+        "en": "No sheet in the file carried any concept with an amount. {avisos}"},
+    "membresias.concepto_vacio": {
+        "es": "La celda no dice a qué concepto pertenece. Sin eso el conteo no tiene renglón y se guardaría en uno en blanco que nadie vuelve a encontrar.",
+        "en": "The cell does not say which concept it belongs to. Without that the count has no row and would be saved under a blank one nobody finds again."},
     "room_stats.categoria_desconocida": {
         "es": "Estas categorías no existen en la propiedad: {desconocidas}. Las válidas son: {validas}. Si el PMS cambió un rótulo, calzalo a una de estas en la pantalla — desde acá no se crea una categoría nueva.",
         "en": "These room categories do not exist for this property: {desconocidas}. Valid ones are: {validas}. If the PMS renamed one, map it to one of these on screen — a new category is never created from here."},

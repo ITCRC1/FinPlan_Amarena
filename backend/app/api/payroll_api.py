@@ -1824,3 +1824,86 @@ async def get_posiciones_de_varias_versiones(
             } for p in posiciones],
         })
     return {"escenarios": salida}
+
+
+# ── El reporte de conceptos por departamento, de vuelta ──────────────────────
+
+@router.post("/payroll/{scenario_id}/import/conceptos-por-depto/")
+async def import_conceptos_por_depto(
+    scenario_id: str,
+    file: UploadFile = File(...),
+    dry_run: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sube el reporte de conceptos por departamento, prorrateado a las posiciones.
+
+    Owner, 2026-11-11: *«tenemos que hacer que este archivo llegue a budget
+    2027 y que haga prorrateo con las posiciones»*.
+
+    El archivo agrega por DEPARTAMENTO y la base guarda por POSICIÓN, así que
+    cada monto se reparte **a prorrata del salario** de cada puesto en ese mes.
+    Ver `importers/conceptos_por_depto.py` para el porqué y para las tres filas
+    que nunca entran (6000, 6020, 6021: son resultados, no insumos).
+
+    ⚠️ **Un departamento que NO venga en el archivo no se toca.** Su ausencia
+    no se lee como un cero: el archivo habla de las hojas que trae y calla
+    sobre las demás. Al de Amarena le falta Laundry, y borrarlo por omisión
+    habría hecho desaparecer esa planilla sin que nada avisara.
+
+    `dry_run=true` calcula todo y **no escribe**: devuelve el mismo resumen
+    para poder comparar antes de decidir.
+    """
+    from app.importers.conceptos_por_depto import (
+        IMPORTABLES, leer_conceptos_por_depto, repartir,
+    )
+
+    scenario = await db.get(Scenario, scenario_id)
+    if not scenario:
+        raise ErrorApi(404, "escenario.no_encontrado")
+    scenario.assert_editable()
+
+    datos, avisos = leer_conceptos_por_depto(await file.read())
+    if not datos:
+        raise ErrorApi(422, "planilla.conceptos_sin_datos", avisos="; ".join(avisos))
+
+    posiciones = (await db.execute(
+        select(PayrollPosition).where(PayrollPosition.scenario_id == scenario_id)
+    )).scalars().all()
+    por_depto: dict[str, list] = {}
+    for p in posiciones:
+        por_depto.setdefault(p.dept_code, []).append(p)
+
+    resumen, escritas = [], 0
+    for dept, cuentas in sorted(datos.items()):
+        puestos = por_depto.get(dept) or []
+        if not puestos:
+            avisos.append(f"{dept}: el archivo lo trae pero el escenario no tiene "
+                          f"posiciones en ese departamento; se omitió.")
+            continue
+
+        # Las filas del mes, una por puesto. Se piden TODAS de entrada porque
+        # el peso del prorrateo es el S&W que ya está guardado.
+        filas = {m: [await _get_or_create_entry(db, scenario_id, p, m, scenario.year)
+                     for p in puestos] for m in range(1, 13)}
+        total_dept = Decimal("0")
+        for cuenta, meses in cuentas.items():
+            campo = IMPORTABLES[cuenta]
+            for mes, monto in meses.items():
+                es = filas[mes]
+                pesos = [Decimal(str(e.c6000_sw or 0)) for e in es]
+                for e, parte in zip(es, repartir(Decimal(str(monto)), pesos)):
+                    setattr(e, campo, parte)
+                total_dept += Decimal(str(monto))
+                escritas += len(es)
+        resumen.append({"dept_code": dept, "posiciones": len(puestos),
+                        "conceptos": sorted(cuentas), "total": float(total_dept)})
+
+    if dry_run:
+        await db.rollback()
+    else:
+        await db.commit()
+    return {"dry_run": dry_run, "escenario": f"{scenario.type} {scenario.version} {scenario.year}",
+            "departamentos": resumen, "valores_escritos": escritas,
+            "total": float(sum(Decimal(str(d["total"])) for d in resumen)),
+            "avisos": avisos,
+            "sin_tocar": sorted(set(por_depto) - set(datos))}
