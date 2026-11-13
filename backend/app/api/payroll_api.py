@@ -1828,7 +1828,12 @@ async def get_posiciones_de_varias_versiones(
 
 # ── El reporte de conceptos por departamento, de vuelta ──────────────────────
 
-@router.post("/payroll/{scenario_id}/import/conceptos-por-depto/")
+#: ⚠️ Esta puerta ESCRIBE, así que registra el archivo. Sin eso, volver a subir
+#: el mismo libro por accidente vuelve a prorratear todo y pisa un reparto que
+#: alguien pudo haber corregido a mano. El registro conoce el `dry_run` y no lo
+#: anota, así que simular no bloquea la carga de verdad.
+@router.post("/payroll/{scenario_id}/import/conceptos-por-depto/",
+             dependencies=[Depends(registro_de_subida)])
 async def import_conceptos_por_depto(
     scenario_id: str,
     file: UploadFile = File(...),

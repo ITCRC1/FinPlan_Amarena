@@ -223,6 +223,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "membresias.cantidad_negativa": {
         "es": "«{concepto}» viene con {cantidad}. Un conteo de membresías no puede ser negativo.",
         "en": "“{concepto}” came as {cantidad}. A membership count cannot be negative."},
+    "opex.detalle_sin_cupo": {
+        "es": "La cuenta {cuenta} ya tiene sus {primero}–{ultimo}: once sub-líneas es el máximo. Para abrir un renglón nuevo, reusá uno que esté en cero en vez de agregar uno fuera del rango.",
+        "en": "Account {cuenta} already has {primero}–{ultimo}: eleven detail lines is the maximum. To open a new row, reuse one that sits at zero instead of adding one outside the range."},
     "planilla.conceptos_sin_datos": {
         "es": "Ninguna hoja del archivo trajo conceptos con monto. {avisos}",
         "en": "No sheet in the file carried any concept with an amount. {avisos}"},

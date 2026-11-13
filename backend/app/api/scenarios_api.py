@@ -23,6 +23,11 @@ from app.api._candado import candado
 from app.db import get_db
 from app.auth import get_current_user
 from app.errores import ErrorApi
+from app.opex_detalle import CODIGOS as _CODS_OPEX
+
+#: El GL dejaba el codigo VACIO, y sobre una fila vacia el boton «+10 lineas»
+#: arrancaba una segunda numeracion desde 001. Ahora nace en el rango oficial.
+PRIMER_DETALLE = _CODS_OPEX[0]
 from app.textos import Idioma, t
 from app.models.hotel import Hotel
 from app.models.scenario import Scenario, ScenarioLockedError, SCENARIO_TYPES, SCENARIO_STATUSES
@@ -2129,7 +2134,8 @@ async def import_gl_detail(
         await _write_accounts(RevenueAccountEntry, blk["revenue"], lambda a: {})
         await _write_accounts(BelowGopAccountEntry, blk.get("belowgop", []), lambda a: {})
         await _write_accounts(OpexEntry, blk["opex"],
-                              lambda a: {"detail_code": "", "detail_desc": a["account_name"]})
+                              lambda a: {"detail_code": PRIMER_DETALLE,
+                                         "detail_desc": a["account_name"]})
         await _write_accounts(CostEntry, blk["costs"], lambda a: {})
 
         # ── Planilla (6xxx) → conceptos. Posición sintética "(Actual GL)" por depto

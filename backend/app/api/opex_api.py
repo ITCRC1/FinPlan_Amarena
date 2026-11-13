@@ -31,6 +31,7 @@ from app.db import get_db
 from app.errores import ErrorApi
 from app.models.scenario import Scenario
 from app.models.opex_entry import OpexEntry
+from app.opex_detalle import CODIGOS, PRIMERO, ULTIMO, es_valido, varios
 from app.importers.opex_importer import import_opex_for_scenario, import_single_opex_file, OPEX_FILE_MAP
 from app.importers.gl_detail_importer import ALLOC_EXCL_OPEX
 from app.api._nombres_de_depto import nombres_de_depto
@@ -379,7 +380,13 @@ async def import_opex_excel(
     for r in rows:
         key = (r["dept_code"], r["account_code"])
         detail_counter[key] = detail_counter.get(key, 0) + 1
-        detail_code = (r.get("detail_code") or "").strip() or str(detail_counter[key]).zfill(3)
+        # Una fila SIN codigo recibe el siguiente libre del rango oficial. Antes
+        # era un correlativo `001, 002…`, que es de donde salio la segunda
+        # numeracion conviviendo dentro de la misma cuenta.
+        detail_code = (r.get("detail_code") or "").strip()
+        if not es_valido(detail_code):
+            i = detail_counter[key] - 1
+            detail_code = CODIGOS[i] if i < len(CODIGOS) else detail_code or CODIGOS[-1]
 
         db.add(OpexEntry(
             id=str(uuid.uuid4()),
@@ -479,16 +486,18 @@ async def add_blank_lines(
         )
     )
     existing_codes = [row[0] for row in q.all()]
-    max_seq = 0
-    for code in existing_codes:
-        try:
-            max_seq = max(max_seq, int(code))
-        except ValueError:
-            pass
+    # ⚠️ Antes esto era `max(int(código))+1`, sin techo: una cuenta que ya
+    # llegaba a 810 recibía 811, 812… Y con un código vacío —los que deja la
+    # carga del GL— `int('')` reventaba, el máximo quedaba en CERO y arrancaba
+    # una segunda numeración `001, 002…` dentro de la misma cuenta. Así una
+    # cuenta de Amarena terminó con 101 filas.
+    nuevos = varios(existing_codes, body.count)
+    if not nuevos:
+        raise ErrorApi(422, "opex.detalle_sin_cupo",
+                       cuenta=body.account_code, primero=PRIMERO, ultimo=ULTIMO)
 
     added = []
-    for i in range(body.count):
-        new_code = str(max_seq + i + 1).zfill(3)
+    for new_code in nuevos:
         entry = OpexEntry(
             id=str(uuid.uuid4()),
             scenario_id=scenario_id,
@@ -582,7 +591,8 @@ async def seed_opex_accounts(
                 dept_code=dept_code,
                 account_code=acct_str,
                 account_name=acct_name,
-                detail_code="001",
+                # El rango oficial arranca en 800, no en 001 (owner, 2026-11-12).
+                detail_code=CODIGOS[0],
                 detail_desc="",
             )
             db.add(entry)
