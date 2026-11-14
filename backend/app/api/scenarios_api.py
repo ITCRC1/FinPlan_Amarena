@@ -48,7 +48,9 @@ from app.models.revenue_entry import RevenueEntry
 from app.models.spa_budget import SpaBudget
 from app.models.scenario_stat import ScenarioStat
 from app.models.statistical_entry import StatisticalEntry
-from app.models.club_membership_stat import ClubMembershipStat
+from app.estadisticas.membresias_puente import (
+    LEGADO_A_CONCEPTO, vista_legado)
+from app.models.membresia_mes import MembresiaMes
 from app.models.club_fee_budget import ClubFeeBudget
 from app.models.pl_manual_input import PLManualInput
 from app.models.actual_entry import ActualEntry
@@ -160,7 +162,7 @@ COPY_DATASETS: dict[str, list] = {
     # plan. Si no viajaran, una copia de Budget nacería con el P&L completo y
     # sin una sola estadística detrás, y la ocupación saldría en cero sin que
     # nada explique por qué.
-    "stats":    [ScenarioStat, ClubMembershipStat, StatisticalEntry],
+    "stats":    [ScenarioStat, MembresiaMes, StatisticalEntry],
     "pl_snapshot": [ActualPLLine],  # snapshot P&L por línea (forecast/budget importados)
     "manual":   [PLManualInput],
     "nonop":    [NonOpEntry],
@@ -589,8 +591,8 @@ async def clear_months_from(
     # Los socios del Club son un estadístico más: si se recorta el año a los
     # meses cerrados, quedarse con el conteo proyectado de los meses abiertos
     # dejaría un dato que ya no corresponde a nada.
-    await db.execute(sa_delete(ClubMembershipStat).where(
-        ClubMembershipStat.scenario_id == scenario_id, ClubMembershipStat.month.in_(months)))
+    await db.execute(sa_delete(MembresiaMes).where(
+        MembresiaMes.scenario_id == scenario_id, MembresiaMes.month.in_(months)))
     await db.execute(sa_delete(PayrollConceptEntry).where(
         PayrollConceptEntry.scenario_id == scenario_id, PayrollConceptEntry.month.in_(months)))
     gl_rows = 0
@@ -2335,19 +2337,23 @@ async def import_gl_detail(
         if membresias:
             meses_socios = sorted({mi for porMes in membresias.values()
                                    for mi in porMes})
-            await db.execute(sa_delete(ClubMembershipStat).where(
-                ClubMembershipStat.scenario_id == target.id,
-                ClubMembershipStat.month.in_(meses_socios)))
+            await db.execute(sa_delete(MembresiaMes).where(
+                MembresiaMes.scenario_id == target.id,
+                MembresiaMes.month.in_(meses_socios)))
+            # ⚠️ Una fila por CONCEPTO. El `total` de la plantilla no se
+            # guarda: en `membresias_mes` es la suma, y guardarlo aparte es lo
+            # que permitía que la tabla vieja dijera 130 con 86 pagando.
+            # Lo que la plantilla cuenta y no clasifica va a condicionados.
             for mi_ in meses_socios:
-                db.add(ClubMembershipStat(
-                    scenario_id=target.id, month=mi_,
-                    total=int(membresias.get("total", {}).get(mi_, 0) or 0),
-                    condicionados=int(
-                        membresias.get("condicionados", {}).get(mi_, 0) or 0),
-                    pagando=int(membresias.get("pagando", {}).get(mi_, 0) or 0),
-                    acuerdo_pago=int(
-                        membresias.get("acuerdo_pago", {}).get(mi_, 0) or 0),
-                ))
+                clasif = {c: int(membresias.get(leg, {}).get(mi_, 0) or 0)
+                          for leg, c in LEGADO_A_CONCEPTO.items()}
+                total = int(membresias.get("total", {}).get(mi_, 0) or 0)
+                clasif["condicionados"] += max(0, total - sum(clasif.values()))
+                for concepto, cant in clasif.items():
+                    if cant:
+                        db.add(MembresiaMes(
+                            id=str(uuid.uuid4()), scenario_id=target.id,
+                            month=mi_, concepto=concepto, cantidad=cant))
         target.source_mode = "imported"
         # Los meses de ACTUAL que trae este archivo, para mover el corte del
         # forecast al final. Solo cuentan los que tienen alguna cifra.
@@ -2903,7 +2909,6 @@ async def export_scenario_detail(
     # ⚠️ Solo si el 260 esta habilitado. El owner aviso que el Club se va el dia
     # que se opere por fuera del hotel; ese dia se desmarca en Provisionamiento
     # y estas cuatro filas desaparecen solas, sin tocar codigo.
-    from app.models.club_membership_stat import ClubMembershipStat
     from app.models.dept_enablement import DeptEnablement
     membresias_tpl: dict = {}
     apagado = (await db.execute(select(DeptEnablement).where(
@@ -2912,12 +2917,12 @@ async def export_scenario_detail(
         DeptEnablement.enabled.is_(False)))).scalars().first()
     club_activo = apagado is None and "260" in dept_names
     if club_activo:
-        for cm in (await db.execute(select(ClubMembershipStat).where(
-                ClubMembershipStat.scenario_id == scenario_id))).scalars():
-            if cm.month in months:
-                membresias_tpl[(label, cm.month)] = {
-                    "total": cm.total, "condicionados": cm.condicionados,
-                    "pagando": cm.pagando, "acuerdo_pago": cm.acuerdo_pago}
+        vista_cm, cargados_cm = await vista_legado(db, scenario_id)
+        for mes_cm in sorted(cargados_cm):
+            if mes_cm in months:
+                membresias_tpl[(label, mes_cm)] = {
+                    c: vista_cm[c][mes_cm - 1] for c in
+                    ("total", "condicionados", "pagando", "acuerdo_pago")}
         # Sin dato todavia, las filas igual se ofrecen: la plantilla existe para
         # digitar lo que aun no esta. Con el diccionario vacio no se dibujarian.
         if not membresias_tpl:

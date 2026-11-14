@@ -87,6 +87,59 @@ CUENTAS = {CUENTA_TOTAL, *CONCEPTO_A_CUENTA.values()}
 ORIGEN = "MOTOR"
 
 
+#: Los cuatro campos que pedía `club_membership_stats`, y de qué concepto de
+#: `membresias_mes` sale cada uno. `total` no está acá: es la SUMA.
+#:
+#: `pagando` ≡ `activas`: los rótulos difieren —«Membresías Pagando» en la
+#: pantalla del Club, «activas de cobro» en la del cierre— pero es el mismo
+#: hecho, y así lo trató siempre el cálculo del ingreso del Club
+#: (`club_fee_budgets.base = 'pagando'`).
+LEGADO_A_CONCEPTO = {
+    "condicionados": "condicionados",
+    "pagando": "activas",
+    "acuerdo_pago": "plan_pago",
+}
+
+
+async def vista_legado(db: AsyncSession, scenario_id: str
+                       ) -> tuple[dict[str, list[int]], set[int]]:
+    """Las membresías con la FORMA vieja, leídas de la tabla nueva.
+
+    Devuelve `({campo: [12 meses]}, meses_con_dato)`, igual que devolvía
+    `club_membership_stats`. Existe para que los seis consumidores de la tabla
+    vieja —la pantalla del Club, el P&L, su detalle, el clonado de escenarios,
+    el importador del mayor y el Excel de detalle— cambien de fuente **sin
+    reescribirse enteros**.
+
+    ⚠️ **`total` es la SUMA de los cinco conceptos, no un campo guardado.** La
+    tabla vieja lo guardaba aparte, y por eso podía decir `total=130` con
+    `pagando=86`: dos números sobre el mismo hecho, sin nada que los obligara a
+    cuadrar. En Amarena llegó a tener `total=0` junto a `pagando=86`. Acá el
+    total no se puede contradecir con sus partes porque sale de ellas.
+
+    ⚠️ **Los meses con dato se devuelven aparte.** Para el saldo del año hay
+    que distinguir «diciembre no se cargó» de «diciembre es cero»; confundirlos
+    inventa socios. Ver `club_stats_api.cierre`.
+    """
+    filas = (await db.execute(
+        select(MembresiaMes).where(MembresiaMes.scenario_id == scenario_id)
+    )).scalars().all()
+
+    out = {c: [0] * 12 for c in ("total", *LEGADO_A_CONCEPTO)}
+    cargados: set[int] = set()
+    for f in filas:
+        m = f.month or 0
+        if not 1 <= m <= 12:
+            continue
+        cargados.add(m)
+        cant = int(Decimal(str(f.cantidad or 0)))
+        out["total"][m - 1] += cant
+        for campo, concepto in LEGADO_A_CONCEPTO.items():
+            if f.concepto == concepto:
+                out[campo][m - 1] = cant
+    return out, cargados
+
+
 async def sincronizar_membresias(db: AsyncSession, scenario_id: str) -> dict:
     """Vuelca `membresias_mes` del escenario en `statistical_entries`.
 

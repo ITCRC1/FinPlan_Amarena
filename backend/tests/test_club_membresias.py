@@ -128,10 +128,29 @@ def test_el_reporte_lo_lleva_aparte_de_las_lineas():
 # ── El guardado ──────────────────────────────────────────────────────────────
 
 def test_guardar_no_pisa_los_meses_que_no_vienen():
-    """Mandar enero no puede borrar febrero: el owner carga mes a mes."""
+    """Mandar enero no puede borrar febrero: el owner carga mes a mes.
+
+    ⚠️ Antes esto se comprobaba buscando la palabra «delete» en el código. Era
+    un proxy, no la regla: desde que las membresías viven en `membresias_mes`
+    —una fila por concepto— poner un concepto en cero SÍ borra su fila, igual
+    que en la pantalla del cierre, porque «cargado» significa «alguien contó
+    esto». Lo que no puede pasar es que el borrado alcance a un mes que no vino
+    en el cuerpo.
+
+    Así que lo que se vigila es eso: todo borrado tiene que estar dentro del
+    bucle de meses pedidos, nunca un borrado por escenario.
+    """
     src = inspect.getsource(mod.guardar_membresias)
     assert "for m in body.meses" in src
-    assert "delete" not in src.lower(), "no debe borrar nada"
+
+    cuerpo = src[src.index("for m in body.meses"):]
+    antes = src[:src.index("for m in body.meses")]
+    assert "delete" not in antes.lower(), (
+        "hay un borrado ANTES del bucle: alcanzaría meses que no se pidieron")
+    for linea in cuerpo.splitlines():
+        if "delete" in linea.lower():
+            assert "fila" in linea, (
+                f"borrado fuera del alcance de un mes concreto: {linea.strip()}")
 
 
 def test_no_se_puede_escribir_en_una_version_enllavada():

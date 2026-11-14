@@ -54,7 +54,6 @@ from app.models.canal_comercial import CanalComercial
 from app.models.canal_comision import CanalComision
 from app.models.canal_mix_escenario import CanalMixEscenario
 from app.models.statistical_entry import StatisticalEntry
-from app.models.club_membership_stat import ClubMembershipStat
 from app.models.club_fee_budget import ClubFeeBudget
 from app.models.actual_room_stat import ActualRoomStat
 from app.models.actual_room_stat_canal import ActualRoomStatCanal
@@ -114,7 +113,7 @@ __all__ = [
     "PLLine", "PLManualInput",
     "ActualEntry", "ActualPLLine",
     "ReportLineConfig", "AccountMapping",
-    "ScenarioStat", "ClubMembershipStat", "ClubFeeBudget",
+    "ScenarioStat", "ClubFeeBudget",
     "StatAccount", "StatisticalEntry", "DIMENSIONES_ESTADISTICAS",
     "MarketCode", "CANALES", "CANAL_A_COMISION", "CanalComercial",
     "CanalComision",

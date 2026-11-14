@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import uuid
 from app.errores import ErrorApi
 from app.textos import Idioma, t
 from app.api._candado import candado
@@ -31,7 +32,9 @@ from app.api._ingreso_de_driver import persistir_ingreso_de_driver
 from app.api._llega_al_pl import llega_al_pl, modo_ingresos
 from app.db import get_db
 from app.models.club_fee_budget import BASES, ClubFeeBudget
-from app.models.club_membership_stat import ClubMembershipStat
+from app.estadisticas.membresias_puente import (
+    sincronizar_membresias, vista_legado)
+from app.models.membresia_mes import MembresiaMes
 from app.models.revenue_entry import REVENUE_LINE_ACCOUNT, REVENUE_LINE_LABELS
 from app.models.scenario import Scenario
 
@@ -76,15 +79,17 @@ async def membresias_por_mes(
     distinguir «diciembre no se cargó» de «diciembre es cero». No es lo mismo, y
     confundirlos inventa socios (ver `cierre`).
     """
-    out = {c: [0] * 12 for c in CAMPOS}
-    cargados: set[int] = set()
-    for s in (await db.execute(select(ClubMembershipStat).where(
-            ClubMembershipStat.scenario_id == scenario_id))).scalars():
-        if 1 <= (s.month or 0) <= 12:
-            cargados.add(s.month)
-            for c in CAMPOS:
-                out[c][s.month - 1] = int(getattr(s, c) or 0)
-    return out, cargados
+    # ⚠️ Lee de `membresias_mes`, NO de la tabla vieja de cuatro columnas.
+    #
+    # Las dos convivieron y se contradijeron: esta pantalla mostraba
+    # «Pagando 100» mientras las estadísticas decían «activas 125» para el
+    # mismo escenario — $60.000 de ingreso del Club de diferencia, sin que
+    # nada avisara. Owner, 2026-11-13: *«cómo me deshago de esas tablas
+    # viejas»*.
+    #
+    # `vista_legado` devuelve la misma forma de antes, así que el resto de
+    # esta pantalla no cambia.
+    return await vista_legado(db, scenario_id)
 
 
 def cierre(meses: list[int], cargados: set[int] | None = None) -> int:
@@ -162,18 +167,60 @@ async def guardar_membresias(
     await candado(db, scenario_id)
     scenario = await _escenario(db, scenario_id)
 
-    existentes = {s.month: s for s in (await db.execute(select(ClubMembershipStat).where(
-        ClubMembershipStat.scenario_id == scenario_id))).scalars()}
+    # ⚠️ Escribe en `membresias_mes`, la única tabla de membresías.
+    #
+    # Esta pantalla manda `total` como un campo propio, pero en el modelo nuevo
+    # el total **es la suma de los conceptos**. Esa diferencia es justo lo que
+    # permitía que la tabla vieja dijera `total=130` con `pagando=86`: dos
+    # números sobre el mismo hecho, sin nada que los obligara a cuadrar.
+    #
+    # Al guardar: los tres campos que tienen concepto se escriben; los otros
+    # dos —pendientes de firma y exceptuadas, que sólo existen en la pantalla
+    # del cierre— **se conservan**, porque esta pantalla no los conoce y
+    # borrarlos sería perder lo que alguien cargó allá.
+    #
+    # Y si el `total` que manda la pantalla es mayor que la suma, la diferencia
+    # va a CONDICIONADOS: son socios contados que todavía no pagan y no tienen
+    # otra categoría. Es la única forma de que el total se respete sin inventar
+    # un concepto nuevo.
+    previas = {(f.month, f.concepto): f for f in (await db.execute(
+        select(MembresiaMes).where(
+            MembresiaMes.scenario_id == scenario_id))).scalars()}
+
     for m in body.meses:
         if not 1 <= m.month <= 12:
             raise ErrorApi(422, "mes.fuera_de_rango")
-        fila = existentes.get(m.month)
-        if fila is None:
-            fila = ClubMembershipStat(scenario_id=scenario_id, month=m.month)
-            db.add(fila)
-        for c in CAMPOS:
-            setattr(fila, c, max(0, int(getattr(m, c) or 0)))
+        pedido = {c: max(0, int(getattr(m, c) or 0)) for c in CAMPOS}
+
+        otros = sum(
+            int(Decimal(str(previas[(m.month, c)].cantidad or 0)))
+            for c in ("pendiente_firma", "excepcion")
+            if (m.month, c) in previas)
+        clasificados = (pedido["condicionados"] + pedido["pagando"]
+                        + pedido["acuerdo_pago"] + otros)
+        sin_clasificar = max(0, pedido["total"] - clasificados)
+
+        nuevo = {
+            "activas": pedido["pagando"],
+            "condicionados": pedido["condicionados"] + sin_clasificar,
+            "plan_pago": pedido["acuerdo_pago"],
+        }
+        for concepto, cant in nuevo.items():
+            fila = previas.get((m.month, concepto))
+            if cant:
+                if fila is None:
+                    db.add(MembresiaMes(id=str(uuid.uuid4()),
+                                        scenario_id=scenario_id, month=m.month,
+                                        concepto=concepto, cantidad=cant))
+                else:
+                    fila.cantidad = cant
+            elif fila is not None:
+                # Cero BORRA la fila, igual que en la pantalla del cierre:
+                # «cargado» significa «alguien contó esto».
+                await db.delete(fila)
     await db.flush()
+    # El estadístico 98xx se rehace en la misma transacción.
+    await sincronizar_membresias(db, scenario_id)
 
     # Solo si hay driver de cuota cargado. Sin él, `precio` vale 0 y volver a
     # empujar borraría un ingreso que quizá alguien digitó a mano.

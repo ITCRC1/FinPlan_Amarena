@@ -76,7 +76,10 @@ CONCEPT_BY_ACCT = {
 # huéspedes se suman por mes; ocupación (occ/avail) y ADR (rev rooms/occ) se derivan.
 STAT_BY_ACCT = {"9010": "rooms_available", "9020": "rooms_occupied", "9060": "guests"}
 
-#: Los socios del Club Madresal. Van a `ClubMembershipStat`, NO a `ScenarioStat`.
+#: Los socios del Club Madresal. Van a `MembresiaMes`, NO a `ScenarioStat`.
+#: (Hasta el 2026-11-13 iban a `club_membership_stats`, que ya no existe: esa
+#: tabla guardaba el total como un campo aparte y podia contradecir a sus
+#: partes. Acá el total es la suma, y `scenarios_api` lo reparte.)
 #:
 #: Owner, 2026-09-08: «la estadistica tambien debe traer total membresias,
 #: membresias condicionados, membresias pagando y membresias en acuerdo de pago;

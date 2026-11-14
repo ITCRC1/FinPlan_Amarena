@@ -46,8 +46,8 @@ STAT_ROWS = [("9010", "Rooms disponibles", "rooms_available"),
              ("9020", "Rooms ocupadas", "rooms_occupied"),
              ("9060", "Huéspedes", "guests")]
 
-#: Los socios del Club Madresal (owner, 2026-09-08). Salen de una tabla propia
-#: —`ClubMembershipStat`— y no de `ScenarioStat`, por eso van en su propia lista.
+#: Los socios del Club Madresal (owner, 2026-09-08). Salen de `MembresiaMes`
+#: y no de `ScenarioStat`, por eso van en su propia lista.
 #:
 #: ⚠️ **Se ofrecen sólo si el departamento 260 está habilitado**, no con un `if`
 #: por hotel. Es la misma regla que ya rige al Club en toda la app: el owner

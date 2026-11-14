@@ -60,7 +60,7 @@ from app.db import get_session
 from app.errores import ErrorApi
 from app.engine import pl_engine
 from app.models.actual_entry import ActualEntry
-from app.models.club_membership_stat import ClubMembershipStat
+from app.estadisticas.membresias_puente import vista_legado
 from app.models.scenario import Scenario
 from app.models.scenario_stat import ScenarioStat
 
@@ -733,23 +733,21 @@ async def _kpis(s, scenario_id: str) -> dict:
 
 
 async def _socios(s, scenario_id: str) -> dict | None:
-    """Los cuatro conteos del Club. Ver `ClubMembershipStat`: el del período es
+    """Los cuatro conteos del Club. Ver `MembresiaMes`: el del período es
     el SALDO del último mes con dato, nunca la suma."""
-    filas = sorted((await s.execute(select(ClubMembershipStat).where(
-        ClubMembershipStat.scenario_id == scenario_id))).scalars().all(),
-        key=lambda x: x.month)
-    if not filas:
+    # De `membresias_mes`, la única tabla de membresías. `vista_legado` arma
+    # los cuatro campos de siempre; el `total` ya no es un campo guardado que
+    # pueda contradecir a sus partes, sino la suma de ellas.
+    vista, cargados = await vista_legado(s, scenario_id)
+    if not cargados:
         return None
-    def serie(campo):
-        return [next((getattr(f, campo) for f in filas if f.month == m), 0)
-                for m in MESES]
-    con_dato = [f for f in filas if (f.total or f.pagando)]
-    ultimo = con_dato[-1] if con_dato else filas[-1]
+    CAMPOS = ("total", "condicionados", "pagando", "acuerdo_pago")
+    con_dato = [m for m in sorted(cargados)
+                if vista["total"][m - 1] or vista["pagando"][m - 1]]
+    ultimo = (con_dato or sorted(cargados))[-1]
     return {
-        "meses": {c: serie(c) for c in
-                  ("total", "condicionados", "pagando", "acuerdo_pago")},
-        "cierre": {c: getattr(ultimo, c) for c in
-                   ("total", "condicionados", "pagando", "acuerdo_pago")},
+        "meses": {c: vista[c] for c in CAMPOS},
+        "cierre": {c: vista[c][ultimo - 1] for c in CAMPOS},
     }
 
 

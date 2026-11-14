@@ -57,13 +57,22 @@ def test_el_importador_las_manda_a_su_propia_tabla():
     assert 'blk["membresias"]' in inspect.getsource(gl)
 
 
-def test_al_subir_se_escriben_en_ClubMembershipStat():
+def test_al_subir_se_escriben_en_MembresiaMes():
+    """Los socios que trae el archivo tienen que llegar a la base.
+
+    Desde el 2026-11-13 van a `membresias_mes` y no a la tabla vieja de cuatro
+    columnas, que se eliminó: aquélla guardaba el total como un campo aparte y
+    podía contradecir a sus partes —llegó a decir 130 con 86 pagando—. Acá el
+    total es la suma y no hay dos números sobre el mismo hecho.
+    """
     from app.api import scenarios_api
 
     src = inspect.getsource(scenarios_api)
-    assert "db.add(ClubMembershipStat(" in src, (
+    assert "db.add(MembresiaMes(" in src, (
         "el importador dejó de escribir los socios: la plantilla los ofrece y "
         "el archivo los trae, pero no llegan a la base")
+    assert "ClubMembershipStat" not in src, (
+        "volvió una referencia a la tabla vieja, que ya no existe")
 
 
 def test_solo_se_borra_el_mes_que_el_archivo_trae():
@@ -71,10 +80,12 @@ def test_solo_se_borra_el_mes_que_el_archivo_trae():
     que ya estaba. Es el mismo criterio que el merge usa para todo lo demás."""
     src = inspect.getsource(__import__(
         "app.api.scenarios_api", fromlist=["x"]))
-    i = src.index("db.add(ClubMembershipStat(")
-    bloque = src[max(0, i - 1200):i]
-    assert "ClubMembershipStat.month.in_(meses_socios)" in bloque
-    assert "if membresias:" in bloque
+    i = src.index("db.add(MembresiaMes(")
+    bloque = src[max(0, i - 1600):i]
+    assert "MembresiaMes.month.in_(meses_socios)" in bloque, (
+        "el borrado dejó de acotarse a los meses que trae el archivo")
+    assert "if membresias:" in bloque, (
+        "un archivo sin líneas de socios no debe tocar el conteo")
 
 
 def test_las_filas_solo_salen_si_el_club_esta_habilitado():

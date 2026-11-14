@@ -28,7 +28,7 @@ from app.models.scenario import Scenario, ScenarioLockedError
 from app.models.pl_manual_input import PLManualInput
 from app.models.historical_kpi import HistoricalKpi
 from app.models.scenario_stat import ScenarioStat
-from app.models.club_membership_stat import ClubMembershipStat
+from app.estadisticas.membresias_puente import vista_legado
 from app.models.cashflow_params import CashFlowParams
 from app.models.tax_params import TaxParams
 from app.engine import recalculate as recalc
@@ -248,7 +248,7 @@ async def _monthly_results(session, scenario) -> list[dict]:
     # explica la cuota de `REV_CLUB`: viaja con los KPIs de habitaciones porque
     # es un estadístico, no una línea del estado de resultados.
     #
-    # ⚠️ **No es aditivo.** Ver `ClubMembershipStat`: son socios, no ingresos —
+    # ⚠️ **No es aditivo.** Ver `MembresiaMes`: son socios, no ingresos —
     # el valor de un período es el SALDO del último mes, no la suma. Sumar los
     # doce daría 1.500 socios donde hay 129. El corte lo hace
     # `_aggregate_selected`; acá sólo se cuelga el dato de cada mes.
@@ -256,9 +256,12 @@ async def _monthly_results(session, scenario) -> list[dict]:
     # Ausente cuando la propiedad no tiene el Club: la clave no se pone, y la
     # pantalla no dibuja el renglón. Nada de ceros que se leen como «no hay
     # socios» donde en realidad no hay Club.
-    socios = {s.month: (s.pagando, s.total) for s in (await session.execute(
-        select(ClubMembershipStat).where(
-            ClubMembershipStat.scenario_id == scenario.id))).scalars().all()}
+    # Sale de `membresias_mes`, la única tabla de membresías. La vieja decía
+    # `pagando` donde ésta dice `activas`, y llegaron a contradecirse en 25
+    # socios para el mismo escenario.
+    _vista, _cargados = await vista_legado(session, scenario.id)
+    socios = {m: (_vista["pagando"][m - 1], _vista["total"][m - 1])
+              for m in sorted(_cargados)}
     if socios:
         for m in out:
             pagando, total = socios.get(m["month"], (0, 0))
@@ -472,7 +475,7 @@ def _aggregate_selected(sel: list[dict], *, lo_subido_manda: bool = False,
     # ── Club Madresal: socios pagando y cuota promedio ───────────────────────
     #
     # **El conteo NO se suma: es el SALDO del último mes del período.** Son
-    # socios, no ingresos (ver `ClubMembershipStat`): sumar los doce daría 1.500
+    # socios, no ingresos (ver `MembresiaMes`): sumar los doce daría 1.500
     # donde hay 129.
     #
     # **La cuota promedio SÍ se pondera, y por SOCIOS-MES.** Es la misma cuenta
