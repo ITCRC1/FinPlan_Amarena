@@ -647,6 +647,7 @@ AMA,property-expenses,Property Expenses,DEPRECIATION,0250,8040,DEPRECIATION1 | D
 AMA,property-expenses,Property Expenses,NON DEDUCTIBLE EXPENSES,0250,8025,FINES AND OTHER NON-DEDUCTIBLE EXPENSES1 | FINES AND OTHER NON-DEDUCTIBLE EXPENSES,OTHER_EXPENSES,OWNER / NON-OP EXPENSES,Fixed Cost,0.0,GL,false,CWL 0250:8025
 AMA,property-expenses,Property Expenses,INCOME TAX,0250,8060,INCOME TAX,INCOME_TAXES,TAX / NET PROFIT,Fixed Cost,0.0,GL,true,CWL 0250:8060
 AMA,club-madresal,Club Madresal,PAYROLL,260,6000,Salary and Wages,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 6000 en CWL OPERATING (Variable=7/Fixed Cost=2)
+AMA,club-madresal,Club Madresal,PAYROLL,260,6031,Contract Labour,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,IGUAL A 6000 del depto: Contract Labour agrupa con Salaries (owner 2026-11-22)
 AMA,club-madresal,Club Madresal,PAYROLL,260,6001,Overtime,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 6001 en CWL OPERATING (Variable=7/Fixed Cost=1)
 AMA,club-madresal,Club Madresal,PAYROLL,260,6002,Day Off,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 6002 en CWL OPERATING (Variable=7/Fixed Cost=1)
 AMA,club-madresal,Club Madresal,PAYROLL,260,6003,Working Holiday,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 6003 en CWL OPERATING (Variable=7/Fixed Cost=2)
@@ -680,6 +681,7 @@ AMA,club-madresal,Club Madresal,OPERATING EXPENSES,260,7670,Travel—Meals and E
 AMA,club-madresal,Club Madresal,OPERATING EXPENSES,260,7675,Travel—Other,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 7675 en CWL OPERATING (Variable=9)
 AMA,club-madresal,Club Madresal,OPERATING EXPENSES,260,7685,Uniform Laundry,OPEX_CLUB,OPERATING EXPENSES,Variable,1.0,ANALOGIA,false,ANALOGIA cuenta 7685 en CWL OPERATING (Variable=10)
 AMA,area-recreativa,Área Recreativa,PAYROLL,270,6000,Salary and Wages,OH_AREC,OVERHEAD EXPENSES,Fixed Cost,0.0,ANALOGIA,false,ANALOGIA cuenta 6000 en CWL OVERHEAD (Fixed Cost=6)
+AMA,area-recreativa,Área Recreativa,PAYROLL,270,6031,Contract Labour,OH_AREC,OVERHEAD EXPENSES,Fixed Cost,0.0,ANALOGIA,false,IGUAL A 6000 del depto: Contract Labour agrupa con Salaries (owner 2026-11-22)
 AMA,area-recreativa,Área Recreativa,PAYROLL,270,6001,Overtime,OH_AREC,OVERHEAD EXPENSES,Fixed Cost,0.0,ANALOGIA,false,ANALOGIA cuenta 6001 en CWL OVERHEAD (Fixed Cost=6)
 AMA,area-recreativa,Área Recreativa,PAYROLL,270,6002,Day Off,OH_AREC,OVERHEAD EXPENSES,Fixed Cost,0.0,ANALOGIA,false,ANALOGIA cuenta 6002 en CWL OVERHEAD (Fixed Cost=6)
 AMA,area-recreativa,Área Recreativa,PAYROLL,270,6003,Working Holiday,OH_AREC,OVERHEAD EXPENSES,Fixed Cost,0.0,ANALOGIA,false,ANALOGIA cuenta 6003 en CWL OVERHEAD (Fixed Cost=6)
