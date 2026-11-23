@@ -10,14 +10,14 @@ vacaciones, ni INS, ni beneficios por persona.
 
 Solo agrega dos columnas: el check (nace en falso) y el concepto (nace en cero).
 
-Revision ID: 166
-Revises: 165
+Revision ID: 157
+Revises: 156
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "166"
-down_revision = "165"
+revision = "157"
+down_revision = "156"
 branch_labels = None
 depends_on = None
 
