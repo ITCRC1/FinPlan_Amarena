@@ -49,7 +49,6 @@ from app.export.excel_base import (C, align, border, fill, font, MONTHS_ES,
 #: fila: `sub` es un subtotal (BASE), `tot` el total del departamento.
 FILAS = [
     ("c6000", "6000", "Salary and Wages",   "dato"),
-    ("c6031", "6031", "Contract Labour",    "dato"),
     ("c6001", "6001", "Overtime",           "dato"),
     ("c6002", "6002", "Day Off",            "dato"),
     ("c6003", "6003", "Working Holiday",    "dato"),
@@ -67,6 +66,9 @@ FILAS = [
     ("c6028", "6028", "Housing",            "dato"),
     ("c6029", "6029", "Transport",          "dato"),
     ("c6030", "6030", "Other Benefits",     "dato"),
+    # Contract Labour va FUERA del bloque de BASE: arriba de la BASE se leería como
+    # uno de sus componentes, y no lo es (ni CCSS ni aguinaldo). Va al final, antes del total.
+    ("c6031", "6031", "Contract Labour",    "dato"),
     ("total", "",     "TOTAL",              "tot"),
 ]
 

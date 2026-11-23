@@ -22,9 +22,10 @@ from app.models.payroll_concept_entry import PayrollConceptEntry
 
 def test_las_calculadas_no_son_importables():
     """⚠️ 6000 sale de salario × FTE / TC; 6020 es 26.83% de BASE y 6021 es
-    BASE/12. Guardarlas haría que el siguiente Recalcular las cambie **sin que
+    BASE/12. 6031 (Contract Labour) es salario × FTE / TC, como la 6000.
+    Guardarlas haría que el siguiente Recalcular las cambie **sin que
     nadie vea por qué**: se guardó un resultado donde va un insumo."""
-    assert CALCULADAS == {"6000", "6020", "6021"}
+    assert CALCULADAS == {"6000", "6020", "6021", "6031"}
     assert not (CALCULADAS & set(IMPORTABLES)), "una calculada entró como importable"
 
 
