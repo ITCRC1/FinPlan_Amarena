@@ -70,7 +70,7 @@ IMPORTABLES: dict[str, str] = {
 
 #: Lo que se saltea **a propósito**, para poder distinguirlo de una fila que no
 #: se reconoció. Una cuenta que no esté ni acá ni en IMPORTABLES se informa.
-CALCULADAS = {"6000", "6020", "6021"}
+CALCULADAS = {"6000", "6020", "6021", "6031"}   # 6031 Contract Labour: salario × FTE, como la 6000
 
 MESES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
          "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
