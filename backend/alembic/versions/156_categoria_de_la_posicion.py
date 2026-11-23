@@ -10,14 +10,14 @@ Solo agrega dos columnas que nacen vacías. Vacía quiere decir «la del departa
 (`categoria_de` / `subcategoria_de` en `app/models/payroll_position.py`), así que no
 hay que llenar nada y no se toca ningún dato existente.
 
-Revision ID: 165
-Revises: 164
+Revision ID: 156
+Revises: 155
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "165"
-down_revision = "164"
+revision = "156"
+down_revision = "155"
 branch_labels = None
 depends_on = None
 
