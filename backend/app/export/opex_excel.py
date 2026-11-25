@@ -63,6 +63,34 @@ _CENTER = Alignment(horizontal="center", vertical="center")
 _RIGHT  = Alignment(horizontal="right",  vertical="center")
 _LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
 
+# El nombre de cuenta y el detalle los escribe el usuario y pueden ser largos.
+# Antes iban a ancho fijo (28 y 32) con `wrap_text` y la fila clavada en 16 px de
+# alto: el texto se envolvía y la segunda línea quedaba TAPADA. Ahora el ancho
+# sale del contenido, y sólo si pasa del tope la fila crece para mostrar todo.
+ANCHO_MIN_NOMBRE = 28
+ANCHO_MAX_NOMBRE = 46
+ANCHO_MIN_DETALLE = 32
+ANCHO_MAX_DETALLE = 72
+ALTO_LINEA = 13.5      # px por línea envuelta
+ALTO_FILA = 16.0       # alto de una fila de una sola línea
+
+
+def _ancho(textos, minimo: int, maximo: int) -> int:
+    """Ancho que muestra el texto más largo, entre el mínimo y el tope."""
+    largo = max((len(str(x or "")) for x in textos), default=0)
+    return max(minimo, min(maximo, largo + 2))
+
+
+def _alto(textos, ancho: int) -> float:
+    """Alto que necesita la fila para que NADA quede cortado."""
+    lineas = 1
+    for x in textos:
+        texto = str(x or "")
+        if texto:
+            lineas = max(lineas, -(-len(texto) // max(ancho - 1, 1)))
+    return ALTO_FILA if lineas <= 1 else lineas * ALTO_LINEA + 3
+
+
 MONTHS_ES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
              "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
 MONTH_ATTRS = ["jan", "feb", "mar", "apr", "may", "jun",
@@ -158,9 +186,15 @@ def _write_dept_sheet(
     year: int,
 ) -> None:
     # ── Column widths ────────────────────────────────────────────────────────
-    ws.column_dimensions["A"].width = 10   # account
-    ws.column_dimensions["B"].width = 28   # account name
-    ws.column_dimensions["C"].width = 32   # detail
+    ancho_nombre = _ancho(
+        [e.get("account_name") for e in entries] + ["Nombre de Cuenta"],
+        ANCHO_MIN_NOMBRE, ANCHO_MAX_NOMBRE)
+    ancho_detalle = _ancho(
+        [e.get("detail_desc") for e in entries] + ["Descripción / Detalle", "SUBTOTAL"],
+        ANCHO_MIN_DETALLE, ANCHO_MAX_DETALLE)
+    ws.column_dimensions["A"].width = 10              # account
+    ws.column_dimensions["B"].width = ancho_nombre    # account name
+    ws.column_dimensions["C"].width = ancho_detalle   # detail
     for col in range(COL_JAN, COL_DEC + 1):
         ws.column_dimensions[get_column_letter(col)].width = 11
     ws.column_dimensions[get_column_letter(COL_TOTAL)].width = 13
@@ -220,7 +254,10 @@ def _write_dept_sheet(
         detail_rows: list[int] = []
 
         for entry in acct_entries:
-            ws.row_dimensions[row].height = 16
+            ws.row_dimensions[row].height = max(
+                _alto([acct_name], ancho_nombre),
+                _alto([entry.get("detail_desc")], ancho_detalle),
+            )
             # A: account code (gray, not editable intent)
             c = ws.cell(row, COL_ACCT, acct_code)
             c.font = _font(color=_C["text_mid"], size=9)
