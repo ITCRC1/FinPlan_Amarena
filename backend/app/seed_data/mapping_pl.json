@@ -17957,6 +17957,23 @@
     {
       "active_status": "YES",
       "report_id": "P&L_DETAIL_OWNERS",
+      "report_line_code": "REV_PRIVATE_BAR",
+      "report_line_name": "Private Bar",
+      "report_section": "REVENUES",
+      "display_order": 21,
+      "source_origin": "Revenue",
+      "source_department": "Departamento Private Bar",
+      "account_code": "4120",
+      "account_name_example": "NA Beverage · minibar de la habitación",
+      "financial_nature": "Revenue",
+      "rollup_operator": "SUM",
+      "sign_rule": "Aggregate to line as positive display value; calculations subtract expense lines at subtotal level.",
+      "notes": "El minibar se codifica 0121+4120 en el mayor. La 4120 también existe en 0120 (A&B): son dos filas distintas porque la llave del mapeo lleva el departamento.",
+      "dept_code": "0121"
+    },
+    {
+      "active_status": "YES",
+      "report_id": "P&L_DETAIL_OWNERS",
       "report_line_code": "REV_LAUNDRY",
       "report_line_name": "Laundry",
       "report_section": "REVENUES",
