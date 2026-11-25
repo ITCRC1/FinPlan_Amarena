@@ -204,7 +204,7 @@ async def pl_usali(
             cat = deptos.get(dept)
             ingreso = Decimal(str(sum(
                 f["monto"] for f in arbol[dept].get("revenue", []))))
-            secciones, gasto = [], CERO
+            secciones, gasto, gasto_arriba = [], CERO, CERO
             for clase, titulo in CLASES:
                 filas = sorted(arbol[dept].get(clase, []),
                                key=lambda f: f["cuenta"])
@@ -213,6 +213,10 @@ async def pl_usali(
                 total = Decimal(str(sum(f["monto"] for f in filas)))
                 if clase != "revenue":
                     gasto += total
+                    # `property` son los cargos fijos y no operativos: van
+                    # ABAJO del GOP. El control compara arriba del GOP.
+                    if clase != "property":
+                        gasto_arriba += total
                 for f in filas:
                     f["pct"] = _pct(Decimal(str(f["monto"])), ingreso or total)
                 secciones.append({"clase": clase, "titulo": titulo,
@@ -226,6 +230,7 @@ async def pl_usali(
                 "secciones": secciones,
                 "ingreso": round(float(ingreso), 2),
                 "gasto": round(float(gasto), 2),
+                "gasto_arriba_gop": round(float(gasto_arriba), 2),
                 "utilidad": round(float(ingreso - gasto), 2),
             })
 
@@ -234,10 +239,25 @@ async def pl_usali(
         # ⚠️ Es la razón de ser del bloque. Los dos lados salen de orígenes
         # distintos —el resumen de las líneas del P&L, el detalle del mayor— y
         # si se separan hay que verlo acá y no en una reunión con el dueño.
+        # ⚠️ Los dos lados tienen que medir LO MISMO, y hasta 2026-11-25 no lo
+        # hacían: el detalle sumaba sus cinco clases de gasto y el resumen solo
+        # sus líneas `OPEX_` y `OH_`. Faltaban dos pedazos, y el control
+        # aparecía en rojo los ocho meses del año con el P&L perfectamente
+        # cuadrado:
+        #
+        #   · el COSTO DE VENTAS, que el motor netea dentro de `PROFIT_` y la
+        #     sección «Gastos departamentales» no lista (en octubre, $8.337,19);
+        #   · los CARGOS FIJOS Y NO OPERATIVOS (`property`), que van abajo del
+        #     GOP y el resumen lleva en la cascada ($16.525,59).
+        #
+        # Ahora los dos lados son el gasto ARRIBA del GOP. Del lado del resumen
+        # sale de su propio GOP —`ingresos − GOP`— que es la aritmética del
+        # motor e incluye el costo de ventas sin tener que rearmarlo acá.
         det_ingreso = Decimal(str(sum(d["ingreso"] for d in departamentos)))
-        det_gasto = Decimal(str(sum(d["gasto"] for d in departamentos)))
-        res_gasto = (Decimal(str(resumen["gastos_dept"]["total"]))
-                     + Decimal(str(resumen["no_distribuidos"]["total"])))
+        det_gasto = Decimal(str(sum(d["gasto_arriba_gop"] for d in departamentos)))
+        gop = Decimal(str(next(
+            (c["monto"] for c in cascada if c["code"] == "TOTAL_GOP"), 0)))
+        res_gasto = total_ingresos - gop
 
         return {
             "scenario_id": scenario_id,
