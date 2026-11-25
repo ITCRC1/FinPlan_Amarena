@@ -97,9 +97,19 @@ export default function PLUsali({ escenarios, inicial, mes }: {
 
   const operativos = (datos?.departamentos ?? []).filter(d => d.kind !== "OVERHEAD");
   const overhead = (datos?.departamentos ?? []).filter(d => d.kind === "OVERHEAD");
+  /** Medio dólar de tolerancia, no un centavo.
+   *
+   *  El detalle suma cientos de montos ya redondeados al centavo y el resumen
+   *  trae el total exacto del motor: la diferencia de redondeo es inevitable y
+   *  da uno o dos centavos según el mes. Con un centavo de tolerancia, marzo y
+   *  abril salían en rojo con el P&L cuadrado, y un aviso que grita por dos
+   *  centavos es un aviso que nadie vuelve a mirar. Lo que este control tiene
+   *  que cazar son separaciones reales entre el resumen y el mayor —la última
+   *  fueron $24.862,78— no el redondeo. */
+  const TOLERANCIA = 0.5;
   const descuadra = !!datos
-    && (Math.abs(datos.control.ingresos_dif) > 0.01
-        || Math.abs(datos.control.gastos_dif) > 0.01);
+    && (Math.abs(datos.control.ingresos_dif) > TOLERANCIA
+        || Math.abs(datos.control.gastos_dif) > TOLERANCIA);
 
   return (
     <div>
