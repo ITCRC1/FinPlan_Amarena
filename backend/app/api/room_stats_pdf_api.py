@@ -284,6 +284,9 @@ async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
         anterior = ya_cargado.get(cat.name) if cat is not None else None
         filas.append({
             "nombre_pdf": t["room_type_name"],
+            # La trajo el archivo: es una categoría que reclama una habitación,
+            # y dos del archivo sobre la misma sí son un conflicto real.
+            "agregada": False,
             "room_type_name": cat.name if cat is not None else None,
             "room_type_code": cat.code if cat is not None else "",
             "confianza": confianza,
@@ -337,6 +340,13 @@ async def _armar_mes(lectura, scenario_id: str, nombre_archivo: str,
             continue
         previa = ya_cargado.get(c.name)
         filas.append({
+            # ⚠️ `agregada`: esta fila NO vino del archivo, la pone el sistema
+            # para que el inventario entre al denominador. Su `nombre_pdf` es el
+            # nombre de la propiedad, así que en un archivo de varios meses
+            # convive con el nombre del PMS del mes en que esa categoría sí
+            # vendió — y la pantalla las contaba como dos categorías peleando
+            # por la misma habitación, bloqueando el guardado.
+            "agregada": True,
             "nombre_pdf": c.name, "room_type_name": c.name,
             "room_type_code": c.code, "confianza": "exacto",
             "units": c.units, "nights_available": c.units * dias,

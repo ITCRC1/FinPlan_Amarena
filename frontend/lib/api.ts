@@ -3781,6 +3781,11 @@ export interface PdfRoomStatsCanal extends CanalDelPms {
 }
 export interface PdfRoomStatsFila {
   nombre_pdf: string;
+  /** `true` = la fila NO vino del archivo: la agrega el sistema por una
+   *  categoría de la propiedad que el archivo no trajo, para que su inventario
+   *  entre al denominador. Su `nombre_pdf` es el nombre de la propiedad.
+   *  Opcional: un backend viejo no la manda y se asume `false`. */
+  agregada?: boolean;
   /** `null` = el nombre del PDF no calzó con ninguna categoría: lo elige el usuario. */
   room_type_name: string | null;
   room_type_code: string;

@@ -499,6 +499,18 @@ export default function CierreRoomStatsPage() {
     return new Set(fuentes.flatMap(l => l.filas.map(f => f.nombre_pdf)));
   }, [delArchivo, lectura]);
 
+  /** Las que de verdad VINIERON en el archivo. Las demás las agrega el backend
+   *  por el inventario y llegan con el nombre de la propiedad: en un archivo de
+   *  varios meses, la categoría que vendió en un mes y no en otro aparece con
+   *  los dos nombres —el del PMS y el de la propiedad— y contarlas como dos
+   *  reclamos bloqueaba el guardado con un conflicto que no existe. */
+  const nombresDelArchivo = useMemo(() => {
+    const fuentes = Object.keys(delArchivo).length
+      ? Object.values(delArchivo) : (lectura ? [lectura] : []);
+    return new Set(fuentes.flatMap(l =>
+      l.filas.filter(f => !f.agregada).map(f => f.nombre_pdf)));
+  }, [delArchivo, lectura]);
+
   /** Dos categorías del MISMO archivo apuntando a la misma habitación.
    *
    *  ⚠️ Solo las de este archivo. `calce` acumula los nombres de cargas
@@ -509,12 +521,12 @@ export default function CierreRoomStatsPage() {
    */
   const duplicadas = useMemo(() => {
     const c: Record<string, number> = {};
-    [...nombresEnPantalla].forEach(n => {
+    [...nombresDelArchivo].forEach(n => {
       const v = calce[n];
       if (v) c[v] = (c[v] ?? 0) + 1;
     });
     return Object.entries(c).filter(([, k]) => k > 1).map(([v]) => v);
-  }, [calce, nombresEnPantalla]);
+  }, [calce, nombresDelArchivo]);
   /** Categorías sin calce. Con un archivo de varios meses se cuentan las de
    *  TODOS: el botón «Guardar los N» escribe los N, así que habilitarlo
    *  mirando sólo el mes visible dejaría entrar un mes con una fila huérfana. */
