@@ -48,13 +48,18 @@ LINEA = "REV_PRIVATE_BAR"
 def upgrade() -> None:
     # El seed vuelve a afirmarla en cada arranque; esto es solo para que la base
     # de hoy ya la tenga y el mayor deje de rebotar sin esperar al despliegue.
+    # ⚠️ `id` es String(36) y NO tiene default en la base: lo genera el seed en
+    # Python. Omitirlo tiró el arranque entero con NotNullViolation — y como
+    # `alembic upgrade head` corre antes que uvicorn, el backend no levantó.
     op.execute(sa.text("""
         INSERT INTO account_mapping (
+            id,
             active_status, report_id, report_line_code, report_line_name,
             report_section, display_order, source_origin, source_department,
             account_code, account_name_example, financial_nature,
             rollup_operator, sign_rule, notes, dept_code)
-        SELECT 'YES', :report, :linea, 'Private Bar', 'REVENUES', 21, 'Revenue',
+        SELECT gen_random_uuid()::text,
+               'YES', :report, :linea, 'Private Bar', 'REVENUES', 21, 'Revenue',
                :depto, :cuenta, 'NA Beverage · minibar de la habitación',
                'Revenue', 'SUM',
                'Aggregate to line as positive display value; calculations '
