@@ -145,3 +145,4 @@ from app.models.guillermo import (
 # Las membresías del club (cuota de mantenimiento). No sale del PMS: lo carga
 # la propiedad a mano o por Excel, un conteo por mes.
 from app.models.membresia_mes import CONCEPTOS, MembresiaMes
+from app.models.libro_colgado import LibroColgado  # noqa: F401
