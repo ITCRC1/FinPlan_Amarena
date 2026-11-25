@@ -199,6 +199,10 @@ async def pl_usali(
                     "monto": round(float(monto), 2),
                 })
 
+        # Totales del control SIN redondear. Sumar los `round(...)` de cada
+        # departamento dejaba uno o dos centavos de diferencia según el mes, y
+        # el aviso —que tolera un centavo— salía en rojo por el redondeo.
+        det_ingreso_exacto, det_gasto_exacto = CERO, CERO
         departamentos = []
         for dept in sorted(arbol):
             cat = deptos.get(dept)
@@ -223,6 +227,8 @@ async def pl_usali(
                                   "filas": filas,
                                   "total": round(float(total), 2),
                                   "pct": _pct(total, ingreso or total)})
+            det_ingreso_exacto += ingreso
+            det_gasto_exacto += gasto_arriba
             departamentos.append({
                 "dept_code": dept,
                 "dept_name": cat.dept_name if cat else dept,
@@ -253,8 +259,8 @@ async def pl_usali(
         # Ahora los dos lados son el gasto ARRIBA del GOP. Del lado del resumen
         # sale de su propio GOP —`ingresos − GOP`— que es la aritmética del
         # motor e incluye el costo de ventas sin tener que rearmarlo acá.
-        det_ingreso = Decimal(str(sum(d["ingreso"] for d in departamentos)))
-        det_gasto = Decimal(str(sum(d["gasto_arriba_gop"] for d in departamentos)))
+        det_ingreso = det_ingreso_exacto
+        det_gasto = det_gasto_exacto
         gop = Decimal(str(next(
             (c["monto"] for c in cascada if c["code"] == "TOTAL_GOP"), 0)))
         res_gasto = total_ingresos - gop
