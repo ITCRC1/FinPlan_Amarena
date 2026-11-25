@@ -492,20 +492,35 @@ export default function CierreRoomStatsPage() {
     return [...vistos].filter(c => !(canalDe[c] ?? "")).sort();
   }, [anio, enPantalla, canalDe]);
 
+  /** Las categorías del archivo que está en pantalla, de todos sus meses. */
+  const nombresEnPantalla = useMemo(() => {
+    const fuentes = Object.keys(delArchivo).length
+      ? Object.values(delArchivo) : (lectura ? [lectura] : []);
+    return new Set(fuentes.flatMap(l => l.filas.map(f => f.nombre_pdf)));
+  }, [delArchivo, lectura]);
+
+  /** Dos categorías del MISMO archivo apuntando a la misma habitación.
+   *
+   *  ⚠️ Solo las de este archivo. `calce` acumula los nombres de cargas
+   *  anteriores —al subir se agregan sin borrar los viejos— y contarlos todos
+   *  bloqueaba el guardado por un residuo: un PDF con «GARDEN VIEW ACCESIBLE
+   *  VILLA» y un Excel con el mismo nombre cortado, «…VIL», son dos entradas
+   *  que apuntan bien a la misma habitación, y ninguna está mal.
+   */
   const duplicadas = useMemo(() => {
     const c: Record<string, number> = {};
-    Object.values(calce).forEach(v => { if (v) c[v] = (c[v] ?? 0) + 1; });
+    [...nombresEnPantalla].forEach(n => {
+      const v = calce[n];
+      if (v) c[v] = (c[v] ?? 0) + 1;
+    });
     return Object.entries(c).filter(([, k]) => k > 1).map(([v]) => v);
-  }, [calce]);
+  }, [calce, nombresEnPantalla]);
   /** Categorías sin calce. Con un archivo de varios meses se cuentan las de
    *  TODOS: el botón «Guardar los N» escribe los N, así que habilitarlo
    *  mirando sólo el mes visible dejaría entrar un mes con una fila huérfana. */
-  const faltanCalce = useMemo(() => {
-    const fuentes = Object.keys(delArchivo).length
-      ? Object.values(delArchivo) : (lectura ? [lectura] : []);
-    const nombres = new Set(fuentes.flatMap(l => l.filas.map(f => f.nombre_pdf)));
-    return [...nombres].filter(n => !calce[n]).length;
-  }, [delArchivo, lectura, calce]);
+  const faltanCalce = useMemo(
+    () => [...nombresEnPantalla].filter(n => !calce[n]).length,
+    [nombresEnPantalla, calce]);
   const puedeGuardar = !!lectura && !leyendo && !guardando
     && faltanCalce === 0 && duplicadas.length === 0;
 
@@ -977,7 +992,9 @@ export default function CierreRoomStatsPage() {
               {guardando ? "Guardando…"
                : `Guardar los ${Object.keys(delArchivo).length} meses`}
             </button>)}
-          {lectura && <button onClick={() => { setLectura(null); setDelArchivo({}); setReciénGuardado(false); setOk(null); setError(null); }}
+          {/* Descartar también vacía el calce: si no, los nombres de esta
+              lectura se quedan y el archivo siguiente arranca con residuo. */}
+          {lectura && <button onClick={() => { setLectura(null); setDelArchivo({}); setCalce({}); setReciénGuardado(false); setOk(null); setError(null); }}
                   style={{ ...SEL, cursor: "pointer" }}>Descartar</button>}
           {enPantalla.desdeLaBase && (
             <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
