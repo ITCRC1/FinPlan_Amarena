@@ -3,6 +3,7 @@ from decimal import Decimal
 from sqlalchemy import String, Numeric, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
+from app.opex_detalle import PRIMERO
 
 
 class OpexEntry(Base):
@@ -28,7 +29,15 @@ class OpexEntry(Base):
     dept_code: Mapped[str] = mapped_column(String(10), index=True)
     account_code: Mapped[str] = mapped_column(String(10))     # e.g. '7065'
     account_name: Mapped[str] = mapped_column(String(120), default="")
-    detail_code: Mapped[str] = mapped_column(String(10), default="")   # e.g. '800'
+    # ⚠️ Nace en 800, el primero del rango oficial — NO vacío.
+    #
+    # Una línea con el código vacío arranca una SEGUNDA numeración dentro de la
+    # misma cuenta: `int("")` revienta donde se calcula el siguiente, el máximo
+    # queda en cero y «+10 líneas» empieza de nuevo en 001. Así 7070 llegó a
+    # tener 101 filas. Cinco rutas distintas crean líneas de OPEX y cada vez que
+    # se arregla una aparece otra; con el valor por defecto acá, la que se
+    # olvide igual nace bien. Ver `app/opex_detalle.py`.
+    detail_code: Mapped[str] = mapped_column(String(10), default=str(PRIMERO))
     detail_desc: Mapped[str] = mapped_column(String(200), default="")
 
     # Monthly amounts (USD)

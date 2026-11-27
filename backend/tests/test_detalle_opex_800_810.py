@@ -87,3 +87,27 @@ def test_ninguna_ruta_escribe_un_codigo_a_mano(archivo):
         assert "zfill" not in linea, f"{archivo}: correlativo a mano → {linea.strip()}"
         assert not re.search(r'detail_code\s*[=:]\s*["\']0\d\d["\']', linea), \
             f"{archivo}: código literal fuera del rango → {linea.strip()}"
+
+
+# ──────────── Nadie crea una línea SIN código de detalle ────────────────────
+
+def test_una_linea_nueva_nace_con_codigo_y_no_vacia():
+    """⚠️ El valor por defecto del modelo es 800, NO la cadena vacía.
+
+    Una línea con el código vacío hace tanto daño como una con `001`: es la
+    condición que arranca una SEGUNDA numeración dentro de la misma cuenta
+    —`int("")` revienta, el máximo queda en cero y «+10 líneas» empieza de nuevo
+    en 001—. Así 7070 llegó a 101 filas.
+
+    Cinco rutas distintas crean líneas de OPEX. El 2026-11-27,
+    `sembrar_cuentas_api` creó once sin código, dos semanas después de arreglar
+    las otras cuatro: ahí quedó claro que vigilar ruta por ruta no alcanza. Con
+    el valor por defecto en el modelo, la ruta que se olvide igual nace bien.
+    """
+    from app.models.opex_entry import OpexEntry
+
+    por_defecto = OpexEntry.__table__.c.detail_code.default
+    assert por_defecto is not None, "`detail_code` sin valor por defecto: nace vacío"
+    assert por_defecto.arg in CODIGOS, (
+        f"nace en {por_defecto.arg!r}, fuera del rango {PRIMERO}-{ULTIMO}")
+    assert OpexEntry().detail_code is None or OpexEntry().detail_code in CODIGOS

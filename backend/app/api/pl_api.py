@@ -1075,7 +1075,7 @@ async def _adjacent_scenario(session, scenario, delta: int, prefer_type: str):
 
 # Cuentas 8xxx que SON "Non Allocated Expenses" (efectivo, GOP→EBITDA):
 # Rent + Owner/Mgmt Fees + Insurance + Other. Capital/Interés/Depreciación/Tax NO.
-_NONALLOC_ACCTS = {"8000", "8010", "8005", "8015", "8025"}
+_NONALLOC_ACCTS = {"8000", "8001", "8010", "8005", "8015", "8025"}
 _NONALLOC_LINES = {"RENT", "MGMT_FEE_3", "MGMT_FEE_5_ROYALTIES", "PROPERTY_INSURANCE", "OTHER_EXPENSES"}
 _BG_MONTH_COLS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
@@ -1341,7 +1341,8 @@ async def _nonalloc_desde_cuentas(session, scenario, month: int):
     nombres. Esa tabla ignoraba lo que el usuario le hubiera puesto a la cuenta:
     el «— CM» con que el owner marcó las del Club no llegaba a la pantalla.
     """
-    names = {"8000": "Rent", "8010": "Rent", "8005": "Owner / Management Fees",
+    names = {"8000": "Rent", "8001": "Cuotas Condominales", "8010": "Rent",
+             "8005": "Owner / Management Fees",
              "8015": "Property Insurance", "8025": "Other Expenses"}
     #: (cuenta, depto) → monto. El depto va en la clave para que dos
     #: departamentos con la misma cuenta no se pisen.

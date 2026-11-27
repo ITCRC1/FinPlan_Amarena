@@ -33,6 +33,10 @@ from app.db import get_db
 from app.models.cost_entry import CostEntry
 from app.models.mapping import AccountMapping
 from app.models.opex_entry import OpexEntry
+from app.opex_detalle import PRIMERO
+
+#: El primero del rango, como texto: `detail_code` es una cadena.
+PRIMERO_TXT = str(PRIMERO)
 
 router = APIRouter(tags=["sembrar-cuentas"])
 
@@ -76,9 +80,16 @@ async def sembrar_cuentas(
         for cuenta, nombre in cuentas:
             if cuenta in ya:
                 continue
+            # ⚠️ La sub-línea nace en 800, el primero del rango oficial.
+            # Esta ruta dejaba `detail_code` vacío —era la quinta que creaba
+            # líneas sin código, y la única que se me escapó en el arreglo del
+            # 13-nov—. Una cuenta cuyo único código es «» hace que «+10 líneas»
+            # arranque una segunda numeración en 001 dentro de la misma cuenta:
+            # así 7070 llegó a tener 101 filas. Ver `app/opex_detalle.py`.
+            extra = {"detail_code": PRIMERO_TXT} if hasattr(Model, "detail_code") else {}
             fila = Model(id=str(uuid.uuid4()), scenario_id=scenario_id,
                          hotel_id=scenario.hotel_id, dept_code=dept,
-                         account_code=cuenta, account_name=nombre)
+                         account_code=cuenta, account_name=nombre, **extra)
             db.add(fila)
             nuevas += 1
         resumen.append({"clase": clase, "nombre": etiqueta,

@@ -22,6 +22,13 @@ Dos cosas que aparecieron por el camino y quedan anotadas acá:
   Tienda» y sus costos son ropa y zapatos. Parear «F&B Beverage» contra ella
   —lo que más se parecía por el nombre— habría dado un número que se ve bien y
   está mal.
+
+⚠️ **Desde el 2026-11-25 sí tiene UNA cuenta de bebida**: la `4120` del depto
+`0121`, «NA Beverage · minibar de la habitación». El mayor la trae codificada
+así y el owner la quiso en Private Bar y no en A&B —«0120 es Food and Beverage,
+realmente debe quedar como Private Bar»—. **Sigue sin entrar al desglose de
+A&B**: ese cuadro abre el A&B del depto 0120, y el minibar es otra línea del
+P&L. Lo que cambió es que ya no vale el atajo «si dice beverage, es de A&B».
 """
 import io
 import json
@@ -145,15 +152,23 @@ def test_el_departamento_de_ab_es_el_0120():
 def test_la_linea_private_bar_no_tiene_cuentas_de_bar():
     """Deja constancia del hallazgo: si alguien quiere parear «F&B Beverage»
     contra `REV_PRIVATE_BAR` porque el nombre calza, acá ve que sus cuentas son
-    de TIENDA."""
+    de TIENDA — más el minibar, que es la única de bebida y entró a propósito.
+    """
     datos = json.loads(SEED.read_text(encoding="utf-8"))
     nombres = " ".join(
         (r.get("account_name_example") or "") for r in datos["account_mapping"]
         if r.get("report_line_code") == "REV_PRIVATE_BAR").lower()
-    assert "tienda" in nombres
-    for palabra in ("beer", "liquor", "wine", "beverage"):
+    assert "tienda" in nombres, "perdió las cuentas de tienda"
+    # El minibar (4120 del depto 0121) es la ÚNICA de bebida que puede estar:
+    # el mayor lo trae así y el owner lo quiso acá y no en A&B. Si aparece otra
+    # —cerveza, licor, vino— hay que volver a mirar si el desglose de A&B tiene
+    # que incluir esta línea.
+    assert "minibar" in nombres, (
+        "se fue el minibar de Private Bar: el mayor lo trae como 0121+4120 y "
+        "sin esa regla la fila rebota con «NO EXISTE»")
+    for palabra in ("beer", "liquor", "wine"):
         assert palabra not in nombres, (
-            "REV_PRIVATE_BAR ahora sí tiene cuentas de bar; revisar si el "
+            f"REV_PRIVATE_BAR tiene una cuenta de «{palabra}»; revisar si el "
             "desglose de A&B tiene que incluirla")
 
 
