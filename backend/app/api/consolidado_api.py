@@ -225,7 +225,13 @@ async def consolidado_gl(
         "signo": "revenue_credit",
         "cuentas": [{
             "dept": r["dept_code"], "dept_name": r["dept_name"],
-            "cuenta": r["account_code"], "nombre": r["account_name"],
+            "cuenta": r["account_code"],
+            # El nombre contable, intacto: es con lo que se audita.
+            "nombre": r["account_name"],
+            # Y el alias al lado, que es lo que el owner quiere leer en el
+            # reporte. Viaja en la misma fila para que al refrescar Power Query
+            # el Excel tome el nombre nuevo sin tocar la consulta.
+            "alias": r.get("alias") or r["account_name"],
             "seccion": r["pl_section"], "linea": r["pl_line_code"],
             "renglon": r["pl_line_name"], "categoria": r["categoria"],
             "naturaleza": ("Revenue"

@@ -799,3 +799,5 @@ AMA,property-expenses,Property Expenses,FINANCIAL CHARGES,,,Bank Charges · Inte
 AMA,property-expenses,Property Expenses,CAPITAL EXPENSES,,,LARGE CAPITAL EXPENDITURE,CAPITAL_RESERVE,CAPITAL,Fixed Cost,0.0,LINEA,false,CWL LINEA CAPITAL_RESERVE
 AMA,property-expenses,Property Expenses,DEPRECIATION,,,Boats/Buildings · Bulding/ · Cars · Cars/Furniture/Equipment · Equipment · Furniture,DEPRECIATION,DEPRECIATION,Fixed Cost,0.0,LINEA,false,CWL LINEA DEPRECIATION
 AMA,property-expenses,Property Expenses,NON DEDUCTIBLE EXPENSES,,,Expenses,OTHER_EXPENSES,OWNER / NON-OP EXPENSES,Fixed Cost,0.0,LINEA,false,CWL LINEA OTHER_EXPENSES
+AMA,club-madresal,Club Madresal,OPERATING EXPENSES,260,7716,Fees Madresal,OPEX_CLUB,OPERATING EXPENSES,Fixed Cost,0.0,ANALOGIA,false,owner 2026-11-27: «si son cargos fijos»
+AMA,club-madresal,Club Madresal,OPERATING EXPENSES,260,7717,Cuotas Condominales,OPEX_CLUB,OPERATING EXPENSES,Fixed Cost,0.0,ANALOGIA,false,owner 2026-11-27: «si son cargos fijos»

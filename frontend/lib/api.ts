@@ -6277,3 +6277,31 @@ export async function volverLibroAAnterior(id: string): Promise<Libro> {
 export async function quitarLibro(id: string): Promise<void> {
   await api.delete(`/libros/${id}/`);
 }
+
+// ── Alias de cuenta: cómo se lee en los reportes ──────────────────────────────
+// Owner, 2026-11-27: «quiero que sea editable un tipo ALIAS para poner como
+// quiero que salga en los reportes finales» · «hay cuentas que se repiten en
+// varios departamentos… Cleaning Rooms o Cleaning F&B, y ninguno se ve
+// afectado» · «el GL actual debe ser igual, solo agregamos una columna».
+//
+// El alias NO pisa el nombre del mayor: viaja al lado. El orden que mandan los
+// reportes es alias → nombre del mayor → nombre del catálogo.
+export interface AliasDeCuenta {
+  dept_code: string; account_code: string; alias: string; nota: string;
+  /** El nombre del catálogo, para ver qué cuenta se está tapando. */
+  nombre_real: string;
+  escrito_por: string | null; escrito_el: string | null;
+}
+
+export async function getAlias(): Promise<{ total: number; alias: AliasDeCuenta[] }> {
+  return api.get("/alias/");
+}
+/** Mandar `alias` vacío BORRA el alias y la cuenta vuelve a su nombre real. */
+export async function guardarAlias(
+  deptCode: string, accountCode: string, alias: string, nota = "",
+): Promise<AliasDeCuenta | { borrado: true }> {
+  return api.put("/alias/", { dept_code: deptCode, account_code: accountCode, alias, nota });
+}
+export async function precargarAlias(): Promise<{ creados: number; ya_estaban: number }> {
+  return api.post("/alias/precargar/", {});
+}

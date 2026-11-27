@@ -5,6 +5,7 @@ import {
   getReportLines, getAccountMappings, getUnmappedAccounts,
   createAccountMapping, updateAccountMapping, deleteAccountMapping,
   type ReportLine, type AccountMappingRow, type UnmappedAccount, type AccountMappingCreate,
+  getAlias, guardarAlias, precargarAlias, type AliasDeCuenta,
 } from "@/lib/api";
 import { bajarCuadros, type Cuadro, type FilaCuadro } from "@/lib/exportCuadro";
 import IrA from "@/components/IrA";
@@ -228,6 +229,35 @@ export default function MappingAdminPage() {
   const [filterLine, setFilterLine] = useState("ALL");
 
   // modal
+  /** `depto|cuenta` → alias. Se carga una vez y se actualiza al guardar. */
+  const [alias, setAlias] = useState<Record<string, string>>({});
+  const [editando, setEditando] = useState<string | null>(null);
+  const [borrador, setBorrador] = useState("");
+  const llaveAlias = (d: string, c: string) => `${d || ""}|${c}`;
+
+  async function cargarAlias() {
+    try {
+      const r = await getAlias();
+      setAlias(Object.fromEntries(
+        r.alias.map((a: AliasDeCuenta) => [llaveAlias(a.dept_code, a.account_code), a.alias])));
+    } catch { /* sin alias todavía: las cuentas se leen con su nombre real */ }
+  }
+
+  /** Guarda y refleja en el acto. Vacío borra y vuelve al nombre real. */
+  async function escribirAlias(dept: string, cuenta: string, texto: string) {
+    const k = llaveAlias(dept, cuenta);
+    try {
+      await guardarAlias(dept, cuenta, texto);
+      setAlias(a => {
+        const n = { ...a };
+        if (texto.trim()) n[k] = texto.trim(); else delete n[k];
+        return n;
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo guardar el alias");
+    } finally { setEditando(null); }
+  }
+
   const [modal, setModal] = useState<{
     open: boolean;
     initial?: Partial<AccountMappingCreate & { id: string }>;
@@ -252,7 +282,7 @@ export default function MappingAdminPage() {
     }
   }
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); cargarAlias(); }, []);
 
   const sections = useMemo(() => ["ALL", ...new Set(mappings.map(m => m.report_section ?? ""))].filter(Boolean), [mappings]);
 
@@ -423,6 +453,24 @@ export default function MappingAdminPage() {
             style={{ ...BTN, background: "transparent", color: "var(--positive)", border: "1px solid var(--positive)" }}>
             {exporting ? t("generating") : "⬇ Excel"}
           </button>
+          {/* Pre-carga los alias con el nombre que los reportes YA muestran:
+              después de esto nada cambia, pero hay dónde escribir. No pisa lo
+              editado, así que se puede correr otra vez cuando entren cuentas
+              nuevas. */}
+          <button style={BTN}
+            title="Crea un alias por cuenta con el nombre que el reporte ya muestra. No cambia nada: deja dónde renombrar."
+            onClick={async () => {
+              if (!confirm("¿Crear los alias que faltan con el nombre actual de cada cuenta? No cambia ningún reporte: cada alias nace diciendo lo mismo que ya decía, y lo que ya editaste no se toca.")) return;
+              try {
+                const r = await precargarAlias();
+                await cargarAlias();
+                alert(r.creados
+                  ? `Listo: ${r.creados} alias creados (${r.ya_estaban} ya estaban).`
+                  : "No hacía falta: ya estaban todos.");
+              } catch (e) { alert(e instanceof Error ? e.message : "No se pudo"); }
+            }}>
+            Pre-cargar alias
+          </button>
           <button style={BTN_PRIMARY} onClick={() => setModal({ open: true })}>{t("newRule")}</button>
         </div>
       </div>
@@ -497,7 +545,8 @@ export default function MappingAdminPage() {
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--border)" }}>
                   {[tc("status"), tc("section"), t("plLine"), t("reportLineCol"),
-                    t("deptGlCol"), tc("account"), t("accountNameCol"), t("nature"),
+                    t("deptGlCol"), tc("account"), t("accountNameCol"),
+                    "Alias (reportes)", t("nature"),
                     t("actions")].map(h => (
                     <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
@@ -532,6 +581,34 @@ export default function MappingAdminPage() {
                     </td>
                     <td style={{ padding: "5px 10px", fontFamily: "monospace", fontWeight: 700 }}>{row.account_code}</td>
                     <td style={{ padding: "5px 10px", color: "var(--text-dim)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.account_name_example ?? "—"}</td>
+                    {/* El alias: lo que el owner quiere leer en los reportes.
+                        Un clic lo edita; vacío lo borra y la cuenta vuelve a
+                        su nombre real, que es el de la columna de al lado. */}
+                    <td style={{ padding: "5px 10px", maxWidth: 200 }}>
+                      {editando === llaveAlias(row.dept_code ?? "", row.account_code) ? (
+                        <input autoFocus value={borrador}
+                          onChange={e => setBorrador(e.target.value)}
+                          onBlur={() => escribirAlias(row.dept_code ?? "", row.account_code, borrador)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") escribirAlias(row.dept_code ?? "", row.account_code, borrador);
+                            if (e.key === "Escape") setEditando(null);
+                          }}
+                          style={{ ...INPUT, padding: "2px 6px", fontSize: 11.5, width: "100%" }} />
+                      ) : (
+                        <span
+                          title="Clic para renombrar cómo se lee en los reportes. Vacío vuelve al nombre real."
+                          onClick={() => {
+                            setEditando(llaveAlias(row.dept_code ?? "", row.account_code));
+                            setBorrador(alias[llaveAlias(row.dept_code ?? "", row.account_code)] ?? "");
+                          }}
+                          style={{ cursor: "pointer", fontSize: 11.5,
+                                   color: alias[llaveAlias(row.dept_code ?? "", row.account_code)]
+                                     ? "var(--text-primary)" : "var(--text-disabled)",
+                                   borderBottom: "1px dashed var(--border-medium)" }}>
+                          {alias[llaveAlias(row.dept_code ?? "", row.account_code)] ?? "— poner alias —"}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: "5px 10px" }}>
                       <span style={{ fontSize: 11, color: row.financial_nature === "Revenue" ? "var(--positive)" : "var(--text-dim)" }}>
                         {row.financial_nature}

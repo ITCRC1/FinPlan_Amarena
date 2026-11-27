@@ -98,10 +98,23 @@ def test_tiene_el_modelo_del_gift_shop():
     modelo = [m for m in datos["account_mapping"]
               if (m.get("dept_code") or "").strip() == "0165"]
     assert propias and modelo
-    assert len(propias) == len(modelo)
-    # mismas cuentas que la tienda, ni una de más ni de menos
-    assert ({m["account_code"] for m in propias}
-            == {m["account_code"] for m in modelo})
+    # ⚠️ El MINIBAR es la excepción, y es a propósito.
+    #
+    # El 2026-11-25 entró la `4120` (NA Beverage) al 0121: el mayor trae el
+    # minibar codificado así y el owner lo quiso en Private Bar y no en A&B
+    # —«0120 es Food and Beverage, realmente debe quedar como Private Bar»—.
+    # El bar sigue teniendo TODAS las de la tienda; lo que ya no es cierto es
+    # que no tenga ninguna más. Se compara por inclusión y se nombra la
+    # diferencia: si aparece otra cuenta sin que nadie lo decida, esto la caza.
+    MINIBAR = {"4120"}
+    de_la_tienda = {m["account_code"] for m in modelo}
+    del_bar = {m["account_code"] for m in propias}
+    assert de_la_tienda <= del_bar, (
+        f"al Private Bar le faltan cuentas de la tienda: {de_la_tienda - del_bar}")
+    assert del_bar - de_la_tienda == MINIBAR, (
+        f"el Private Bar tiene cuentas que la tienda no, y no son el minibar: "
+        f"{del_bar - de_la_tienda - MINIBAR}")
+    assert len(propias) == len(modelo) + len(MINIBAR)
     destinos = {m["report_line_code"] for m in propias}
     # Se le sumo `COS_PRIVATE_BAR` al separar el costo de ventas (2026-08-14).
     # Todas son del mismo departamento; lo que se vigila es que ninguna sea
@@ -122,9 +135,12 @@ def test_tiene_el_modelo_del_gift_shop():
                      if m["report_line_code"] == "REV_PRIVATE_BAR")
     de_ingreso_tienda = sum(1 for m in modelo
                             if m["report_line_code"] == "REV_RETAIL")
-    assert de_ingreso == de_ingreso_tienda, (
+    # El minibar también es ingreso, así que el bar tiene una más que la
+    # tienda — esa una y ninguna otra.
+    assert de_ingreso == de_ingreso_tienda + len(MINIBAR), (
         f"el bar tiene {de_ingreso} cuentas de ingreso y la tienda "
-        f"{de_ingreso_tienda}: dejaron de ser el mismo modelo")
+        f"{de_ingreso_tienda} (+{len(MINIBAR)} del minibar): dejaron de ser "
+        f"el mismo modelo")
 
 
 def test_su_plata_llega_a_su_linea_y_no_a_la_de_ayb():

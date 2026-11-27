@@ -81,10 +81,10 @@ SIN_CLASIFICAR_A_PROPOSITO = {
                      "Recreativa",
     ("270", "5601"): "Área Recreativa · Costos 2 — ídem",
     # Ésta no es «no se sabe»: es una regla que NO debe existir.
-    ("260", "8005"): "el Owners Fee es gasto de la propiedad (0250/8005). Con "
-                     "dos reglas GL para `MGMT_FEE_3`, `_be_base` elige una por "
-                     "el orden de la consulta y el fee de gerencia entero se le "
-                     "acreditaría al Club",
+    # La 8005 del Club ya no existe: el 2026-11-27 se recodificó a 7716 «Fees
+    # Madresal» (migración 161) y su regla de mapeo se borró. La exclusión que
+    # vivía acá describía el problema que eso resolvió — dos reglas GL para
+    # `MGMT_FEE_3` y el fee de gerencia entero acreditándose al Club.
 }
 
 #: Las cuentas del reparto (crédito de Cafetería y Lavandería). Corcovado

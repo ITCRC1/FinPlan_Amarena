@@ -328,6 +328,9 @@ MENSAJES: dict[str, dict[str, str]] = {
     "libro.muy_grande": {
         "es": "El archivo pasa de 40 MB",
         "en": "The file is larger than 40 MB"},
+    "alias.sin_cuenta": {
+        "es": "Falta la cuenta a la que ponerle el alias",
+        "en": "Missing the account the alias belongs to"},
     "libro.carpeta_invalida": {
         "es": "Esa carpeta no existe. Son: {carpetas}",
         "en": "No such folder. They are: {carpetas}"},

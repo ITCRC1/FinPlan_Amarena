@@ -44,6 +44,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 
+from app.alias_de_cuenta import mapa as mapa_de_alias, resolver as nombre_de_cuenta
 from app.api.detalle_celda_api import _del_auxiliar, _del_mayor
 from app.api.pl_detail_api import _serie_por_codigo
 from app.auth import get_current_user
@@ -176,6 +177,11 @@ async def pl_usali(
         }
         deptos = {d.dept_code: d for d in
                   (await s.execute(select(DepartmentCatalog))).scalars()}
+        # El alias del owner manda sobre los dos nombres de abajo. Se resuelve
+        # en `alias_de_cuenta.resolver`, que es el único lugar que decide el
+        # orden: seis APIs arman este nombre y si cada una eligiera, la misma
+        # cuenta se leería distinto según la pantalla.
+        alias = await mapa_de_alias(s)
 
         #: {dept: {clase: [filas]}}
         arbol: dict[str, dict[str, list]] = {}
@@ -193,9 +199,11 @@ async def pl_usali(
                     continue
                 arbol.setdefault(dept, {}).setdefault(clase, []).append({
                     "cuenta": cuenta,
-                    "nombre": (del_mayor.get(cuenta)
-                               or catalogo.get((dept, cuenta))
-                               or catalogo.get(("", cuenta)) or ""),
+                    "nombre": nombre_de_cuenta(
+                        alias, dept, cuenta,
+                        del_mayor=del_mayor.get(cuenta),
+                        del_catalogo=(catalogo.get((dept, cuenta))
+                                      or catalogo.get(("", cuenta)))),
                     "monto": round(float(monto), 2),
                 })
 

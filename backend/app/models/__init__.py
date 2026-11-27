@@ -146,3 +146,6 @@ from app.models.guillermo import (
 # la propiedad a mano o por Excel, un conteo por mes.
 from app.models.membresia_mes import CONCEPTOS, MembresiaMes
 from app.models.libro_colgado import LibroColgado  # noqa: F401
+# El alias vive fuera de `models/` porque su módulo trae también la resolución
+# que usan los reportes; se importa acá para que la tabla quede registrada.
+from app.alias_de_cuenta import AliasDeCuenta  # noqa: F401

@@ -41,6 +41,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import alias_de_cuenta
 from app.db import get_db
 from app.engine import gl_por_mes as gl
 from app.engine import pl_engine
@@ -497,6 +498,21 @@ async def _grilla(db: AsyncSession, esc: Scenario, *, catalogo: bool = False):
         if not str(f.get("account_name") or "").strip():
             f["account_name"] = (por_par.get((f["dept_code"], f["account_code"]))
                                  or por_cuenta.get(f["account_code"], ""))
+
+    # ── El alias: COLUMNA APARTE, no reemplaza al nombre del mayor ───────────
+    #
+    # Owner, 2026-11-27: *«el GL actual debe ser igual, solo agregamos una
+    # columna adicional con el alias, que es la columna que aparece en los
+    # reportes»*.
+    #
+    # Por eso `account_name` se deja intacto —es lo que contabilidad escribió y
+    # con lo que se audita contra Integrity— y el alias viaja al lado. Los
+    # reportes leen `alias`; esta pantalla muestra los dos.
+    mapa_alias = await alias_de_cuenta.mapa(db)
+    for f in filas:
+        f["alias"] = alias_de_cuenta.resolver(
+            mapa_alias, f.get("dept_code", ""), f.get("account_code", ""),
+            del_mayor=f.get("account_name"))
     lineas_cfg = await recalc.load_report_line_config(db)
     secciones = {l["line_code"]: (l.get("section") or "") for l in lineas_cfg}
     nombres_linea = {l["line_code"]: (l.get("line_name") or "") for l in lineas_cfg}
