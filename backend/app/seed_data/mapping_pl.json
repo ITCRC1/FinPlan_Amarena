@@ -10409,6 +10409,23 @@
     {
       "active_status": "YES",
       "report_id": "P&L_DETAIL_OWNERS",
+      "report_line_code": "RENT",
+      "report_line_name": "RENT",
+      "report_section": "OWNER / NON-OP EXPENSES",
+      "display_order": 86,
+      "source_origin": "Below GOP",
+      "source_department": "Departamento de Property Expenses",
+      "account_code": "8001",
+      "account_name_example": "Cuotas Condominales",
+      "financial_nature": "Expense",
+      "rollup_operator": "SUM",
+      "sign_rule": "Aggregate to line as positive display value; calculations subtract expense lines at subtotal level.",
+      "notes": "Agregada 2026-11-27 (owner): agrupa en la línea RENT del P&L, bajo GOP, junto con la 8000. Misma cuota que la 7717 del Club (260), que es gasto operativo ARRIBA del GOP — ojo de no cargarla en las dos.",
+      "dept_code": "0250"
+    },
+    {
+      "active_status": "YES",
+      "report_id": "P&L_DETAIL_OWNERS",
       "report_line_code": "PROPERTY_INSURANCE",
       "report_line_name": "PROPERTIES INSURANCE",
       "report_section": "OWNER / NON-OP EXPENSES",
