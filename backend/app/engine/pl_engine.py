@@ -510,6 +510,7 @@ def revenue_line_for_account(code: str) -> str | None:
 # Por eso `LARGE_CAPEX` no tiene —ni puede tener— una regla de cuenta propia.
 NONOP_ACCOUNT_LINE: dict[str, str] = {
     "8000": "RENT",                 # RENT
+    "8001": "RENT",                 # Cuotas Condominales (owner, 2026-11-27)
     "8010": "RENT",                 # (alias histórico)
     "8005": "MGMT_FEE_3",           # OWNERS FEE
     "8015": "PROPERTY_INSURANCE",   # PROPERTY INSURANCE
